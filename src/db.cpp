@@ -19,7 +19,8 @@ using json = nlohmann::json;
 std::string kvToJson(const std::vector<api::KeyValue>& kvs) {
     json arr = json::array();
     for (const auto& kv : kvs) {
-        arr.push_back({{"k", kv.key}, {"v", kv.value}, {"on", kv.enabled}});
+        arr.push_back({{"k", kv.key}, {"v", kv.value}, {"on", kv.enabled},
+                       {"t", kv.type}, {"r", kv.remark}});
     }
     return arr.dump();
 }
@@ -29,7 +30,11 @@ std::vector<api::KeyValue> kvFromJson(const std::string& text) {
     const json arr = json::parse(text, nullptr, false);
     if (!arr.is_array()) return out;
     for (const auto& item : arr) {
-        out.push_back({item.value("k", ""), item.value("v", ""), item.value("on", true)});
+        out.push_back({.key = item.value("k", ""),
+                       .value = item.value("v", ""),
+                       .enabled = item.value("on", true),
+                       .type = item.value("t", ""),
+                       .remark = item.value("r", "")});
     }
     return out;
 }
@@ -88,6 +93,7 @@ CREATE TABLE IF NOT EXISTS requests (
     url        TEXT NOT NULL DEFAULT '',
     params     TEXT NOT NULL DEFAULT '[]',
     headers    TEXT NOT NULL DEFAULT '[]',
+    body_kind  INTEGER NOT NULL DEFAULT 0,
     body       TEXT NOT NULL DEFAULT '',
     updated_at INTEGER NOT NULL DEFAULT 0
 );
@@ -120,17 +126,21 @@ CREATE TABLE IF NOT EXISTS load_tests (
 );
 )SQL");
 
-        // 迁移：旧库的 requests 没有 group_id —— 补列。
-        // 检查 requests 表是否有 group_id；没有则 ADD COLUMN。
+        // 迁移：旧库的 requests 没有 group_id / body_kind —— 补列。
         {
             bool hasGroupId = false;
+            bool hasBodyKind = false;
             SQLite::Statement q(db, "PRAGMA table_info(requests)");
             while (q.executeStep()) {
                 const std::string col = q.getColumn(1).getString();
                 if (col == "group_id") hasGroupId = true;
+                if (col == "body_kind") hasBodyKind = true;
             }
             if (!hasGroupId) {
                 db.exec("ALTER TABLE requests ADD COLUMN group_id INTEGER NOT NULL DEFAULT 0");
+            }
+            if (!hasBodyKind) {
+                db.exec("ALTER TABLE requests ADD COLUMN body_kind INTEGER NOT NULL DEFAULT 0");
             }
         }
     }
@@ -372,7 +382,7 @@ void Db::deleteGroup(std::int64_t id) {
 
 std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
     SQLite::Statement q(impl_->db,
-        "SELECT id,project_id,group_id,name,method,url,params,headers,body,updated_at "
+        "SELECT id,project_id,group_id,name,method,url,params,headers,body_kind,body,updated_at "
         "FROM requests WHERE project_id=? ORDER BY updated_at DESC");
     q.bind(1, projectId);
     std::vector<SavedRequest> out;
@@ -386,8 +396,9 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
         r.url = q.getColumn(5).getString();
         r.params = kvFromJson(q.getColumn(6).getString());
         r.headers = kvFromJson(q.getColumn(7).getString());
-        r.body = q.getColumn(8).getString();
-        r.updatedAt = q.getColumn(9).getInt64();
+        r.bodyKind = static_cast<api::BodyKind>(q.getColumn(8).getInt());
+        r.body = q.getColumn(9).getString();
+        r.updatedAt = q.getColumn(10).getInt64();
         out.push_back(std::move(r));
     }
     return out;
@@ -396,8 +407,8 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
 std::int64_t Db::saveRequest(const SavedRequest& r) {
     if (r.id == 0) {
         SQLite::Statement q(impl_->db,
-            "INSERT INTO requests(project_id,group_id,name,method,url,params,headers,body,updated_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?)");
+            "INSERT INTO requests(project_id,group_id,name,method,url,params,headers,body_kind,body,updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)");
         q.bind(1, r.projectId);
         q.bind(2, r.groupId);
         q.bind(3, r.name);
@@ -405,13 +416,14 @@ std::int64_t Db::saveRequest(const SavedRequest& r) {
         q.bind(5, r.url);
         q.bind(6, kvToJson(r.params));
         q.bind(7, kvToJson(r.headers));
-        q.bind(8, r.body);
-        q.bind(9, r.updatedAt);
+        q.bind(8, static_cast<int>(r.bodyKind));
+        q.bind(9, r.body);
+        q.bind(10, r.updatedAt);
         q.exec();
         return impl_->db.getLastInsertRowid();
     }
     SQLite::Statement q(impl_->db,
-        "UPDATE requests SET project_id=?,group_id=?,name=?,method=?,url=?,params=?,headers=?,body=?,"
+        "UPDATE requests SET project_id=?,group_id=?,name=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,"
         "updated_at=? WHERE id=?");
     q.bind(1, r.projectId);
     q.bind(2, r.groupId);
@@ -420,9 +432,10 @@ std::int64_t Db::saveRequest(const SavedRequest& r) {
     q.bind(5, r.url);
     q.bind(6, kvToJson(r.params));
     q.bind(7, kvToJson(r.headers));
-    q.bind(8, r.body);
-    q.bind(9, r.updatedAt);
-    q.bind(10, r.id);
+    q.bind(8, static_cast<int>(r.bodyKind));
+    q.bind(9, r.body);
+    q.bind(10, r.updatedAt);
+    q.bind(11, r.id);
     q.exec();
     return r.id;
 }

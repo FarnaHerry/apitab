@@ -15,7 +15,11 @@ export struct KeyValue {
     std::string key;
     std::string value;
     bool enabled = true;
+    std::string type;
+    std::string remark;
 };
+
+export enum class BodyKind { None, Json, Text, FormUrlEncoded };
 
 // ---- 单次请求 ----
 
@@ -24,6 +28,7 @@ export struct RequestSpec {
     std::string url;
     std::vector<KeyValue> params;    // query 参数（拼进 URL）
     std::vector<KeyValue> headers;
+    BodyKind bodyKind = BodyKind::None;
     std::string body;
     int timeoutSec = 30;
 };

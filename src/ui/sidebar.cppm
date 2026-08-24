@@ -466,14 +466,34 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
         .step(40.0f)
         .theme(tokens)
         .onChange([](float v) { g_sidebarScroll = v; })
-        .content([&](eui::Ui& cu, float contentWidth, float) {
+        .content([&](eui::Ui& cu, float contentWidth, float viewportH) {
             if (items.empty() && groups.empty()) {
-                cu.text("sidebar.empty")
-                    .position(kMargin, 8.0f)
-                    .size(contentWidth - kMargin * 2.0f, 40.0f)
-                    .text("还没有保存的请求\n点右上角 + 新建")
-                    .fontSize(kFontLabel)
-                    .color(theme.hintText)
+                cu.stack("sidebar.empty.row")
+                    .size(contentWidth - 8.0f, 56.0f)
+                    .content([&] {
+                        cu.text("sidebar.empty")
+                            .position(kMargin, 8.0f)
+                            .size(contentWidth - kMargin * 2.0f, 40.0f)
+                            .text("还没有保存的请求\n点右上角 + 新建")
+                            .fontSize(kFontLabel)
+                            .color(theme.hintText)
+                            .build();
+                    })
+                    .build();
+                cu.stack("sidebar.blank.context")
+                    .size(contentWidth - 8.0f, std::max(kReqRowH, viewportH - 56.0f))
+                    .content([&] {
+                        cu.rect("sidebar.blank.context.hit")
+                            .size(contentWidth - 8.0f, std::max(kReqRowH, viewportH - 56.0f))
+                            .color(core::Color{0, 0, 0, 0})
+                            .onContextMenu([](const eui::PointerEvent& event, const eui::Rect&) {
+                                g_requestMenuOpen = false;
+                                g_collectionMenuOpen = true;
+                                g_collectionMenuX = static_cast<float>(event.x);
+                                g_collectionMenuY = static_cast<float>(event.y);
+                            })
+                            .build();
+                    })
                     .build();
                 return;
             }
@@ -547,6 +567,21 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                 drawRequestRow(cu, "sidebar.req." + std::to_string(r.id),
                                contentWidth - 8.0f, r, theme);
             }
+            cu.stack("sidebar.blank.context")
+                .size(contentWidth - 8.0f, std::max(kReqRowH, viewportH))
+                .content([&] {
+                    cu.rect("sidebar.blank.context.hit")
+                        .size(contentWidth - 8.0f, std::max(kReqRowH, viewportH))
+                        .color(core::Color{0, 0, 0, 0})
+                        .onContextMenu([](const eui::PointerEvent& event, const eui::Rect&) {
+                            g_requestMenuOpen = false;
+                            g_collectionMenuOpen = true;
+                            g_collectionMenuX = static_cast<float>(event.x);
+                            g_collectionMenuY = static_cast<float>(event.y);
+                        })
+                        .build();
+                })
+                .build();
         })
         .build();
 

@@ -163,7 +163,69 @@ export float drawKvEditor(eui::Ui& ui, const std::string& id, float x, float y, 
     return y + items.size() * (kRowHeight + colGap) + 22.0f;
 }
 
-// ---- 底部状态条 ----
+export float drawParamEditor(eui::Ui& ui, const std::string& id, float x, float y, float w,
+                             std::vector<api::KeyValue>& items, const AppTheme& theme) {
+    const float delW = 22.0f;
+    const float gap = 4.0f;
+    const float rowH = kInputHeight * 2.0f + gap;
+    const float keyW = std::max(96.0f, (w - delW - gap * 4.0f) * 0.25f);
+    const float valueW = std::max(96.0f, (w - delW - gap * 4.0f) * 0.25f);
+    const float typeW = 92.0f;
+    const float remarkW = std::max(80.0f, w - keyW - valueW - typeW - delW - gap * 4.0f);
+    const std::vector<std::string> types = {"string", "integer", "number", "boolean"};
+
+    for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+        const std::string rowId = id + ".param." + std::to_string(i);
+        ui.stack(rowId)
+            .position(x, y)
+            .size(w, rowH)
+            .content([&] {
+                components::input(ui, rowId + ".k")
+                    .position(0, 0).size(keyW, kInputHeight)
+                    .value(items[i].key).placeholder("Key").theme(theme.components)
+                    .onChange([&items, i](const std::string& v) { items[i].key = v; }).build();
+                components::input(ui, rowId + ".v")
+                    .position(keyW + gap, 0).size(valueW, kInputHeight)
+                    .value(items[i].value).placeholder("Value").theme(theme.components)
+                    .onChange([&items, i](const std::string& v) { items[i].value = v; }).build();
+                ui.stack(rowId + ".type.wrap")
+                    .position(keyW + valueW + gap * 2.0f, 0)
+                    .size(typeW, kInputHeight)
+                    .content([&] {
+                        components::dropdown(ui, rowId + ".type")
+                            .size(typeW, kInputHeight)
+                            .items(types)
+                            .selected([&] {
+                                const auto it = std::ranges::find(types, items[i].type);
+                                return it == types.end() ? 0 : static_cast<int>(it - types.begin());
+                            }())
+                            .theme(theme.components)
+                            .onChange([&items, i, types](int selected) {
+                                items[i].type = types[std::clamp(selected, 0, static_cast<int>(types.size()) - 1)];
+                            })
+                            .build();
+                    })
+                    .build();
+                components::input(ui, rowId + ".remark")
+                    .position(keyW + valueW + typeW + gap * 3.0f, 0)
+                    .size(remarkW, kInputHeight)
+                    .value(items[i].remark).placeholder("备注").theme(theme.components)
+                    .onChange([&items, i](const std::string& v) { items[i].remark = v; }).build();
+                components::button(ui, rowId + ".del")
+                    .position(w - delW, 2.0f).size(delW, delW)
+                    .icon(0xF00D).text("").iconSize(9.0f)
+                    .theme(theme.components, false)
+                    .onClick([&items, i] { items.erase(items.begin() + i); }).build();
+            })
+            .build();
+    }
+    components::button(ui, id + ".param.add")
+        .position(x, y).size(64.0f, 22.0f)
+        .icon(0xF067).text("添加").fontSize(kFontLabel)
+        .theme(theme.components, false)
+        .onClick([&items] { items.push_back({.type = "string"}); }).build();
+    return y + items.size() * (rowH + kGap) + 22.0f;
+}
 
 export void drawStatusBar(eui::Ui& ui, float width, float height,
                           const std::string& message, const AppTheme& theme) {

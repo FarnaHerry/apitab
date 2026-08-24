@@ -59,6 +59,7 @@ void persistCurrentRequest(const std::string& name) {
         .url = tab.draft.url,
         .params = tab.draft.params,
         .headers = tab.draft.headers,
+        .bodyKind = tab.draft.bodyKind,
         .body = tab.draft.body,
     };
     const std::string err = g_requests.save(r);
@@ -141,33 +142,66 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
     const auto& tokens = theme.components;
     Draft& draft = activeDraft();
     switch (draft.tab) {
-        case EditorTab::Params:
-        case EditorTab::Headers: {
-            auto& items = (draft.tab == EditorTab::Params) ? draft.params : draft.headers;
-            components::scrollView(ui, "editor.kv.scroll")
-                .position(x, y)
-                .size(w, h)
-                .offset(g_editorScroll)
-                .theme(tokens)
+        case EditorTab::Params: {
+            components::scrollView(ui, "editor.params.scroll")
+                .position(x, y).size(w, h).offset(g_editorScroll).theme(tokens)
                 .onChange([](float v) { g_editorScroll = v; })
                 .content([&](eui::Ui& cu, float contentWidth, float) {
-                    drawKvEditor(cu, "editor.kv", 0, 0, contentWidth - 4.0f, items, theme);
+                    drawParamEditor(cu, "editor.params", 0, 0, contentWidth - 4.0f,
+                                     draft.params, theme);
                 })
                 .build();
             break;
         }
-        case EditorTab::Body:
-            components::input(ui, "editor.body")
-                .position(x, y)
-                .size(w, h)
-                .value(draft.body)
-                .placeholder("请求体（JSON / 文本…）")
-                .multiline()
-                .fontFamily("monospace")
-                .theme(tokens)
-                .onChange([](const std::string& v) { activeDraft().body = v; })
+        case EditorTab::Headers: {
+            auto& items = draft.headers;
+            components::scrollView(ui, "editor.headers.scroll")
+                .position(x, y).size(w, h).offset(g_editorScroll).theme(tokens)
+                .onChange([](float v) { g_editorScroll = v; })
+                .content([&](eui::Ui& cu, float contentWidth, float) {
+                    drawKvEditor(cu, "editor.headers", 0, 0, contentWidth - 4.0f, items, theme);
+                })
                 .build();
             break;
+        }
+        case EditorTab::Body: {
+            constexpr float selectorH = 24.0f;
+            ui.stack("editor.body.kind.wrap")
+                .position(x, y).size(250.0f, selectorH)
+                .content([&] {
+                    components::segmented(ui, "editor.body.kind")
+                        .size(250.0f, selectorH)
+                        .items({"None", "JSON", "Text", "Form"})
+                        .selected(static_cast<int>(draft.bodyKind))
+                        .theme(tokens).style(segmentedStyle(theme))
+                        .onChange([](int i) {
+                            activeDraft().bodyKind = static_cast<api::BodyKind>(
+                                std::clamp(i, 0, 3));
+                        })
+                        .build();
+                })
+                .build();
+            if (draft.bodyKind == api::BodyKind::None) {
+                ui.text("editor.body.none")
+                    .position(x, y + selectorH + 12.0f).size(w, 20.0f)
+                    .text("None：此次请求不发送请求体")
+                    .fontSize(kFontLabel).color(theme.hintText).build();
+            } else {
+                const char* placeholder = draft.bodyKind == api::BodyKind::Json
+                    ? "JSON 请求体"
+                    : draft.bodyKind == api::BodyKind::FormUrlEncoded
+                        ? "表单内容，例如 name=apitab&mode=test"
+                        : "文本请求体";
+                components::input(ui, "editor.body")
+                    .position(x, y + selectorH + 6.0f)
+                    .size(w, std::max(40.0f, h - selectorH - 6.0f))
+                    .value(draft.body).placeholder(placeholder).multiline()
+                    .fontFamily("monospace").theme(tokens)
+                    .onChange([](const std::string& v) { activeDraft().body = v; })
+                    .build();
+            }
+            break;
+        }
     }
 }
 

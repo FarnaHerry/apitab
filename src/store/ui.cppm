@@ -30,6 +30,7 @@ export struct Draft {
     std::string url;
     std::vector<api::KeyValue> params;
     std::vector<api::KeyValue> headers;
+    api::BodyKind bodyKind = api::BodyKind::None;
     std::string body;
     EditorTab tab = EditorTab::Params;
 };
@@ -48,6 +49,7 @@ export void fillDraft(Draft& draft, const db::SavedRequest& r) {
     draft.url = r.url;
     draft.params = r.params;
     draft.headers = r.headers;
+    draft.bodyKind = r.bodyKind;
     draft.body = r.body;
 }
 
@@ -59,6 +61,7 @@ export api::RequestSpec buildSpec(const Draft& draft, const std::string& finalUr
     spec.url = trim(finalUrl);
     spec.params = draft.params;
     spec.headers = draft.headers;
+    spec.bodyKind = draft.bodyKind;
     spec.body = draft.body;
     return spec;
 }

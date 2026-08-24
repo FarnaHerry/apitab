@@ -57,6 +57,7 @@ export struct SavedRequest {
     std::string url;
     std::vector<api::KeyValue> params;
     std::vector<api::KeyValue> headers;
+    api::BodyKind bodyKind = api::BodyKind::None;
     std::string body;
     std::int64_t updatedAt = 0;
 };

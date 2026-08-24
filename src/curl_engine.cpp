@@ -131,7 +131,7 @@ private:
         curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, &onProgress);
         curl_easy_setopt(easy, CURLOPT_XFERINFODATA, this);
         curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);  // 启用 xferinfo 回调
-        if (!spec.body.empty()) {
+        if (spec.bodyKind != api::BodyKind::None) {
             curl_easy_setopt(easy, CURLOPT_POSTFIELDS, spec.body.data());
             curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE,
                              static_cast<long>(spec.body.size()));

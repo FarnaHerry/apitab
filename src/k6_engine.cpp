@@ -66,7 +66,7 @@ std::string buildScript(const api::RequestSpec& spec, const api::LoadOptions& op
     }
     headersObj += "}";
 
-    const std::string bodyJs = spec.body.empty() ? "null" : jsString(spec.body);
+    const std::string bodyJs = spec.bodyKind == api::BodyKind::None ? "null" : jsString(spec.body);
     const std::string timeout = std::format("{}s", opts.timeoutSec);
 
     std::string script;
