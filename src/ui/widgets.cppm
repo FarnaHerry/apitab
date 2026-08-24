@@ -102,6 +102,12 @@ export eui::Color methodColor(const std::string& method, const AppTheme& theme) 
 }
 
 // ---- KV 编辑器（Params / Headers 共用）----
+
+namespace {
+
+std::unordered_map<std::string, bool> g_paramTypeOpen;
+
+} // namespace
 // 每行 [key input][value input][× 删除]，底部「+ 添加」按钮。
 // 行 id 用下标（KV 场景可接受：删除中间行后焦点跳变，无状态错乱）。
 //
@@ -199,9 +205,12 @@ export float drawParamEditor(eui::Ui& ui, const std::string& id, float x, float 
                                 const auto it = std::ranges::find(types, items[i].type);
                                 return it == types.end() ? 0 : static_cast<int>(it - types.begin());
                             }())
+                            .open(g_paramTypeOpen[rowId])
                             .theme(theme.components)
-                            .onChange([&items, i, types](int selected) {
+                            .onOpenChange([key = rowId](bool open) { g_paramTypeOpen[key] = open; })
+                            .onChange([&items, i, types, key = rowId](int selected) {
                                 items[i].type = types[std::clamp(selected, 0, static_cast<int>(types.size()) - 1)];
+                                g_paramTypeOpen[key] = false;
                             })
                             .build();
                     })

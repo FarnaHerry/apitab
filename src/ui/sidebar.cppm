@@ -6,6 +6,7 @@
 module;
 
 #include "eui_ui.h"
+#include "context_scroll_view.h"
 
 export module apitab.ui.sidebar;
 
@@ -420,16 +421,19 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
         .color(components::theme::withAlpha(tokens.surface, theme.dark ? 0.35f : 0.6f))
         .build();
 
+    auto openCollectionMenu = [](const eui::PointerEvent& event, const eui::Rect&) {
+        g_requestMenuOpen = false;
+        g_collectionMenuOpen = true;
+        g_collectionMenuX = static_cast<float>(event.x);
+        g_collectionMenuY = static_cast<float>(event.y);
+    };
+
     // 标题行 + 新建请求。标题区域右键打开集合菜单。
     ui.rect("sidebar.title.context")
         .position(x0, 0)
         .size(w, 36.0f)
         .color(core::Color{0, 0, 0, 0})
-        .onContextMenu([](const eui::PointerEvent& event, const eui::Rect&) {
-            g_collectionMenuOpen = true;
-            g_collectionMenuX = static_cast<float>(event.x);
-            g_collectionMenuY = static_cast<float>(event.y);
-        })
+        .onContextMenu(openCollectionMenu)
         .build();
     ui.text("sidebar.title")
         .position(x0 + kMargin, 8.0f)
@@ -459,13 +463,14 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
     const float listY = 36.0f;
     const float listH = height - 20.0f - listY - 4.0f;
 
-    components::scrollView(ui, "sidebar.list")
+    apitab_components::contextScrollView(ui, "sidebar.list")
         .position(x0, listY)
         .size(w, listH)
         .offset(g_sidebarScroll)
         .step(40.0f)
         .theme(tokens)
         .onChange([](float v) { g_sidebarScroll = v; })
+        .onContextMenu(openCollectionMenu)
         .content([&](eui::Ui& cu, float contentWidth, float viewportH) {
             if (items.empty() && groups.empty()) {
                 cu.stack("sidebar.empty.row")
@@ -477,21 +482,6 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                             .text("还没有保存的请求\n点右上角 + 新建")
                             .fontSize(kFontLabel)
                             .color(theme.hintText)
-                            .build();
-                    })
-                    .build();
-                cu.stack("sidebar.blank.context")
-                    .size(contentWidth - 8.0f, std::max(kReqRowH, viewportH - 56.0f))
-                    .content([&] {
-                        cu.rect("sidebar.blank.context.hit")
-                            .size(contentWidth - 8.0f, std::max(kReqRowH, viewportH - 56.0f))
-                            .color(core::Color{0, 0, 0, 0})
-                            .onContextMenu([](const eui::PointerEvent& event, const eui::Rect&) {
-                                g_requestMenuOpen = false;
-                                g_collectionMenuOpen = true;
-                                g_collectionMenuX = static_cast<float>(event.x);
-                                g_collectionMenuY = static_cast<float>(event.y);
-                            })
                             .build();
                     })
                     .build();
@@ -522,66 +512,12 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                 }
             }
 
-            // 2) 未分组请求（group_id == 0）
-            bool hasUngrouped = false;
-            for (const auto& r : items) {
-                if (r.groupId == 0) hasUngrouped = true;
-            }
-            if (hasUngrouped && !groups.empty()) {
-                const float ungroupedW = contentWidth - 8.0f;
-                cu.stack("sidebar.ungrouped.row")
-                    .size(ungroupedW, kGroupRowH)
-                    .content([&] {
-                        cu.text("sidebar.ungrouped.label")
-                            .position(4.0f, 0)
-                            .size(ungroupedW - 26.0f, kGroupRowH)
-                            .text("未分组")
-                            .fontSize(kFontLabel)
-                            .lineHeight(kGroupRowH)
-                            .color(theme.hintText)
-                            .verticalAlign(core::VerticalAlign::Center)
-                            .build();
-                        components::button(cu, "sidebar.ungrouped.move")
-                            .position(ungroupedW - 18.0f, 2.0f)
-                            .size(16.0f, 18.0f)
-                            .icon(0xF060)  // fa-arrow-left
-                            .text("")
-                            .iconSize(7.0f)
-                            .theme(theme.components, false)
-                            .onClick([] {
-                                RequestTab& tab = activeTab();
-                                tab.draft.groupId = 0;
-                                if (tab.requestId == 0) {
-                                    showStatus("新请求将保存为未分组");
-                                    return;
-                                }
-                                const std::string err = g_requests.moveToGroup(tab.requestId, 0);
-                                showStatus(err.empty() ? "已移出分组" : "移动失败: " + err);
-                            })
-                            .build();
-                    })
-                    .build();
-            }
+            // 2) 未分组请求直接平铺在所有分组之后。
             for (const auto& r : items) {
                 if (r.groupId != 0) continue;
                 drawRequestRow(cu, "sidebar.req." + std::to_string(r.id),
                                contentWidth - 8.0f, r, theme);
             }
-            cu.stack("sidebar.blank.context")
-                .size(contentWidth - 8.0f, std::max(kReqRowH, viewportH))
-                .content([&] {
-                    cu.rect("sidebar.blank.context.hit")
-                        .size(contentWidth - 8.0f, std::max(kReqRowH, viewportH))
-                        .color(core::Color{0, 0, 0, 0})
-                        .onContextMenu([](const eui::PointerEvent& event, const eui::Rect&) {
-                            g_requestMenuOpen = false;
-                            g_collectionMenuOpen = true;
-                            g_collectionMenuX = static_cast<float>(event.x);
-                            g_collectionMenuY = static_cast<float>(event.y);
-                        })
-                        .build();
-                })
-                .build();
         })
         .build();
 
