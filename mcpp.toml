@@ -1,0 +1,33 @@
+[package]
+name        = "apitab"
+version     = "0.1.0"
+description = "API 测试 + k6 压测 GUI 工具：EUI-NEO 前端 + curl/k6 引擎 + SQLite 存储"
+license     = "MIT"
+
+# No src/main.cpp exists: with the `app-main` feature, main() comes from
+# compat.eui-neo's GLFW entry point (core/app/glfw_app_main.cpp), so mcpp
+# cannot auto-infer a bin target. Declare it explicitly — app.cpp supplies
+# app::dslAppConfig() + app::compose(), and everything else in src/ is still
+# compiled and linked via the default glob.
+[targets.apitab]
+kind = "bin"
+main = "src/app.cpp"
+
+# Pin the LLVM/Clang toolchain（与 tinynext 一致，保证本机与 CI 可复现）。
+[toolchain]
+default = "llvm@22.1.8"
+
+# BMI 编译调度：并行预编译模块接口，缩短全模块项目的全量编译时间。
+[build]
+bmi_schedule = "on"
+
+# 架构与 tinynext 对齐：UI（src/ui/*，依赖 eui）/ 领域 store（src/store/*，无 eui）/
+# 引擎（curl 单请求 + k6 外部进程，自保留在 store 单例中）三层分离。
+# k6 不在 mcpp 仓库：运行时按 engines/k6（exe 旁）→ PATH 解析，CI 打包时下载随包分发。
+[dependencies.compat]
+eui-neo    = { version = "0.5.7", features = ["app-main"] }
+curl       = "8.21.0"
+sqlitecpp  = "3.3.3"
+
+[dependencies.nlohmann]
+json = "3.12.0"
