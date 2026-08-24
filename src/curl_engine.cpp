@@ -118,6 +118,8 @@ private:
         }
 
         curl_easy_setopt(easy, CURLOPT_URL, spec.url.c_str());
+        curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "http,https");
+        curl_easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
         curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, spec.method.c_str());
         curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headerList);
         curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, &onBodyWrite);

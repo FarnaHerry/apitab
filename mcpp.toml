@@ -25,9 +25,13 @@ bmi_schedule = "on"
 # 引擎（curl 单请求 + k6 外部进程，自保留在 store 单例中）三层分离。
 # k6 不在 mcpp 仓库：运行时按 engines/k6（exe 旁）→ PATH 解析，CI 打包时下载随包分发。
 [dependencies.compat]
+websocket = { version = "12.0.1", features = ["tls"] }
 eui-neo    = { version = "0.5.7", features = ["app-main"] }
 curl       = "8.21.0"
 sqlitecpp  = "3.3.3"
+
+[dependencies.chriskohlhoff]
+asio = { version = "1.38.1", features = ["ssl"] }
 
 [dependencies.nlohmann]
 json = "3.12.0"

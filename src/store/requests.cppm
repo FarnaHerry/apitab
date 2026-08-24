@@ -258,9 +258,16 @@ public:
         return {};
     }
 
-    std::string createGroup(const std::string& name, db::GroupMode mode) {
+    std::string createGroup(const std::string& name, db::GroupMode mode,
+                            std::int64_t parentId = 0) {
         return guarded([&] {
-            db_->createGroup(currentProjectId_, name, mode);
+            if (parentId != 0) {
+                const db::Group* parent = findGroup(parentId);
+                if (!parent || parent->projectId != currentProjectId_) {
+                    throw std::runtime_error("父目录不属于当前项目");
+                }
+            }
+            db_->createGroup(currentProjectId_, name, mode, parentId);
             reloadGroups();
         });
     }

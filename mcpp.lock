@@ -5,6 +5,12 @@
 # file must not change depending on which command ran last.
 version = 2
 
+[package."chriskohlhoff.asio"]
+namespace = "chriskohlhoff"
+version = "1.38.1"
+source  = "index+chriskohlhoff@1.38.1"
+hash    = "fnv1a:7dce53c71f95a64c"
+
 [package."compat.curl"]
 namespace = "compat"
 version = "8.21.0"
@@ -82,6 +88,12 @@ namespace = "compat"
 version = "0.0.0-8dd1358"
 source  = "index+compat@0.0.0-8dd1358"
 hash    = "fnv1a:bd360e9d35a31118"
+
+[package."compat.websocket"]
+namespace = "compat"
+version = "12.0.1"
+source  = "index+compat@12.0.1"
+hash    = "fnv1a:3b8966bd88d09282"
 
 [package."compat.x11"]
 namespace = "compat"

@@ -79,6 +79,100 @@ export components::SegmentedStyle segmentedStyle(const AppTheme& theme) {
     return style;
 }
 
+// EUI 的 dropdown 固定向下展开；底部分页等场景改用此控件。
+export void drawListPicker(eui::Ui& ui, const std::string& id, float width, float height,
+                           const AppTheme& theme, bool& open,
+                           const std::vector<std::string>& items, int selected, bool opensUp,
+                           std::function<void(int)> onPick) {
+    constexpr float itemHeight = 22.0f;
+    constexpr float popupPad = 3.0f;
+    constexpr float popupGap = 3.0f;
+    const float popupHeight = itemHeight * static_cast<float>(items.size()) + popupPad * 2.0f;
+    const auto& tokens = theme.components;
+    selected = std::clamp(selected, 0, std::max(0, static_cast<int>(items.size()) - 1));
+
+    ui.stack(id)
+        .size(width, height)
+        .zIndex(30)
+        .content([&] {
+            ui.rect(id + ".field")
+                .size(width, height)
+                .states(tokens.surface, tokens.surfaceHover, tokens.surfaceActive)
+                .radius(6.0f)
+                .border(1.0f, components::theme::withAlpha(tokens.border, 0.78f))
+                .onClick([&open] { open = !open; })
+                .build();
+            ui.text(id + ".label")
+                .position(8.0f, 0)
+                .size(width - 28.0f, height)
+                .text(items.empty() ? "" : items[selected])
+                .fontSize(kFontLabel)
+                .lineHeight(height)
+                .color(tokens.text)
+                .verticalAlign(core::VerticalAlign::Center)
+                .build();
+            ui.text(id + ".chevron")
+                .position(width - 20.0f, 0)
+                .size(14.0f, height)
+                .icon(open ? 0xF077 : 0xF078)
+                .fontSize(9.0f)
+                .lineHeight(height)
+                .color(tokens.primary)
+                .horizontalAlign(core::HorizontalAlign::Center)
+                .verticalAlign(core::VerticalAlign::Center)
+                .build();
+
+            if (!open || items.empty()) return;
+            ui.rect(id + ".dismiss")
+                .position(-2000.0f, -2000.0f)
+                .size(5000.0f, 5000.0f)
+                .color({0.0f, 0.0f, 0.0f, 0.0f})
+                .onClick([&open] { open = false; })
+                .onScroll([](const core::ScrollEvent&) {})
+                .build();
+            ui.stack(id + ".popup")
+                .position(0, opensUp ? -(popupHeight + popupGap) : height + popupGap)
+                .size(width, popupHeight)
+                .zIndex(31)
+                .content([&] {
+                    ui.rect(id + ".popup.bg")
+                        .size(width, popupHeight)
+                        .color(tokens.surface)
+                        .radius(6.0f)
+                        .border(1.0f, components::theme::withAlpha(tokens.border, 0.78f))
+                        .onClick([] {})
+                        .build();
+                    for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+                        const float itemY = popupPad + static_cast<float>(i) * itemHeight;
+                        ui.rect(id + ".item." + std::to_string(i))
+                            .position(popupPad, itemY)
+                            .size(width - popupPad * 2.0f, itemHeight)
+                            .states(i == selected
+                                        ? components::theme::withAlpha(tokens.primary, 0.16f)
+                                        : core::Color{0, 0, 0, 0},
+                                    tokens.surfaceHover, tokens.surfaceActive)
+                            .radius(5.0f)
+                            .onClick([&open, i, onPick] {
+                                open = false;
+                                onPick(i);
+                            })
+                            .build();
+                        ui.text(id + ".item.label." + std::to_string(i))
+                            .position(popupPad + 8.0f, itemY)
+                            .size(width - popupPad * 2.0f - 16.0f, itemHeight)
+                            .text(items[i])
+                            .fontSize(kFontLabel)
+                            .lineHeight(itemHeight)
+                            .color(i == selected ? tokens.primary : tokens.text)
+                            .verticalAlign(core::VerticalAlign::Center)
+                            .build();
+                    }
+                })
+                .build();
+        })
+        .build();
+}
+
 // ---- 小节标签 ----
 export void drawSectionLabel(eui::Ui& ui, const std::string& id, float x, float y,
                              float w, const std::string& text, const AppTheme& theme) {

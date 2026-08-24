@@ -35,6 +35,10 @@ std::string composeFinalUrl(const Draft& draft) {
 
 void sendCurrentRequest() {
     RequestTab& tab = activeTab();
+    if (tab.draft.kind != api::RequestKind::Http) {
+        showStatus("当前标签不是 HTTP 请求");
+        return;
+    }
     const std::string finalUrl = composeFinalUrl(tab.draft);
     if (finalUrl.empty()) {
         showStatus("URL 不能为空");
@@ -55,6 +59,8 @@ void persistCurrentRequest(const std::string& name) {
         .id = tab.requestId,
         .groupId = tab.draft.groupId,
         .name = name,
+        .kind = tab.draft.kind,
+        .wsProtocol = tab.draft.wsProtocol,
         .method = kMethods[tab.draft.methodIndex],
         .url = tab.draft.url,
         .params = tab.draft.params,

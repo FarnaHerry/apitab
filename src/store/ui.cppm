@@ -11,19 +11,31 @@ import apitab.utils;
 
 // ---- 页面 ----
 
-export enum class Page { Home, Request, Load, History };
+export enum class Page { Home, GlobalSettings, Request, Load, History, ProjectSettings };
 export Page g_page = Page::Home;  // 默认打开主页面
+
+export bool isOverlayPage(Page page) {
+    return page == Page::Home || page == Page::GlobalSettings;
+}
+
+export bool isProjectPage(Page page) {
+    return page == Page::Request || page == Page::Load || page == Page::ProjectSettings;
+}
 
 // ---- HTTP 方法 ----
 
 export const std::vector<std::string> kMethods =
     {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"};
 
+// 全局首页当前选中的组织 id（仅视图状态，不直接驱动领域 store 的 currentOrgId）。
+export std::int64_t g_homeSelectedOrgId = 0;
+
 // ---- 编辑器草稿 ----
 
 export enum class EditorTab { Params, Headers, Body };
 
 export struct Draft {
+    api::RequestKind kind = api::RequestKind::Http;
     std::string name = "未命名请求";
     int methodIndex = 0;             // kMethods 下标
     std::int64_t groupId = 0;        // 0 = 未分组；>0 = 所属分组 id
@@ -33,10 +45,13 @@ export struct Draft {
     api::BodyKind bodyKind = api::BodyKind::None;
     std::string body;
     EditorTab tab = EditorTab::Params;
+    std::string wsProtocol;
+    int tcpConnectTimeoutSec = 15;
 };
 
 // 把集合项载入草稿。
 export void fillDraft(Draft& draft, const db::SavedRequest& r) {
+    draft.kind = r.kind;
     draft.name = r.name;
     draft.methodIndex = 0;
     for (int i = 0; i < static_cast<int>(kMethods.size()); ++i) {
@@ -51,6 +66,7 @@ export void fillDraft(Draft& draft, const db::SavedRequest& r) {
     draft.headers = r.headers;
     draft.bodyKind = r.bodyKind;
     draft.body = r.body;
+    draft.wsProtocol = r.wsProtocol;
 }
 
 // 草稿 → 请求规格。finalUrl = 环境baseUrl + Path分组前缀 + 相对路径，
@@ -77,6 +93,17 @@ export struct RequestTab {
     api::ResponseView response;
     bool hasResponse = false;
     float bodyScroll = 0.0f;
+    api::WebSocketState wsState = api::WebSocketState::Disconnected;
+    std::vector<api::WebSocketEvent> wsEvents;
+    std::string wsMessage;
+    bool wsBinary = false;
+    float wsScroll = 0.0f;
+    api::TcpState tcpState = api::TcpState::Disconnected;
+    std::vector<api::TcpEvent> tcpEvents;
+    std::string tcpMessage;
+    api::TcpPayloadFormat tcpSendFormat = api::TcpPayloadFormat::Text;
+    api::TcpPayloadFormat tcpReceiveFormat = api::TcpPayloadFormat::Text;
+    float tcpScroll = 0.0f;
 };
 
 export std::vector<RequestTab> g_tabs;
@@ -121,12 +148,32 @@ export RequestTab& openTab(const db::SavedRequest& r) {
     return g_tabs.back();
 }
 
-// 新建空白草稿 tab（侧栏 + / 标签条 +）。
-export RequestTab& newDraftTab() {
-    g_tabs.push_back(RequestTab{.uid = g_nextTabUid++});
+// 新建草稿 tab；不同协议共享同一标签条但由各自页面渲染。
+export RequestTab& newDraftTab(api::RequestKind kind = api::RequestKind::Http,
+                                std::int64_t groupId = 0) {
+    RequestTab tab{.uid = g_nextTabUid++};
+    tab.draft.kind = kind;
+    tab.draft.groupId = groupId;
+    switch (kind) {
+        case api::RequestKind::Http: tab.draft.name = "未命名请求"; break;
+        case api::RequestKind::WebSocket: tab.draft.name = "未命名 WebSocket"; break;
+        case api::RequestKind::Tcp: tab.draft.name = "未命名 TCP"; break;
+    }
+    g_tabs.push_back(std::move(tab));
     g_activeTabUid = g_tabs.back().uid;
     return g_tabs.back();
 }
+
+export std::string tabBadge(const RequestTab& tab) {
+    switch (tab.draft.kind) {
+        case api::RequestKind::Http: return kMethods[std::clamp(tab.draft.methodIndex, 0, static_cast<int>(kMethods.size()) - 1)];
+        case api::RequestKind::WebSocket: return "WS";
+        case api::RequestKind::Tcp: return "TCP";
+    }
+    return "?";
+}
+
+export std::string tabTitle(const RequestTab& tab) { return tab.draft.name; }
 
 // 关闭 tab；保证至少剩一个（空了就补草稿 tab）。
 export void closeTab(std::int64_t uid) {
@@ -213,8 +260,19 @@ export std::string g_groupRenameText;
 export bool g_newGroupOpen = false;          // 新建分组弹窗开关
 export std::string g_newGroupText;
 export int g_newGroupMode = 0;               // 0 = 仅名称, 1 = 路径
+export std::int64_t g_newGroupParentId = 0;  // 0 = 根目录
 // 分组展开/收起（true = 收起）。默认全部展开。
 export std::unordered_map<std::int64_t, bool> g_groupCollapsed;
+
+// ---- 分组与请求类型菜单 ----
+export bool g_groupMenuOpen = false;
+export float g_groupMenuX = 0.0f;
+export float g_groupMenuY = 0.0f;
+export std::int64_t g_groupMenuTargetId = 0;
+export bool g_requestTypeMenuOpen = false;
+export float g_requestTypeMenuX = 0.0f;
+export float g_requestTypeMenuY = 0.0f;
+export std::int64_t g_requestTypeGroupId = 0;
 
 // ---- 请求集合右键菜单 ----
 export bool g_collectionMenuOpen = false;
@@ -235,10 +293,6 @@ export std::string g_requestRenameText;
 // ---- 环境管理弹窗 ----
 
 export bool g_envManageOpen = false;
-
-// ---- 基础设置弹窗 ----
-
-export bool g_settingsOpen = false;
 
 // ---- 确认弹窗（删除项目/组织等破坏性操作）----
 

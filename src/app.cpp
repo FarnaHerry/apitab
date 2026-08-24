@@ -1,30 +1,13 @@
 // app.cpp — apitab 薄入口。
-//
-// compat.eui-neo 的 `app-main` 特性提供 main()（core/app/glfw_app_main.cpp）；
-// 本 TU 只定义每个 EUI 应用必须提供的两个符号 —— app::dslAppConfig() 与
-// app::compose() —— 并把绘制分派给 apitab.ui.* 模块：
-//
-//   apitab.utils              纯 string/number 帮助函数（无 UI 依赖）
-//   apitab.config             数据目录 / k6 二进制解析（无 UI 依赖）
-//   apitab.api_engine         引擎抽象（RequestSpec / ResponseView / LoadSummary）
-//   apitab.curl_engine        单次请求引擎（libcurl，工作线程）
-//   apitab.k6_engine          压测引擎（k6 外部进程）
-//   apitab.db                 SQLite 持久化（requests / history / load_tests）
-//   apitab.store.requests     领域 store：集合 + 发送 + 历史（g_requests，自保留引擎）
-//   apitab.store.loadtest     领域 store：压测（g_loadtest，自保留引擎）
-//   apitab.store.ui           视图 store：草稿 / 页面 / 响应 / 状态消息（无 eui）
-//   apitab.ui.*               主题 / 控件 / 侧栏 / 请求页 / 压测页 / 历史页
-//
-// 事件驱动（对齐 tinynext 纪律）：compose 不挂 onFrame —— eui 会把挂 onFrame
-// 的元素当成「每帧都在动」而强制满帧重绘。引擎完成时经 requestUiUpdate() 唤醒
-// 一帧，这里 poll*/drain* 取回结果写入视图 store；空闲时 UI 走 glfwWaitEvents
-// 睡眠，零渲染零 CPU。
 #include <eui_neo.h>
 
 import std;
 import apitab.api_engine;
+import apitab.i18n;
 import apitab.store.requests;
 import apitab.store.loadtest;
+import apitab.store.tcp;
+import apitab.store.websocket;
 import apitab.store.ui;
 import apitab.ui.utils;
 import apitab.ui.theme;
@@ -32,6 +15,8 @@ import apitab.ui.widgets;
 import apitab.ui.sidebar;
 import apitab.ui.topbars;
 import apitab.ui.request_page;
+import apitab.ui.tcp_page;
+import apitab.ui.websocket_page;
 import apitab.ui.loadtest_page;
 import apitab.ui.history_page;
 import apitab.ui.home_page;
@@ -45,9 +30,7 @@ const DslAppConfig& dslAppConfig() {
         .pageId("apitab")
         .clearColor({0.04f, 0.04f, 0.05f, 1.0f})
         .uiScale(kUI)
-        // 窗口物理尺寸 = 设计尺寸 × kUI（eui 按物理像素建窗，不自动乘 uiScale）。
         .windowSize(static_cast<int>(1180.0f * kUI), static_cast<int>(760.0f * kUI))
-        // 最大帧率 0 = 跟随显示器刷新率。
         .fps(0.0)
         .showDebugStatsInTitle(false)
         .textFont("NotoSansSC-Regular.ttf")
@@ -56,14 +39,18 @@ const DslAppConfig& dslAppConfig() {
 }
 
 void compose(eui::Ui& ui, const eui::Screen& screen) {
-    // ---- 后台 → UI 的结果取回（引擎完成时 requestUiUpdate 唤醒本帧）----
-
-    // 单次请求结果：写回发起 tab（落库历史已在 store 内完成）。
+    static const bool preferencesLoaded = [] {
+        loadLanguagePreference();
+        g_themeMode = static_cast<ThemeMode>(std::clamp(g_savedThemeMode, 0, 2));
+        if (g_themeMode == ThemeMode::System) g_dark = systemDark();
+        return true;
+    }();
+    (void)preferencesLoaded;
     api::ResponseView resp;
     if (g_requests.pollResult(resp)) {
         RequestTab& tab = [&]() -> RequestTab& {
             if (RequestTab* t = findTab(g_sendingTabUid)) return *t;
-            return activeTab();  // 发起 tab 已被关闭 → 给当前 tab 兜底展示
+            return activeTab();
         }();
         tab.response = std::move(resp);
         tab.hasResponse = true;
@@ -75,7 +62,6 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                        : ("请求失败: " + tab.response.error));
     }
 
-    // 压测输出与汇总。
     appendLoadOutput(g_loadtest.drainOutput());
     api::LoadSummary summary;
     if (g_loadtest.pollSummary(summary)) {
@@ -89,136 +75,187 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                      formatMs(g_loadSummary.p95Ms))
                        : ("压测异常: " + g_loadSummary.error));
     }
+    for (std::string& msg : drainStatus()) showStatus(std::move(msg));
 
-    // 后台线程投递的状态消息（保留扩展点；当前引擎错误直接走 poll* 路径）。
-    for (std::string& msg : drainStatus()) {
-        showStatus(std::move(msg));
+    for (RequestTab& tab : g_tabs) {
+        if (tab.draft.kind == api::RequestKind::WebSocket) {
+            tab.wsState = g_websocket.state(tab.uid);
+            std::vector<api::WebSocketEvent> events = g_websocket.drain(tab.uid);
+            if (!events.empty()) {
+                tab.wsEvents.insert(tab.wsEvents.end(), std::make_move_iterator(events.begin()),
+                                    std::make_move_iterator(events.end()));
+                constexpr std::size_t kWebSocketEventCap = 2000;
+                if (tab.wsEvents.size() > kWebSocketEventCap) {
+                    tab.wsEvents.erase(tab.wsEvents.begin(),
+                                       tab.wsEvents.end() - static_cast<std::ptrdiff_t>(kWebSocketEventCap));
+                }
+            }
+        } else if (tab.draft.kind == api::RequestKind::Tcp) {
+            tab.tcpState = g_tcp.state(tab.uid);
+            std::vector<api::TcpEvent> events = g_tcp.drain(tab.uid);
+            if (!events.empty()) {
+                tab.tcpEvents.insert(tab.tcpEvents.end(), std::make_move_iterator(events.begin()),
+                                     std::make_move_iterator(events.end()));
+                constexpr std::size_t kTcpEventCap = 2000;
+                if (tab.tcpEvents.size() > kTcpEventCap) {
+                    tab.tcpEvents.erase(tab.tcpEvents.begin(),
+                                        tab.tcpEvents.end() - static_cast<std::ptrdiff_t>(kTcpEventCap));
+                }
+            }
+        }
     }
 
+    if (isProjectPage(g_page) && g_activeProjectTabId == 0) g_page = Page::Home;
     const AppTheme& theme = currentTheme();
+    constexpr float workspaceH = 42.0f;
 
-    // ---- 布局 ----
-    // 根 stack：底层全屏主题背景（clearColor 初始化时固化，主题色靠重绘覆盖），
-    // 其余按绝对定位排布 —— 与 tinynext 同法，完全可控、随窗口自适应。
     ui.stack("root")
         .size(screen.width, screen.height)
         .content([&] {
             ui.rect("theme.background")
-                .position(0, 0)
-                .size(screen.width, screen.height)
-                .color(theme.components.background)
+                .position(0, 0).size(screen.width, screen.height)
+                .color(theme.components.background).build();
+
+            // 应用标识与工作区同属顶层；rail 仅保留项目内导航。
+            ui.rect("app.logo.bg")
+                .position(kMargin, kMargin)
+                .size(26.0f, kInputHeight)
+                .color(theme.components.primary)
+                .radius(6.0f)
+                .zIndex(41)
                 .build();
-
-            // ===================== 图标导航栏 =====================
-            ui.stack("rail")
-                .position(0, 0)
-                .size(kRailWidth, screen.height)
-                .zIndex(5)
+            ui.text("app.logo")
+                .position(kMargin, kMargin)
+                .size(26.0f, kInputHeight)
+                .text("AT")
+                .fontSize(9.0f)
+                .lineHeight(kInputHeight)
+                .color(theme.dark ? theme.components.surface : theme.components.background)
+                .horizontalAlign(core::HorizontalAlign::Center)
+                .verticalAlign(core::VerticalAlign::Center)
+                .zIndex(42)
+                .build();
+            ui.stack("workspace.bar.wrap")
+                .position(kMargin + 32.0f, kMargin)
+                .size(screen.width - kMargin * 2.0f - 32.0f, kInputHeight)
+                .zIndex(40)
                 .content([&] {
-                    ui.rect("rail.logo.bg")
-                        .position((kRailWidth - 18.0f) * 0.5f, 10.0f)
-                        .size(18.0f, 18.0f)
-                        .color(theme.components.primary)
-                        .radius(5.0f)
-                        .build();
-                    ui.text("rail.logo")
-                        .position(0, 10.0f)
-                        .size(kRailWidth, 18.0f)
-                        .text("AT")
-                        .fontSize(8.0f)
-                        .lineHeight(18.0f)
-                        .color(theme.dark ? theme.components.surface
-                                          : theme.components.background)
-                        .horizontalAlign(core::HorizontalAlign::Center)
-                        .verticalAlign(core::VerticalAlign::Center)
-                        .build();
-
-                    float railY = 40.0f;
-                    drawRailItem(ui, "nav.home", railY, kRailWidth, 0xF015,
-                                 g_page == Page::Home, theme,
-                                 [] { g_page = Page::Home; });
-                    railY += 30.0f;
-                    drawRailItem(ui, "nav.request", railY, kRailWidth, 0xF1D8,
-                                 g_page == Page::Request, theme,
-                                 [] {
-                                     if (g_activeProjectTabId == 0) showStatus("请先在主页面打开项目");
-                                     else g_page = Page::Request;
-                                 });
-                    railY += 30.0f;
-                    drawRailItem(ui, "nav.load", railY, kRailWidth, 0xF0E7,
-                                 g_page == Page::Load, theme,
-                                 [] {
-                                     if (g_activeProjectTabId == 0) showStatus("请先在主页面打开项目");
-                                     else g_page = Page::Load;
-                                 });
-                    railY += 30.0f;
-                    drawRailItem(ui, "nav.history", railY, kRailWidth, 0xF1DA,
-                                 g_page == Page::History, theme,
-                                 [] { g_page = Page::History; });
-
-                    // 基础设置入口在顶部工作区栏右侧，rail 只保留页面导航。
+                    drawProjectWorkspaceBar(ui, 0, 0,
+                                            screen.width - kMargin * 2.0f - 32.0f, theme);
                 })
                 .build();
 
-            // ===================== 集合侧栏 =====================
-            const bool projectPage = (g_page == Page::Request || g_page == Page::Load) &&
-                                     g_activeProjectTabId != 0;
-            float contentX = kRailWidth + kMargin;
-            if (projectPage) {
-                drawSidebar(ui, screen, theme);
+            const bool overlayPage = isOverlayPage(g_page);
+            const bool projectContext = isProjectPage(g_page) && g_activeProjectTabId != 0;
+            const bool compactShell = screen.width < 860.0f;
+            const bool showCollectionSidebar = projectContext && !compactShell &&
+                                               (g_page == Page::Request || g_page == Page::Load);
+            const bool requestTabs = showCollectionSidebar;
+            const float bodyTop = workspaceH;
+            const float bodyBottom = std::max(bodyTop, screen.height - 20.0f - kMargin);
+
+            // Home 与全局设置覆盖最高级 rail 和项目侧栏。
+            if (!overlayPage) {
+                ui.stack("rail")
+                    .position(0, bodyTop)
+                    .size(kRailWidth, std::max(0.0f, bodyBottom - bodyTop + kMargin))
+                    .zIndex(5)
+                    .content([&] {
+                        float railY = 10.0f;
+                        drawRailItem(ui, "nav.request", railY, kRailWidth, 0xF1D8,
+                                     g_page == Page::Request, theme,
+                                     [] {
+                                         if (g_activeProjectTabId == 0) showStatus("请先在主页面打开项目");
+                                         else g_page = Page::Request;
+                                     });
+                        railY += 30.0f;
+                        drawRailItem(ui, "nav.load", railY, kRailWidth, 0xF0E7,
+                                     g_page == Page::Load, theme,
+                                     [] {
+                                         if (g_activeProjectTabId == 0) showStatus("请先在主页面打开项目");
+                                         else g_page = Page::Load;
+                                     });
+                        railY += 30.0f;
+                        drawRailItem(ui, "nav.history", railY, kRailWidth, 0xF1DA,
+                                     g_page == Page::History, theme,
+                                     [] { g_page = Page::History; });
+                        railY += 30.0f;
+                        drawRailItem(ui, "nav.project.settings", railY, kRailWidth, 0xF013,
+                                     g_page == Page::ProjectSettings, theme,
+                                     [] {
+                                         if (g_activeProjectTabId == 0) showStatus("请先在主页面打开项目");
+                                         else g_page = Page::ProjectSettings;
+                                     });
+                    })
+                    .build();
+            }
+
+            float contentX = overlayPage ? kMargin : kRailWidth + kMargin;
+            if (showCollectionSidebar) {
+                drawSidebar(ui, screen, bodyTop, theme);
                 contentX = kRailWidth + kSidebarWidth + kMargin;
             }
-
-            // ===================== 内容区 =====================
-            const float contentW = screen.width - contentX - kMargin;
-            const float contentH = screen.height - 20.0f - kMargin * 2.0f;
-
-            float pageY = kMargin;
-            if (projectPage) {
-                drawProjectWorkspaceBar(ui, contentX, pageY, contentW, theme);
-                drawRequestTabStrip(ui, contentX, pageY + 32.0f, contentW, theme);
-                pageY += 64.0f;
+            const float contentW = std::max(0.0f, screen.width - contentX - kMargin);
+            float pageY = bodyTop + kMargin;
+            if (showCollectionSidebar && requestTabs) {
+                drawRequestTabStrip(ui, contentX, pageY, contentW, theme);
+                pageY += 32.0f;
             }
-            const float pageH = contentH - (pageY - kMargin);
+            if (compactShell && projectContext && (g_page == Page::Request || g_page == Page::Load)) {
+                ui.text("shell.compact.notice")
+                    .position(contentX, pageY).size(contentW, 24.0f)
+                    .text("请求集合侧栏已在窄窗口隐藏，可拉宽窗口查看")
+                    .fontSize(kFontLabel).color(theme.hintText).build();
+                pageY += 30.0f;
+            }
+            const float pageH = std::max(0.0f, bodyBottom - pageY);
 
             switch (g_page) {
                 case Page::Home:
                     drawHomePage(ui, contentX, pageY, contentW, pageH, theme);
                     break;
+                case Page::GlobalSettings:
+                    drawGlobalSettingsPage(ui, contentX, pageY, contentW, pageH, theme);
+                    break;
                 case Page::Request:
-                    if (projectPage) drawRequestPage(ui, contentX, pageY, contentW, pageH, theme);
+                    if (projectContext) {
+                        switch (activeTab().draft.kind) {
+                            case api::RequestKind::Http:
+                                drawRequestPage(ui, contentX, pageY, contentW, pageH, theme);
+                                break;
+                            case api::RequestKind::WebSocket:
+                                drawWebSocketPage(ui, contentX, pageY, contentW, pageH, theme);
+                                break;
+                            case api::RequestKind::Tcp:
+                                drawTcpPage(ui, contentX, pageY, contentW, pageH, theme);
+                                break;
+                        }
+                    }
                     break;
                 case Page::Load:
-                    if (projectPage) drawLoadPage(ui, contentX, pageY, contentW, pageH, theme);
+                    if (projectContext) drawLoadPage(ui, contentX, pageY, contentW, pageH, theme);
                     break;
                 case Page::History:
                     drawHistoryPage(ui, contentX, pageY, contentW, pageH, theme);
                     break;
+                case Page::ProjectSettings:
+                    if (projectContext) drawProjectSettingsPage(ui, contentX, pageY, contentW, pageH, theme);
+                    break;
             }
 
-            // ===================== 底部状态条 =====================
             drawStatusBar(ui, screen.width, screen.height, g_statusMessage, theme);
+            if (showCollectionSidebar) {
+                drawSidebarDialogs(ui, screen, theme);
+            }
+            if (projectContext) {
+                drawRequestPageDialogs(ui, screen, theme);
+            }
 
-            // ===================== 侧栏弹窗（新建分组等）=====================
-            drawSidebarDialogs(ui, screen, theme);
-
-            // ===================== 请求页弹窗（环境管理）=====================
-            drawRequestPageDialogs(ui, screen, theme);
-
-            // ===================== 全局设置弹窗 =====================
-            drawSettingsDialog(ui, screen, theme);
-
-            // ===================== 确认弹窗 =====================
             if (g_confirm.open) {
                 components::dialog(ui, "confirm")
-                    .open(true)
-                    .screen(screen.width, screen.height)
-                    .size(380.0f, 160.0f)
-                    .title(g_confirm.title)
-                    .message(g_confirm.message)
-                    .primaryText("确定")
-                    .secondaryText("取消")
-                    .theme(theme.components)
+                    .open(true).screen(screen.width, screen.height).size(380.0f, 160.0f)
+                    .title(g_confirm.title).message(g_confirm.message)
+                    .primaryText(tr(UiText::Confirm)).secondaryText(tr(UiText::Cancel)).theme(theme.components)
                     .onPrimary([] {
                         if (g_confirm.action) g_confirm.action();
                         g_confirm.open = false;

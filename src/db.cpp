@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE TABLE IF NOT EXISTS groups (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL DEFAULT 0,
+    parent_id  INTEGER NOT NULL DEFAULT 0,
     name       TEXT NOT NULL,
     mode       INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL DEFAULT 0
@@ -93,9 +94,11 @@ CREATE TABLE IF NOT EXISTS requests (
     url        TEXT NOT NULL DEFAULT '',
     params     TEXT NOT NULL DEFAULT '[]',
     headers    TEXT NOT NULL DEFAULT '[]',
-    body_kind  INTEGER NOT NULL DEFAULT 0,
-    body       TEXT NOT NULL DEFAULT '',
-    updated_at INTEGER NOT NULL DEFAULT 0
+    body_kind    INTEGER NOT NULL DEFAULT 0,
+    body         TEXT NOT NULL DEFAULT '',
+    request_kind INTEGER NOT NULL DEFAULT 0,
+    ws_protocol  TEXT NOT NULL DEFAULT '',
+    updated_at   INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,21 +129,39 @@ CREATE TABLE IF NOT EXISTS load_tests (
 );
 )SQL");
 
-        // 迁移：旧库的 requests 没有 group_id / body_kind —— 补列。
+        // 迁移：旧库的 requests 没有 group_id / body_kind，groups 没有 parent_id。
         {
             bool hasGroupId = false;
             bool hasBodyKind = false;
+            bool hasRequestKind = false;
+            bool hasWsProtocol = false;
+            bool hasParentId = false;
             SQLite::Statement q(db, "PRAGMA table_info(requests)");
             while (q.executeStep()) {
                 const std::string col = q.getColumn(1).getString();
                 if (col == "group_id") hasGroupId = true;
                 if (col == "body_kind") hasBodyKind = true;
+                if (col == "request_kind") hasRequestKind = true;
+                if (col == "ws_protocol") hasWsProtocol = true;
+            }
+            SQLite::Statement groups(db, "PRAGMA table_info(groups)");
+            while (groups.executeStep()) {
+                if (groups.getColumn(1).getString() == "parent_id") hasParentId = true;
             }
             if (!hasGroupId) {
                 db.exec("ALTER TABLE requests ADD COLUMN group_id INTEGER NOT NULL DEFAULT 0");
             }
             if (!hasBodyKind) {
                 db.exec("ALTER TABLE requests ADD COLUMN body_kind INTEGER NOT NULL DEFAULT 0");
+            }
+            if (!hasRequestKind) {
+                db.exec("ALTER TABLE requests ADD COLUMN request_kind INTEGER NOT NULL DEFAULT 0");
+            }
+            if (!hasWsProtocol) {
+                db.exec("ALTER TABLE requests ADD COLUMN ws_protocol TEXT NOT NULL DEFAULT ''");
+            }
+            if (!hasParentId) {
+                db.exec("ALTER TABLE groups ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0");
             }
         }
     }
@@ -178,10 +199,24 @@ void Db::renameOrg(std::int64_t id, const std::string& name) {
 void Db::deleteOrg(std::int64_t id) {
     impl_->db.exec("BEGIN");
     try {
-        // 级联：先删组织下所有项目的请求，再删项目，最后删组织。
+        // 级联：先删组织下所有项目的请求、分组、环境，再删项目和组织。
         {
             SQLite::Statement q(impl_->db,
                 "DELETE FROM requests WHERE project_id IN "
+                "(SELECT id FROM projects WHERE org_id=?)");
+            q.bind(1, id);
+            q.exec();
+        }
+        {
+            SQLite::Statement q(impl_->db,
+                "DELETE FROM groups WHERE project_id IN "
+                "(SELECT id FROM projects WHERE org_id=?)");
+            q.bind(1, id);
+            q.exec();
+        }
+        {
+            SQLite::Statement q(impl_->db,
+                "DELETE FROM environments WHERE project_id IN "
                 "(SELECT id FROM projects WHERE org_id=?)");
             q.bind(1, id);
             q.exec();
@@ -236,6 +271,16 @@ void Db::deleteProject(std::int64_t id) {
     try {
         {
             SQLite::Statement q(impl_->db, "DELETE FROM requests WHERE project_id=?");
+            q.bind(1, id);
+            q.exec();
+        }
+        {
+            SQLite::Statement q(impl_->db, "DELETE FROM groups WHERE project_id=?");
+            q.bind(1, id);
+            q.exec();
+        }
+        {
+            SQLite::Statement q(impl_->db, "DELETE FROM environments WHERE project_id=?");
             q.bind(1, id);
             q.exec();
         }
@@ -322,24 +367,28 @@ void Db::deleteEnvironment(std::int64_t id) {
 
 std::vector<db::Group> Db::listGroups(std::int64_t projectId) {
     SQLite::Statement q(impl_->db,
-        "SELECT id,project_id,name,mode FROM groups WHERE project_id=? ORDER BY id ASC");
+        "SELECT id,project_id,parent_id,name,mode FROM groups WHERE project_id=? ORDER BY id ASC");
     q.bind(1, projectId);
     std::vector<db::Group> out;
     while (q.executeStep()) {
-        out.push_back({q.getColumn(0).getInt64(), q.getColumn(1).getInt64(),
-                       q.getColumn(2).getString(),
-                       static_cast<GroupMode>(q.getColumn(3).getInt())});
+        out.push_back({.id = q.getColumn(0).getInt64(),
+                       .projectId = q.getColumn(1).getInt64(),
+                       .parentId = q.getColumn(2).getInt64(),
+                       .name = q.getColumn(3).getString(),
+                       .mode = static_cast<GroupMode>(q.getColumn(4).getInt())});
     }
     return out;
 }
 
-std::int64_t Db::createGroup(std::int64_t projectId, const std::string& name, GroupMode mode) {
+std::int64_t Db::createGroup(std::int64_t projectId, const std::string& name, GroupMode mode,
+                             std::int64_t parentId) {
     SQLite::Statement q(impl_->db,
-        "INSERT INTO groups(project_id,name,mode,created_at) VALUES(?,?,?,?)");
+        "INSERT INTO groups(project_id,parent_id,name,mode,created_at) VALUES(?,?,?,?,?)");
     q.bind(1, projectId);
-    q.bind(2, name);
-    q.bind(3, static_cast<int>(mode));
-    q.bind(4, static_cast<std::int64_t>(std::time(nullptr)));
+    q.bind(2, parentId);
+    q.bind(3, name);
+    q.bind(4, static_cast<int>(mode));
+    q.bind(5, static_cast<std::int64_t>(std::time(nullptr)));
     q.exec();
     return impl_->db.getLastInsertRowid();
 }
@@ -361,15 +410,21 @@ void Db::setGroupMode(std::int64_t id, GroupMode mode) {
 void Db::deleteGroup(std::int64_t id) {
     impl_->db.exec("BEGIN");
     try {
-        {
-            SQLite::Statement q(impl_->db, "UPDATE requests SET group_id=0 WHERE group_id=?");
-            q.bind(1, id);
-            q.exec();
+        std::vector<std::int64_t> ids{id};
+        for (std::size_t i = 0; i < ids.size(); ++i) {
+            SQLite::Statement children(impl_->db, "SELECT id FROM groups WHERE parent_id=?");
+            children.bind(1, ids[i]);
+            while (children.executeStep()) ids.push_back(children.getColumn(0).getInt64());
         }
-        {
-            SQLite::Statement q(impl_->db, "DELETE FROM groups WHERE id=?");
-            q.bind(1, id);
-            q.exec();
+        for (const std::int64_t groupId : ids) {
+            SQLite::Statement requests(impl_->db, "UPDATE requests SET group_id=0 WHERE group_id=?");
+            requests.bind(1, groupId);
+            requests.exec();
+        }
+        for (auto it = ids.rbegin(); it != ids.rend(); ++it) {
+            SQLite::Statement group(impl_->db, "DELETE FROM groups WHERE id=?");
+            group.bind(1, *it);
+            group.exec();
         }
         impl_->db.exec("COMMIT");
     } catch (...) {
@@ -382,7 +437,7 @@ void Db::deleteGroup(std::int64_t id) {
 
 std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
     SQLite::Statement q(impl_->db,
-        "SELECT id,project_id,group_id,name,method,url,params,headers,body_kind,body,updated_at "
+        "SELECT id,project_id,group_id,name,request_kind,ws_protocol,method,url,params,headers,body_kind,body,updated_at "
         "FROM requests WHERE project_id=? ORDER BY updated_at DESC");
     q.bind(1, projectId);
     std::vector<SavedRequest> out;
@@ -392,13 +447,15 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
         r.projectId = q.getColumn(1).getInt64();
         r.groupId = q.getColumn(2).getInt64();
         r.name = q.getColumn(3).getString();
-        r.method = q.getColumn(4).getString();
-        r.url = q.getColumn(5).getString();
-        r.params = kvFromJson(q.getColumn(6).getString());
-        r.headers = kvFromJson(q.getColumn(7).getString());
-        r.bodyKind = static_cast<api::BodyKind>(q.getColumn(8).getInt());
-        r.body = q.getColumn(9).getString();
-        r.updatedAt = q.getColumn(10).getInt64();
+        r.kind = static_cast<api::RequestKind>(q.getColumn(4).getInt());
+        r.wsProtocol = q.getColumn(5).getString();
+        r.method = q.getColumn(6).getString();
+        r.url = q.getColumn(7).getString();
+        r.params = kvFromJson(q.getColumn(8).getString());
+        r.headers = kvFromJson(q.getColumn(9).getString());
+        r.bodyKind = static_cast<api::BodyKind>(q.getColumn(10).getInt());
+        r.body = q.getColumn(11).getString();
+        r.updatedAt = q.getColumn(12).getInt64();
         out.push_back(std::move(r));
     }
     return out;
@@ -407,35 +464,39 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
 std::int64_t Db::saveRequest(const SavedRequest& r) {
     if (r.id == 0) {
         SQLite::Statement q(impl_->db,
-            "INSERT INTO requests(project_id,group_id,name,method,url,params,headers,body_kind,body,updated_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?)");
+            "INSERT INTO requests(project_id,group_id,name,request_kind,ws_protocol,method,url,params,headers,body_kind,body,updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
         q.bind(1, r.projectId);
         q.bind(2, r.groupId);
         q.bind(3, r.name);
-        q.bind(4, r.method);
-        q.bind(5, r.url);
-        q.bind(6, kvToJson(r.params));
-        q.bind(7, kvToJson(r.headers));
-        q.bind(8, static_cast<int>(r.bodyKind));
-        q.bind(9, r.body);
-        q.bind(10, r.updatedAt);
+        q.bind(4, static_cast<int>(r.kind));
+        q.bind(5, r.wsProtocol);
+        q.bind(6, r.method);
+        q.bind(7, r.url);
+        q.bind(8, kvToJson(r.params));
+        q.bind(9, kvToJson(r.headers));
+        q.bind(10, static_cast<int>(r.bodyKind));
+        q.bind(11, r.body);
+        q.bind(12, r.updatedAt);
         q.exec();
         return impl_->db.getLastInsertRowid();
     }
     SQLite::Statement q(impl_->db,
-        "UPDATE requests SET project_id=?,group_id=?,name=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,"
+        "UPDATE requests SET project_id=?,group_id=?,name=?,request_kind=?,ws_protocol=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,"
         "updated_at=? WHERE id=?");
     q.bind(1, r.projectId);
     q.bind(2, r.groupId);
     q.bind(3, r.name);
-    q.bind(4, r.method);
-    q.bind(5, r.url);
-    q.bind(6, kvToJson(r.params));
-    q.bind(7, kvToJson(r.headers));
-    q.bind(8, static_cast<int>(r.bodyKind));
-    q.bind(9, r.body);
-    q.bind(10, r.updatedAt);
-    q.bind(11, r.id);
+    q.bind(4, static_cast<int>(r.kind));
+    q.bind(5, r.wsProtocol);
+    q.bind(6, r.method);
+    q.bind(7, r.url);
+    q.bind(8, kvToJson(r.params));
+    q.bind(9, kvToJson(r.headers));
+    q.bind(10, static_cast<int>(r.bodyKind));
+    q.bind(11, r.body);
+    q.bind(12, r.updatedAt);
+    q.bind(13, r.id);
     q.exec();
     return r.id;
 }

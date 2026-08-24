@@ -20,8 +20,52 @@ export struct KeyValue {
 };
 
 export enum class BodyKind { None, Json, Text, FormUrlEncoded };
+export enum class RequestKind { Http = 0, WebSocket = 1, Tcp = 2 };
+export enum class TcpState { Disconnected, Resolving, Connecting, Handshaking, Connected, Failed };
+export enum class TcpEventKind { Connecting, Connected, Sent, Received, Disconnected, Error };
+export enum class TcpPayloadFormat { Text, Hex };
+export enum class WebSocketState { Disconnected, Connecting, Connected, Failed };
+export enum class WebSocketEventKind { Open, Text, Binary, Close, Error };
 
-// ---- 单次请求 ----
+export struct TcpSpec {
+    std::string url;
+    int connectTimeoutSec = 15;
+    int readIdleTimeoutSec = 0;
+    int writeTimeoutSec = 10;
+};
+
+export struct TcpEvent {
+    TcpEventKind kind = TcpEventKind::Error;
+    std::vector<std::uint8_t> payload;
+    std::string detail;
+    std::size_t wireBytes = 0;
+};
+
+export struct WebSocketSpec {
+    std::string url;
+    std::vector<KeyValue> headers;
+    std::string subprotocol;
+    int handshakeTimeoutSec = 15;
+};
+
+export struct WebSocketEvent {
+    WebSocketEventKind kind = WebSocketEventKind::Error;
+    std::string payload;
+    std::string detail;
+    std::size_t wireBytes = 0;
+    int closeCode = 0;
+};
+
+export class TcpEngine {
+public:
+    virtual ~TcpEngine() = default;
+    virtual std::string connect(const TcpSpec& spec) = 0;
+    virtual void disconnect() = 0;
+    virtual std::string send(const std::vector<std::uint8_t>& bytes) = 0;
+    virtual TcpState state() const = 0;
+    virtual std::vector<TcpEvent> drainEvents() = 0;
+};
+
 
 export struct RequestSpec {
     std::string method = "GET";
@@ -80,6 +124,16 @@ public:
     virtual bool busy() const = 0;
     // UI 线程轮询：有新完成的结果则取出并返回 true（一个结果只取一次）。
     virtual bool takeResponse(ResponseView& out) = 0;
+};
+
+export class WebSocketEngine {
+public:
+    virtual ~WebSocketEngine() = default;
+    virtual std::string connect(const WebSocketSpec& spec) = 0;
+    virtual void disconnect() = 0;
+    virtual std::string sendText(const std::string& text, bool binary) = 0;
+    virtual WebSocketState state() const = 0;
+    virtual std::vector<WebSocketEvent> drainEvents() = 0;
 };
 
 // 压测引擎契约。实现为外部进程（k6）：start 拉起、stop 杀掉、输出流式回读。

@@ -6,6 +6,17 @@ apitab 是一个 **C++23 模块化 GUI 工具**：API 测试（libcurl 单请求
 SQLite 存储，EUI-NEO 前端，用 **mcpp** 构建。套壳结构对齐旁边的 tinynext
 （UI / 领域 store / 引擎三层分离，引擎自保留在 store 单例中）。
 
+## EUI 参考顺序
+
+UI 工作先阅读：
+
+1. `docs/skills/eui-neo-ui-replicator/SKILL.md`（固定官方 snapshot，版本/commit 见 `UPSTREAM.toml`）
+2. 已安装 EUI-NEO `0.5.7` 的 `site/llms.txt`、DSL、组件和 workshop 文档
+3. `docs/eui-neo-compat.md` 与全局 `eui-development` overlay
+4. 本文件和目标页面/store 模块
+
+官方 skill 的 CMake、`apps/` 目录和广义 `eui_neo.h` 示例不适用于本项目；保持下列 mcpp/module 约定。
+
 ## 构建 / 运行
 
 ```bash

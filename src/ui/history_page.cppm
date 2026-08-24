@@ -98,19 +98,16 @@ export void drawHistoryPage(eui::Ui& ui, float x, float y, float w, float h,
     ui.stack("history.size.wrap")
         .position(x, controlsY).size(86.0f, 24.0f).zIndex(20)
         .content([&] {
-            components::dropdown(ui, "history.size")
-                .size(86.0f, 24.0f).items({"10", "20", "50", "100"})
-                .selected(g_historyPageSize == 10 ? 0 : g_historyPageSize == 20 ? 1 :
-                          g_historyPageSize == 50 ? 2 : 3)
-                .open(g_historySizeOpen).theme(tokens)
-                .onOpenChange([](bool open) { g_historySizeOpen = open; })
-                .onChange([](int index) {
-                    constexpr int sizes[] = {10, 20, 50, 100};
-                    g_historyPageSize = sizes[std::clamp(index, 0, 3)];
-                    g_historyPage = 0;
-                    g_historySizeOpen = false;
-                    g_historyDirty = true;
-                }).build();
+            const std::vector<std::string> sizes = {"10", "20", "50", "100"};
+            const int selected = g_historyPageSize == 10 ? 0 : g_historyPageSize == 20 ? 1 :
+                                 g_historyPageSize == 50 ? 2 : 3;
+            drawListPicker(ui, "history.size", 86.0f, 24.0f, theme, g_historySizeOpen,
+                           sizes, selected, true, [](int index) {
+                               constexpr int pageSizes[] = {10, 20, 50, 100};
+                               g_historyPageSize = pageSizes[std::clamp(index, 0, 3)];
+                               g_historyPage = 0;
+                               g_historyDirty = true;
+                           });
         }).build();
     ui.text("history.size.label")
         .position(x + 92.0f, controlsY).size(42.0f, 24.0f).text("/ 页")

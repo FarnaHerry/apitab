@@ -32,6 +32,10 @@ namespace {
 
 void startLoad() {
     RequestTab& tab = activeTab();
+    if (tab.draft.kind != api::RequestKind::Http) {
+        showStatus("只有 HTTP 请求支持 k6 压测");
+        return;
+    }
     // 与请求页同一套拼接：环境 baseUrl + Path 分组前缀 + 相对路径。
     api::RequestSpec spec = buildSpec(tab.draft, g_requests.composeUrl(
         tab.draft.url, tab.draft.groupId, g_requests.currentEnvId()));
@@ -104,6 +108,7 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         .onChange([](const std::string& v) { g_durationText = v; })
         .build();
 
+    const bool supported = activeTab().draft.kind == api::RequestKind::Http;
     const bool running = g_loadtest.running();
     components::button(ui, "load.toggle")
         .position(x + 272.0f, cfgY)
@@ -114,7 +119,7 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         .theme(tokens, true)
         .textColor(onPrimaryColor(theme))
         .iconColor(onPrimaryColor(theme))
-        .disabled(!available && !running)
+        .disabled((!available || !supported) && !running)
         .onClick([running] {
             if (running) {
                 g_loadtest.stop();
@@ -127,7 +132,7 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
     ui.text("load.target")
         .position(x + 372.0f, cfgY)
         .size(std::max(0.0f, w - 372.0f), kInputHeight)
-        .text("目标: " + [&] {
+        .text(!supported ? "当前请求类型不支持 k6 压测" : "目标: " + [&] {
             const std::string finalUrl = g_requests.composeUrl(
                 activeDraft().url, activeDraft().groupId, g_requests.currentEnvId());
             return finalUrl.empty() ? std::string("(当前标签页 URL 为空)") : finalUrl;

@@ -32,6 +32,7 @@ export const char* groupModeName(GroupMode mode);  // "仅名称" / "路径"
 export struct Group {
     std::int64_t id = 0;
     std::int64_t projectId = 0;
+    std::int64_t parentId = 0;          // 0 = 根目录
     std::string name;
     GroupMode mode = GroupMode::Name;
 };
@@ -53,6 +54,8 @@ export struct SavedRequest {
     std::int64_t projectId = 0;          // 所属项目
     std::int64_t groupId = 0;            // 所属分组；0 = 未分组
     std::string name;
+    api::RequestKind kind = api::RequestKind::Http;
+    std::string wsProtocol;
     std::string method = "GET";
     std::string url;
     std::vector<api::KeyValue> params;
@@ -113,7 +116,8 @@ public:
 
     // ---- groups（项目内分组；请求的分组决定侧栏层级与 URL 前缀）----
     std::vector<Group> listGroups(std::int64_t projectId);       // id 升序
-    std::int64_t createGroup(std::int64_t projectId, const std::string& name, GroupMode mode);
+    std::int64_t createGroup(std::int64_t projectId, const std::string& name, GroupMode mode,
+                             std::int64_t parentId = 0);
     void renameGroup(std::int64_t id, const std::string& name);
     void setGroupMode(std::int64_t id, GroupMode mode);
     void deleteGroup(std::int64_t id);                           // 其请求置为未分组

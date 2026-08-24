@@ -6,8 +6,11 @@ module;
 export module apitab.ui.topbars;
 
 import std;
+import apitab.api_engine;
 import apitab.db;
 import apitab.store.requests;
+import apitab.store.tcp;
+import apitab.store.websocket;
 import apitab.store.ui;
 import apitab.ui.theme;
 import apitab.ui.utils;
@@ -44,6 +47,13 @@ void drawIconBtn(eui::Ui& ui, const std::string& id, float x, float y, unsigned 
         .build();
 }
 
+void releaseLiveRequestSessions() {
+    for (const RequestTab& tab : g_tabs) {
+        g_websocket.release(tab.uid);
+        g_tcp.release(tab.uid);
+    }
+}
+
 } // namespace
 
 // 激活项目工作区：请求标签按项目暂存/恢复。
@@ -53,7 +63,10 @@ export void openProjectWorkspace(std::int64_t orgId, std::int64_t projectId) {
         g_page = Page::Request;
         return;
     }
-    if (g_requests.currentProjectId() != 0) stashTabs(g_requests.currentProjectId());
+    if (g_requests.currentProjectId() != 0) {
+        releaseLiveRequestSessions();
+        stashTabs(g_requests.currentProjectId());
+    }
     if (const std::string err = g_requests.selectProjectInOrg(orgId, projectId); !err.empty()) {
         showStatus("切换项目失败: " + err);
         return;
@@ -68,6 +81,7 @@ export void closeProjectWorkspace(std::int64_t projectId) {
     const auto it = std::ranges::find(g_openProjectIds, projectId);
     if (it == g_openProjectIds.end()) return;
     const bool wasActive = g_activeProjectTabId == projectId;
+    if (wasActive) releaseLiveRequestSessions();
     const std::size_t index = static_cast<std::size_t>(it - g_openProjectIds.begin());
     g_openProjectIds.erase(it);
     if (!wasActive) return;
@@ -87,6 +101,7 @@ export void closeProjectWorkspace(std::int64_t projectId) {
 }
 
 export void forgetProjectWorkspace(std::int64_t projectId) {
+    if (g_activeProjectTabId == projectId) releaseLiveRequestSessions();
     discardStash(projectId);
     std::erase(g_openProjectIds, projectId);
     if (g_activeProjectTabId == projectId) {
@@ -141,7 +156,7 @@ export void drawProjectWorkspaceBar(eui::Ui& ui, float x, float y, float w,
     for (const std::int64_t id : g_openProjectIds) {
         const db::Project* project = findProject(all, id);
         if (!project) continue;
-        const bool active = id == g_activeProjectTabId;
+        const bool active = isProjectPage(g_page) && id == g_activeProjectTabId;
         const std::string tabId = "workspace.project." + std::to_string(id);
         const float tabWidth = std::min(tabW - 3.0f, std::max(40.0f, tabsRight - tx));
         if (tabWidth <= 40.0f) break;
@@ -182,7 +197,7 @@ export void drawProjectWorkspaceBar(eui::Ui& ui, float x, float y, float w,
 
     const float settingsX = x + w - settingsW;
     drawIconBtn(ui, "workspace.settings", settingsX, y + 2.0f, 0xF013,
-                theme, [] { g_settingsOpen = true; });
+                theme, [] { g_page = Page::GlobalSettings; });
 }
 
 // 项目内部请求标签条。
@@ -216,19 +231,24 @@ export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
                     .build();
                 ui.text(tabId + ".method")
                     .position(6.0f, 0).size(34.0f, 24.0f)
-                    .text(kMethods[tab.draft.methodIndex]).fontSize(8.0f).lineHeight(24.0f)
-                    .color(methodColor(kMethods[tab.draft.methodIndex], theme))
+                    .text(tabBadge(tab)).fontSize(8.0f).lineHeight(24.0f)
+                    .color(tab.draft.kind == api::RequestKind::Http ? methodColor(tabBadge(tab), theme)
+                           : tab.draft.kind == api::RequestKind::WebSocket ? theme.redirect : theme.clientErr)
                     .verticalAlign(core::VerticalAlign::Center).build();
                 ui.text(tabId + ".name")
                     .position(42.0f, 0).size(tabWidth - 66.0f, 24.0f)
-                    .text(tab.draft.name + (tab.requestId == 0 ? " •" : ""))
+                    .text(tabTitle(tab) + (tab.requestId == 0 ? " •" : ""))
                     .fontSize(kFontLabel).lineHeight(24.0f)
                     .color(active ? theme.titleText : theme.metaText)
                     .verticalAlign(core::VerticalAlign::Center).build();
                 components::button(ui, tabId + ".close")
                     .position(tabWidth - 22.0f, 3.0f).size(18.0f, 18.0f)
                     .icon(0xF00D).text("").iconSize(8.0f).theme(tokens, false)
-                    .onClick([uid = tab.uid] { closeTab(uid); }).build();
+                    .onClick([uid = tab.uid] {
+                        g_websocket.release(uid);
+                        g_tcp.release(uid);
+                        closeTab(uid);
+                    }).build();
             })
             .build();
         tx += tabW;
@@ -241,9 +261,7 @@ export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
     std::vector<std::string> envNames;
     int envSelected = 0;
     for (int i = 0; i < static_cast<int>(envs.size()); ++i) {
-        std::string label = envs[i].name;
-        if (!envs[i].baseUrl.empty()) label += "  " + envs[i].baseUrl;
-        envNames.push_back(std::move(label));
+        envNames.push_back(envs[i].name);
         if (envs[i].id == g_requests.currentEnvId()) envSelected = i + 1;
     }
     envNames.insert(envNames.begin(), "未选择环境");
@@ -266,5 +284,5 @@ export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
         })
         .build();
     drawIconBtn(ui, "reqtabs.env.manage", envX + envW + kGap, y + 1.0f,
-                0xF013, theme, [] { g_envManageOpen = true; });
+                0xF0C9, theme, [] { g_envManageOpen = true; });
 }

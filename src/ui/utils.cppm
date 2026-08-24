@@ -25,3 +25,16 @@ export constexpr float kFontBody = 12.0f;         // 正文字号
 export constexpr float kFontMono = 11.0f;         // 等宽（响应体 / 压测输出）
 export constexpr float kRowHeight = 24.0f;        // KV 编辑行高
 export constexpr float kPanelRadius = 8.0f;       // 面板圆角
+
+export constexpr float kCompactWidth = 720.0f;
+export constexpr float kMediumWidth = 960.0f;
+
+export bool isCompact(float width) { return width < kCompactWidth; }
+export bool isMedium(float width) { return width < kMediumWidth; }
+export float nonNegative(float value) { return std::max(0.0f, value); }
+export float dialogWidth(float screenWidth, float preferred, float margin = 16.0f) {
+    return std::max(160.0f, std::min(preferred, screenWidth - margin * 2.0f));
+}
+export float dialogHeight(float screenHeight, float preferred, float margin = 16.0f) {
+    return std::max(120.0f, std::min(preferred, screenHeight - margin * 2.0f));
+}
