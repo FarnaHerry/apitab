@@ -1,5 +1,4 @@
-// ui/topbars.cppm — 顶部两级栏：组织选择器 + 项目标签页（第 1 条），
-// 请求标签页（第 2 条）。层级：组织 → 项目 → 多个请求标签页。
+// ui/topbars.cppm — 项目工作区标签与项目内请求标签。
 module;
 
 #include "eui_ui.h"
@@ -8,7 +7,7 @@ export module apitab.ui.topbars;
 
 import std;
 import apitab.db;
-import apitab.store.requests;  // g_requests
+import apitab.store.requests;
 import apitab.store.ui;
 import apitab.ui.theme;
 import apitab.ui.utils;
@@ -16,61 +15,21 @@ import apitab.ui.widgets;
 
 namespace {
 
-// ---- 项目 / 组织切换（标签页随项目暂存+恢复）----
+bool g_topbarEnvOpen = false;
 
-void switchProject(std::int64_t id) {
-    if (id == g_requests.currentProjectId()) return;
-    stashTabs(g_requests.currentProjectId());
-    if (const std::string err = g_requests.selectProject(id); !err.empty()) {
-        showStatus("切换项目失败: " + err);
+std::string orgName(std::int64_t orgId) {
+    for (const auto& org : g_requests.orgs()) {
+        if (org.id == orgId) return org.name;
     }
-    restoreTabs(id);
+    return "未知组织";
 }
 
-void switchOrg(std::int64_t id) {
-    if (id == g_requests.currentOrgId()) return;
-    stashTabs(g_requests.currentProjectId());
-    if (const std::string err = g_requests.selectOrg(id); !err.empty()) {
-        showStatus("切换组织失败: " + err);
+const db::Project* findProject(const std::vector<db::Project>& projects, std::int64_t id) {
+    for (const auto& project : projects) {
+        if (project.id == id) return &project;
     }
-    restoreTabs(g_requests.currentProjectId());
+    return nullptr;
 }
-
-void deleteProjectFlow(std::int64_t id, const std::string& name) {
-    askConfirm("删除项目", std::format("将删除项目「{}」及其全部请求，不可恢复。", name),
-               [id] {
-                   const bool wasCurrent = (id == g_requests.currentProjectId());
-                   discardStash(id);
-                   if (const std::string err = g_requests.deleteProject(id); !err.empty()) {
-                       showStatus("删除项目失败: " + err);
-                       return;
-                   }
-                   if (wasCurrent) clearTabs();
-                   restoreTabs(g_requests.currentProjectId());
-                   showStatus("项目已删除");
-               });
-}
-
-void deleteOrgFlow(std::int64_t id, const std::string& name) {
-    askConfirm("删除组织",
-               std::format("将删除组织「{}」、其全部项目与请求，不可恢复。", name),
-               [id] {
-                   // 先记下将被级联删除的项目，清理其 tab 暂存。
-                   std::vector<std::int64_t> doomed;
-                   for (const auto& p : g_requests.projects()) doomed.push_back(p.id);
-                   const bool wasCurrent = (id == g_requests.currentOrgId());
-                   if (const std::string err = g_requests.deleteOrg(id); !err.empty()) {
-                       showStatus("删除组织失败: " + err);
-                       return;
-                   }
-                   for (const std::int64_t pid : doomed) discardStash(pid);
-                   if (wasCurrent) clearTabs();
-                   restoreTabs(g_requests.currentProjectId());
-                   showStatus("组织已删除");
-               });
-}
-
-// ---- 小图标按钮（顶栏操作：新建/重命名/删除）----
 
 void drawIconBtn(eui::Ui& ui, const std::string& id, float x, float y, unsigned int icon,
                  const AppTheme& theme, std::function<void()> onClick) {
@@ -87,250 +46,225 @@ void drawIconBtn(eui::Ui& ui, const std::string& id, float x, float y, unsigned 
 
 } // namespace
 
-// ---- 第 1 条：组织选择器 + 项目标签页 ----
-
-export void drawOrgProjectBar(eui::Ui& ui, float x, float y, float w,
-                              const AppTheme& theme) {
-    const auto& tokens = theme.components;
-    const auto& orgs = g_requests.orgs();
-    const auto& projects = g_requests.projects();
-
-    // 当前组织名与下标
-    int orgIndex = 0;
-    std::string orgName = "(无组织)";
-    std::vector<std::string> orgNames;
-    for (int i = 0; i < static_cast<int>(orgs.size()); ++i) {
-        orgNames.push_back(orgs[i].name);
-        if (orgs[i].id == g_requests.currentOrgId()) {
-            orgIndex = i;
-            orgName = orgs[i].name;
-        }
+// 激活项目工作区：请求标签按项目暂存/恢复。
+export void openProjectWorkspace(std::int64_t orgId, std::int64_t projectId) {
+    if (projectId == 0) return;
+    if (g_activeProjectTabId == projectId && g_requests.currentProjectId() == projectId) {
+        g_page = Page::Request;
+        return;
     }
-
-    // ---- 组织：下拉 或 重命名输入框 ----
-    const float orgW = 150.0f;
-    static bool orgOpen = false;
-    if (g_renamingOrg) {
-        components::input(ui, "topbar.org.rename")
-            .position(x, y)
-            .size(orgW, kInputHeight)
-            .value(g_orgRenameText)
-            .placeholder("组织名称")
-            .theme(tokens)
-            .onChange([](const std::string& v) { g_orgRenameText = v; })
-            .onEnter([oid = g_requests.currentOrgId()] {
-                if (!trim(g_orgRenameText).empty()) {
-                    if (const std::string err = g_requests.renameOrg(oid, trim(g_orgRenameText));
-                        !err.empty()) {
-                        showStatus("重命名失败: " + err);
-                    }
-                }
-                g_renamingOrg = false;
-            })
-            .onFocus([](bool focused) {
-                if (!focused) g_renamingOrg = false;  // 失焦放弃
-            })
-            .build();
-    } else {
-        ui.stack("topbar.org.wrap")
-            .position(x, y)
-            .size(orgW, kInputHeight)
-            .zIndex(30)  // 弹层压项目标签与内容
-            .content([&] {
-                components::dropdown(ui, "topbar.org")
-                    .size(orgW, kInputHeight)
-                    .items(orgNames)
-                    .selected(orgIndex)
-                    .open(orgOpen)
-                    .theme(tokens)
-                    .onOpenChange([](bool o) { orgOpen = o; })
-                    .onChange([orgs](int i) { switchOrg(orgs[i].id); })
-                    .build();
-            })
-            .build();
+    if (g_requests.currentProjectId() != 0) stashTabs(g_requests.currentProjectId());
+    if (const std::string err = g_requests.selectProjectInOrg(orgId, projectId); !err.empty()) {
+        showStatus("切换项目失败: " + err);
+        return;
     }
-
-    // 组织操作：新建 / 重命名 / 删除
-    float bx = x + orgW + 4.0f;
-    drawIconBtn(ui, "topbar.org.add", bx, y + 2.0f, 0xF067, theme, [] {
-        if (const std::string err = g_requests.createOrg(
-                std::format("组织 {}", g_requests.orgs().size() + 1));
-            !err.empty()) {
-            showStatus("新建组织失败: " + err);
-        }
-    });
-    bx += 26.0f;
-    drawIconBtn(ui, "topbar.org.edit", bx, y + 2.0f, 0xF303, theme, [orgName] {  // fa-pen
-        g_orgRenameText = orgName;
-        g_renamingOrg = true;
-    });
-    bx += 26.0f;
-    drawIconBtn(ui, "topbar.org.del", bx, y + 2.0f, 0xF1F8, theme,
-                [oid = g_requests.currentOrgId(), orgName] { deleteOrgFlow(oid, orgName); });
-    bx += 30.0f;
-
-    // ---- 项目标签页（弹性宽度：均分剩余，90..170）----
-    const float addW = 26.0f;
-    const float avail = std::max(60.0f, x + w - addW - bx);
-    const int count = static_cast<int>(projects.size());
-    const float tabW = count > 0 ? std::clamp(avail / count, 90.0f, 170.0f) : 170.0f;
-
-    float tx = bx;
-    for (const auto& p : projects) {
-        const std::string tabId = "topbar.proj." + std::to_string(p.id);
-        const bool active = (p.id == g_requests.currentProjectId());
-        const bool renaming = (g_renamingProjectId == p.id);
-
-        if (renaming) {
-            // 重命名：tab 变输入框，Enter 提交 / 失焦放弃。
-            components::input(ui, tabId + ".rename")
-                .position(tx, y)
-                .size(tabW - 4.0f, kInputHeight)
-                .value(g_projectRenameText)
-                .placeholder("项目名称")
-                .theme(tokens)
-                .onChange([](const std::string& v) { g_projectRenameText = v; })
-                .onEnter([pid = p.id] {
-                    if (!trim(g_projectRenameText).empty()) {
-                        if (const std::string err =
-                                g_requests.renameProject(pid, trim(g_projectRenameText));
-                            !err.empty()) {
-                            showStatus("重命名失败: " + err);
-                        }
-                    }
-                    g_renamingProjectId = 0;
-                })
-                .onFocus([](bool focused) {
-                    if (!focused) g_renamingProjectId = 0;
-                })
-                .build();
-        } else {
-            ui.stack(tabId)
-                .position(tx, y)
-                .size(tabW - 4.0f, kInputHeight)
-                .content([&] {
-                    const float w2 = tabW - 4.0f;
-                    // 命中区（点击切换；点已激活 tab 进入重命名）
-                    ui.rect(tabId + ".hit")
-                        .position(0, 0)
-                        .size(w2, kInputHeight)
-                        .states(active ? components::theme::withAlpha(tokens.primary, 0.20f)
-                                       : components::theme::withAlpha(tokens.surface, 0.5f),
-                                tokens.surfaceHover, tokens.surfaceActive)
-                        .radius(6.0f)
-                        .onClick([pid = p.id, pname = p.name, active] {
-                            if (active) {
-                                g_projectRenameText = pname;
-                                g_renamingProjectId = pid;
-                            } else {
-                                switchProject(pid);
-                            }
-                        })
-                        .build();
-                    ui.text(tabId + ".name")
-                        .position(8.0f, 0)
-                        .size(w2 - (active ? 32.0f : 12.0f), kInputHeight)
-                        .text(p.name)
-                        .fontSize(kFontBody)
-                        .lineHeight(kInputHeight)
-                        .color(active ? theme.titleText : theme.metaText)
-                        .verticalAlign(core::VerticalAlign::Center)
-                        .build();
-                    // 删除（仅激活 tab 显示，避免误点）
-                    if (active) {
-                        components::button(ui, tabId + ".del")
-                            .position(w2 - 24.0f, 2.0f)
-                            .size(20.0f, 20.0f)
-                            .icon(0xF00D)
-                            .text("")
-                            .iconSize(8.0f)
-                            .theme(tokens, false)
-                            .onClick([pid = p.id, pname = p.name] {
-                                deleteProjectFlow(pid, pname);
-                            })
-                            .build();
-                    }
-                })
-                .build();
-        }
-        tx += tabW;
-    }
-
-    // 新建项目
-    drawIconBtn(ui, "topbar.proj.add", tx, y + 2.0f, 0xF067, theme, [] {
-        if (const std::string err = g_requests.createProject(
-                std::format("项目 {}", g_requests.projects().size() + 1));
-            !err.empty()) {
-            showStatus("新建项目失败: " + err);
-        }
-    });
+    if (!std::ranges::contains(g_openProjectIds, projectId)) g_openProjectIds.push_back(projectId);
+    g_activeProjectTabId = projectId;
+    restoreTabs(projectId);
+    g_page = Page::Request;
 }
 
-// ---- 第 2 条：请求标签页 ----
+export void closeProjectWorkspace(std::int64_t projectId) {
+    const auto it = std::ranges::find(g_openProjectIds, projectId);
+    if (it == g_openProjectIds.end()) return;
+    const bool wasActive = g_activeProjectTabId == projectId;
+    const std::size_t index = static_cast<std::size_t>(it - g_openProjectIds.begin());
+    g_openProjectIds.erase(it);
+    if (!wasActive) return;
+    if (g_openProjectIds.empty()) {
+        g_activeProjectTabId = 0;
+        g_page = Page::Home;
+        return;
+    }
+    const std::vector<db::Project> all = g_requests.allProjects();
+    const std::int64_t nextId = g_openProjectIds[std::min(index, g_openProjectIds.size() - 1)];
+    if (const db::Project* next = findProject(all, nextId)) {
+        openProjectWorkspace(next->orgId, next->id);
+    } else {
+        g_activeProjectTabId = 0;
+        g_page = Page::Home;
+    }
+}
 
-export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
-                                const AppTheme& theme) {
+export void forgetProjectWorkspace(std::int64_t projectId) {
+    discardStash(projectId);
+    std::erase(g_openProjectIds, projectId);
+    if (g_activeProjectTabId == projectId) {
+        g_activeProjectTabId = 0;
+        if (g_openProjectIds.empty()) {
+            g_page = Page::Home;
+            return;
+        }
+        const std::vector<db::Project> all = g_requests.allProjects();
+        if (const db::Project* next = findProject(all, g_openProjectIds.front())) {
+            openProjectWorkspace(next->orgId, next->id);
+        } else {
+            g_page = Page::Home;
+        }
+    }
+}
+
+// 单行项目工作区：固定主页面标签、已打开项目标签与基础设置。
+// 环境选择位于项目内部请求标签条最右侧。
+export void drawProjectWorkspaceBar(eui::Ui& ui, float x, float y, float w,
+                                    const AppTheme& theme) {
     const auto& tokens = theme.components;
+    const float homeW = 76.0f;
+    const float settingsW = 26.0f;
+    const float tabsRight = x + w - settingsW;
 
-    const float addW = 26.0f;
-    const float avail = std::max(60.0f, w - addW);
-    const int count = static_cast<int>(g_tabs.size());
-    const float tabW = count > 0 ? std::clamp(avail / count, 110.0f, 200.0f) : 200.0f;
+    ui.rect("workspace.home.hit")
+        .position(x, y)
+        .size(homeW, kInputHeight)
+        .states(g_page == Page::Home ? components::theme::withAlpha(tokens.primary, 0.20f)
+                                     : components::theme::withAlpha(tokens.surface, 0.5f),
+                tokens.surfaceHover, tokens.surfaceActive)
+        .radius(6.0f)
+        .onClick([] { g_page = Page::Home; })
+        .build();
+    ui.text("workspace.home.label")
+        .position(x, y)
+        .size(homeW, kInputHeight)
+        .icon(0xF015)
+        .fontSize(10.0f)
+        .lineHeight(kInputHeight)
+        .color(g_page == Page::Home ? theme.titleText : theme.metaText)
+        .horizontalAlign(core::HorizontalAlign::Center)
+        .verticalAlign(core::VerticalAlign::Center)
+        .build();
 
-    float tx = x;
-    for (const auto& t : g_tabs) {
-        const std::string tabId = "reqtabs.tab." + std::to_string(t.uid);
-        const bool active = (t.uid == g_activeTabUid);
-
+    const std::vector<db::Project> all = g_requests.allProjects();
+    const int count = static_cast<int>(g_openProjectIds.size());
+    const float areaW = std::max(64.0f, tabsRight - (x + homeW + kGap));
+    const float tabW = count > 0 ? std::clamp(areaW / count, 108.0f, 190.0f) : 108.0f;
+    float tx = x + homeW + kGap;
+    for (const std::int64_t id : g_openProjectIds) {
+        const db::Project* project = findProject(all, id);
+        if (!project) continue;
+        const bool active = id == g_activeProjectTabId;
+        const std::string tabId = "workspace.project." + std::to_string(id);
+        const float tabWidth = std::min(tabW - 3.0f, std::max(40.0f, tabsRight - tx));
+        if (tabWidth <= 40.0f) break;
         ui.stack(tabId)
             .position(tx, y)
-            .size(tabW - 3.0f, 24.0f)
+            .size(tabWidth, kInputHeight)
             .content([&] {
-                const float w2 = tabW - 3.0f;
                 ui.rect(tabId + ".hit")
-                    .position(0, 0)
-                    .size(w2, 24.0f)
+                    .size(tabWidth, kInputHeight)
                     .states(active ? components::theme::withAlpha(tokens.primary, 0.20f)
-                                   : components::theme::withAlpha(tokens.surface, 0.4f),
+                                   : components::theme::withAlpha(tokens.surface, 0.5f),
                             tokens.surfaceHover, tokens.surfaceActive)
                     .radius(6.0f)
-                    .onClick([uid = t.uid] { g_activeTabUid = uid; })
+                    .onClick([orgId = project->orgId, id] { openProjectWorkspace(orgId, id); })
                     .build();
-                // 方法徽章
-                ui.text(tabId + ".method")
-                    .position(6.0f, 0)
-                    .size(34.0f, 24.0f)
-                    .text(kMethods[t.draft.methodIndex])
-                    .fontSize(8.0f)
-                    .lineHeight(24.0f)
-                    .color(methodColor(kMethods[t.draft.methodIndex], theme))
-                    .verticalAlign(core::VerticalAlign::Center)
-                    .build();
-                // 名称（未保存草稿带 •）
                 ui.text(tabId + ".name")
-                    .position(42.0f, 0)
-                    .size(w2 - 42.0f - 24.0f, 24.0f)
-                    .text(t.draft.name + (t.requestId == 0 ? " •" : ""))
+                    .position(8.0f, 0)
+                    .size(std::max(0.0f, tabWidth - 30.0f), kInputHeight)
+                    .text(project->name + " · " + orgName(project->orgId))
                     .fontSize(kFontLabel)
-                    .lineHeight(24.0f)
+                    .lineHeight(kInputHeight)
                     .color(active ? theme.titleText : theme.metaText)
                     .verticalAlign(core::VerticalAlign::Center)
                     .build();
-                // 关闭
                 components::button(ui, tabId + ".close")
-                    .position(w2 - 22.0f, 3.0f)
+                    .position(tabWidth - 22.0f, 3.0f)
                     .size(18.0f, 18.0f)
                     .icon(0xF00D)
                     .text("")
                     .iconSize(8.0f)
                     .theme(tokens, false)
-                    .onClick([uid = t.uid] { closeTab(uid); })
+                    .onClick([id] { closeProjectWorkspace(id); })
                     .build();
             })
             .build();
         tx += tabW;
     }
 
-    // 新建草稿 tab
-    drawIconBtn(ui, "reqtabs.add", tx, y + 1.0f, 0xF067, theme, [] { (void)newDraftTab(); });
+    const float settingsX = x + w - settingsW;
+    drawIconBtn(ui, "workspace.settings", settingsX, y + 2.0f, 0xF013,
+                theme, [] { g_settingsOpen = true; });
+}
+
+// 项目内部请求标签条。
+export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
+                                const AppTheme& theme) {
+    const auto& tokens = theme.components;
+    const float envW = 170.0f;
+    const float gearW = 26.0f;
+    const float envControlsW = envW + kGap + gearW;
+    const float addW = 26.0f;
+    const float avail = std::max(60.0f, w - envControlsW - kGap - addW);
+    const int count = static_cast<int>(g_tabs.size());
+    const float tabW = count > 0 ? std::clamp(avail / count, 110.0f, 200.0f) : 200.0f;
+
+    float tx = x;
+    for (const auto& tab : g_tabs) {
+        const std::string tabId = "reqtabs.tab." + std::to_string(tab.uid);
+        const bool active = tab.uid == g_activeTabUid;
+        ui.stack(tabId)
+            .position(tx, y)
+            .size(tabW - 3.0f, 24.0f)
+            .content([&] {
+                const float tabWidth = tabW - 3.0f;
+                ui.rect(tabId + ".hit")
+                    .size(tabWidth, 24.0f)
+                    .states(active ? components::theme::withAlpha(tokens.primary, 0.20f)
+                                   : components::theme::withAlpha(tokens.surface, 0.4f),
+                            tokens.surfaceHover, tokens.surfaceActive)
+                    .radius(6.0f)
+                    .onClick([uid = tab.uid] { g_activeTabUid = uid; })
+                    .build();
+                ui.text(tabId + ".method")
+                    .position(6.0f, 0).size(34.0f, 24.0f)
+                    .text(kMethods[tab.draft.methodIndex]).fontSize(8.0f).lineHeight(24.0f)
+                    .color(methodColor(kMethods[tab.draft.methodIndex], theme))
+                    .verticalAlign(core::VerticalAlign::Center).build();
+                ui.text(tabId + ".name")
+                    .position(42.0f, 0).size(tabWidth - 66.0f, 24.0f)
+                    .text(tab.draft.name + (tab.requestId == 0 ? " •" : ""))
+                    .fontSize(kFontLabel).lineHeight(24.0f)
+                    .color(active ? theme.titleText : theme.metaText)
+                    .verticalAlign(core::VerticalAlign::Center).build();
+                components::button(ui, tabId + ".close")
+                    .position(tabWidth - 22.0f, 3.0f).size(18.0f, 18.0f)
+                    .icon(0xF00D).text("").iconSize(8.0f).theme(tokens, false)
+                    .onClick([uid = tab.uid] { closeTab(uid); }).build();
+            })
+            .build();
+        tx += tabW;
+    }
+    const float envX = x + w - envControlsW;
+    drawIconBtn(ui, "reqtabs.add", std::min(tx, envX - addW - kGap), y + 1.0f,
+                0xF067, theme, [] { (void)newDraftTab(); });
+
+    const auto& envs = g_requests.environments();
+    std::vector<std::string> envNames;
+    int envSelected = 0;
+    for (int i = 0; i < static_cast<int>(envs.size()); ++i) {
+        std::string label = envs[i].name;
+        if (!envs[i].baseUrl.empty()) label += "  " + envs[i].baseUrl;
+        envNames.push_back(std::move(label));
+        if (envs[i].id == g_requests.currentEnvId()) envSelected = i + 1;
+    }
+    envNames.insert(envNames.begin(), "未选择环境");
+    ui.stack("reqtabs.env.wrap")
+        .position(envX, y)
+        .size(envW, kInputHeight)
+        .zIndex(30)
+        .content([&] {
+            components::dropdown(ui, "reqtabs.env")
+                .size(envW, kInputHeight)
+                .items(envNames)
+                .selected(envSelected)
+                .open(g_topbarEnvOpen)
+                .theme(tokens)
+                .onOpenChange([](bool open) { g_topbarEnvOpen = open; })
+                .onChange([envs](int index) {
+                    (void)g_requests.selectEnv(index > 0 ? envs[index - 1].id : 0);
+                })
+                .build();
+        })
+        .build();
+    drawIconBtn(ui, "reqtabs.env.manage", envX + envW + kGap, y + 1.0f,
+                0xF013, theme, [] { g_envManageOpen = true; });
 }

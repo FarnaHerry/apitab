@@ -8,11 +8,39 @@ module;
 
 #include "eui_ui.h"
 
+#ifndef _WIN32
+#include <cstdio>
+#endif
+
 export module apitab.ui.theme;
 
 import std;
 
-export bool g_dark = true;  // rail 底部按钮切换（v1 不落盘）
+export enum class ThemeMode { Dark, Light, System };
+export ThemeMode g_themeMode = ThemeMode::System;
+
+// 当前 EUI 版本未提供跨平台系统主题读取 API。System 模式使用桌面默认深色，
+// 保留为独立模式以便平台 API 可用时无缝接入。
+export bool g_dark = true;
+
+// 跟随系统的读取结果在选择该模式时缓存，避免渲染期间启动外部探测进程。
+export bool systemDark() {
+#ifdef _WIN32
+    return true;
+#elif defined(__APPLE__)
+    return false;
+#else
+    FILE* pipe = ::popen("gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null", "r");
+    if (!pipe) return true;
+    std::string value;
+    char buffer[128];
+    while (::fgets(buffer, sizeof(buffer), pipe)) value += buffer;
+    ::pclose(pipe);
+    if (value.find("prefer-light") != std::string::npos) return false;
+    return true;
+#endif
+}
+
 
 // 全系统颜色都从 currentTheme() 取：控件统一 .theme(theme.components)，
 // 裸文本从命名字段取，深浅主题各自定义保证对比度。compose 每帧重跑，切换即时生效。
@@ -85,5 +113,7 @@ export const AppTheme kLightTheme = {
 };
 
 export const AppTheme& currentTheme() {
-    return g_dark ? kDarkTheme : kLightTheme;
+    const bool dark = g_themeMode == ThemeMode::Dark ||
+                      (g_themeMode == ThemeMode::System && g_dark);
+    return dark ? kDarkTheme : kLightTheme;
 }

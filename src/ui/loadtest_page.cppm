@@ -39,7 +39,7 @@ void startLoad() {
         showStatus("URL 不能为空");
         return;
     }
-    if (spec.url.find("://") == std::string::npos) {
+    if (!hasUriScheme(spec.url)) {
         spec.url = "http://" + spec.url;
     }
     // 与单次发送同一套 query 拼接（压测脚本里写死最终 URL）。

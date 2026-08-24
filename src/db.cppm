@@ -134,6 +134,8 @@ public:
     // ---- history ----
     void addHistory(const HistoryEntry& e);
     std::vector<HistoryEntry> listHistory(int limit = 50);  // 最新在前
+    std::int64_t historyCount();
+    std::vector<HistoryEntry> listHistoryPage(int limit, std::int64_t offset);
     void clearHistory();
 
     // ---- load_tests ----

@@ -11,8 +11,8 @@ import apitab.utils;
 
 // ---- 页面 ----
 
-export enum class Page { Request, Load, History };
-export Page g_page = Page::Request;  // 默认打开请求页
+export enum class Page { Home, Request, Load, History };
+export Page g_page = Page::Home;  // 默认打开主页面
 
 // ---- HTTP 方法 ----
 
@@ -171,6 +171,11 @@ export void clearTabs() {
     newDraftTab();
 }
 
+// ---- 项目工作区标签 ----
+// 打开的项目是会话状态，关闭标签不会删除持久化项目。
+export std::vector<std::int64_t> g_openProjectIds;
+export std::int64_t g_activeProjectTabId = 0;
+
 // ---- 响应展示 ----
 
 export enum class ResponseTab { Body, Headers };
@@ -230,6 +235,10 @@ export std::string g_requestRenameText;
 // ---- 环境管理弹窗 ----
 
 export bool g_envManageOpen = false;
+
+// ---- 基础设置弹窗 ----
+
+export bool g_settingsOpen = false;
 
 // ---- 确认弹窗（删除项目/组织等破坏性操作）----
 

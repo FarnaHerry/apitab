@@ -464,10 +464,22 @@ void Db::addHistory(const HistoryEntry& e) {
 }
 
 std::vector<HistoryEntry> Db::listHistory(int limit) {
+    return listHistoryPage(limit, 0);
+}
+
+std::int64_t Db::historyCount() {
+    SQLite::Statement q(impl_->db, "SELECT COUNT(*) FROM history");
+    return q.executeStep() ? q.getColumn(0).getInt64() : 0;
+}
+
+std::vector<HistoryEntry> Db::listHistoryPage(int limit, std::int64_t offset) {
+    const int safeLimit = std::max(1, limit);
+    const std::int64_t safeOffset = std::max<std::int64_t>(0, offset);
     SQLite::Statement q(impl_->db,
         "SELECT id,request_id,method,url,status,duration_ms,size_bytes,error,created_at "
-        "FROM history ORDER BY id DESC LIMIT ?");
-    q.bind(1, limit);
+        "FROM history ORDER BY id DESC LIMIT ? OFFSET ?");
+    q.bind(1, safeLimit);
+    q.bind(2, safeOffset);
     std::vector<HistoryEntry> out;
     while (q.executeStep()) {
         HistoryEntry e;

@@ -41,7 +41,7 @@ void sendCurrentRequest() {
         return;
     }
     api::RequestSpec spec = buildSpec(tab.draft, finalUrl);
-    if (spec.url.find("://") == std::string::npos) {
+    if (!hasUriScheme(spec.url)) {
         spec.url = "http://" + spec.url;  // 裸域名补 http://（curl 无 scheme 会报错）
     }
     g_sendingTabUid = tab.uid;  // 结果写回发起 tab
@@ -346,9 +346,9 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
     const auto& tokens = theme.components;
     Draft& draft = activeDraft();
 
-    // ---- 第 1 行：method + 环境 + ⚙ + URL（弹性）+ 发送 + 保存 ----
-    const float sendW = 64.0f, saveW = 52.0f, methodW = 96.0f, envW = 170.0f, gearW = 26.0f;
-    const float urlW = std::max(120.0f, w - methodW - envW - gearW - sendW - saveW - kGap * 5.0f);
+    // ---- 第 1 行：method + URL（弹性）+ 发送 + 保存 ----
+    const float sendW = 64.0f, saveW = 52.0f, methodW = 96.0f;
+    const float urlW = std::max(120.0f, w - methodW - sendW - saveW - kGap * 3.0f);
 
     ui.stack("req.method.wrap")
         .position(x, y)
@@ -367,50 +367,8 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
         })
         .build();
 
-    // 环境选择（dropdown：显示环境名，首个为「未选择」；同时展示 base URL）
-    const auto& envs = g_requests.environments();
-    std::vector<std::string> envNames;
-    int envSelected = 0;
-    for (int i = 0; i < static_cast<int>(envs.size()); ++i) {
-        std::string label = envs[i].name;
-        if (!envs[i].baseUrl.empty()) label += "  " + envs[i].baseUrl;
-        envNames.push_back(std::move(label));
-        if (envs[i].id == g_requests.currentEnvId()) envSelected = i + 1;  // +1 留给「未选择」
-    }
-    envNames.insert(envNames.begin(), "未选择环境");
-
-    ui.stack("req.env.wrap")
-        .position(x + methodW + kGap, y)
-        .size(envW, kInputHeight)
-        .zIndex(19)  // 弹层要压在下方编辑器/响应区之上（低于 method 的 20）
-        .content([&] {
-            components::dropdown(ui, "req.env")
-                .size(envW, kInputHeight)
-                .items(envNames)
-                .selected(envSelected)
-                .open(g_envOpen)
-                .theme(tokens)
-                .onOpenChange([](bool o) { g_envOpen = o; })
-                .onChange([envs](int i) {
-                    (void)g_requests.selectEnv(i > 0 ? envs[i - 1].id : 0);
-                })
-                .build();
-        })
-        .build();
-
-    // 环境管理弹窗开关（⚙）
-    components::button(ui, "req.env.manage")
-        .position(x + methodW + kGap + envW + kGap, y)
-        .size(gearW, kInputHeight)
-        .icon(0xF013)  // fa-gear
-        .text("")
-        .iconSize(10.0f)
-        .theme(tokens, false)
-        .onClick([] { g_envManageOpen = true; })
-        .build();
-
     const bool busy = g_requests.busy();
-    const float urlX = x + methodW + envW + gearW + kGap * 3.0f;
+    const float urlX = x + methodW + kGap;
     components::input(ui, "req.url")
         .position(urlX, y)
         .size(urlW, kInputHeight)

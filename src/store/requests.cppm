@@ -76,7 +76,31 @@ public:
     // ---- 项目 ----
 
     const std::vector<db::Project>& projects() const { return projects_; }
+    std::vector<db::Project> allProjects() const {
+        std::vector<db::Project> result;
+        for (const auto& org : orgs_) {
+            std::vector<db::Project> projects = db_->listProjects(org.id);
+            result.insert(result.end(), std::make_move_iterator(projects.begin()),
+                          std::make_move_iterator(projects.end()));
+        }
+        return result;
+    }
     std::int64_t currentProjectId() const { return currentProjectId_; }
+
+    std::string selectProjectInOrg(std::int64_t orgId, std::int64_t projectId) {
+        return guarded([&] {
+            const std::vector<db::Project> candidates = db_->listProjects(orgId);
+            const bool belongs = std::ranges::any_of(candidates, [&](const db::Project& p) {
+                return p.id == projectId;
+            });
+            if (!belongs) throw std::runtime_error("项目不属于指定组织");
+            if (currentProjectId_ != 0) selectedEnvByProject_[currentProjectId_] = currentEnvId_;
+            currentOrgId_ = orgId;
+            projects_ = candidates;
+            currentProjectId_ = projectId;
+            reloadGroups();
+        });
+    }
 
     std::string selectProject(std::int64_t id) {
         return guarded([&] {
@@ -184,8 +208,8 @@ public:
     std::string composeUrl(const std::string& path, std::int64_t groupId,
                            std::int64_t envId) const {
         const std::string cleanPath = trim(path);
-        // 显式绝对 URL 是完整目标，不再叠加环境或 Path 分组。
-        if (cleanPath.find("://") != std::string::npos) return cleanPath;
+        // 显式 URI scheme 是完整目标，不再叠加环境或 Path 分组。
+        if (hasUriScheme(cleanPath)) return cleanPath;
 
         std::string url;
         if (const db::Environment* e = findEnvironment(envId)) {
@@ -354,6 +378,24 @@ public:
     std::vector<db::HistoryEntry> history(int limit = 50) {
         try {
             return db_->listHistory(limit);
+        } catch (...) {
+            return {};
+        }
+    }
+
+    std::int64_t historyCount() {
+        try {
+            return db_->historyCount();
+        } catch (...) {
+            return 0;
+        }
+    }
+
+    std::vector<db::HistoryEntry> historyPage(int pageSize, std::int64_t pageIndex) {
+        try {
+            const int safePageSize = std::clamp(pageSize, 1, 100);
+            const std::int64_t offset = std::max<std::int64_t>(0, pageIndex) * safePageSize;
+            return db_->listHistoryPage(safePageSize, offset);
         } catch (...) {
             return {};
         }

@@ -34,6 +34,8 @@ import apitab.ui.topbars;
 import apitab.ui.request_page;
 import apitab.ui.loadtest_page;
 import apitab.ui.history_page;
+import apitab.ui.home_page;
+import apitab.ui.settings_page;
 
 namespace app {
 
@@ -132,53 +134,62 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .build();
 
                     float railY = 40.0f;
-                    drawRailItem(ui, "nav.request", railY, kRailWidth, 0xF1D8,  // paper-plane
+                    drawRailItem(ui, "nav.home", railY, kRailWidth, 0xF015,
+                                 g_page == Page::Home, theme,
+                                 [] { g_page = Page::Home; });
+                    railY += 30.0f;
+                    drawRailItem(ui, "nav.request", railY, kRailWidth, 0xF1D8,
                                  g_page == Page::Request, theme,
-                                 [] { g_page = Page::Request; });
+                                 [] {
+                                     if (g_activeProjectTabId == 0) showStatus("请先在主页面打开项目");
+                                     else g_page = Page::Request;
+                                 });
                     railY += 30.0f;
-                    drawRailItem(ui, "nav.load", railY, kRailWidth, 0xF0E7,  // bolt
+                    drawRailItem(ui, "nav.load", railY, kRailWidth, 0xF0E7,
                                  g_page == Page::Load, theme,
-                                 [] { g_page = Page::Load; });
+                                 [] {
+                                     if (g_activeProjectTabId == 0) showStatus("请先在主页面打开项目");
+                                     else g_page = Page::Load;
+                                 });
                     railY += 30.0f;
-                    drawRailItem(ui, "nav.history", railY, kRailWidth, 0xF1DA,  // clock-rotate-left
+                    drawRailItem(ui, "nav.history", railY, kRailWidth, 0xF1DA,
                                  g_page == Page::History, theme,
                                  [] { g_page = Page::History; });
 
-                    // 主题切换（rail 底部，不落盘）。
-                    drawRailItem(ui, "nav.theme", screen.height - 20.0f - 34.0f, kRailWidth,
-                                 g_dark ? 0xF185 : 0xF186,  // sun / moon
-                                 false, theme,
-                                 [] { g_dark = !g_dark; });
+                    // 基础设置入口在顶部工作区栏右侧，rail 只保留页面导航。
                 })
                 .build();
 
             // ===================== 集合侧栏 =====================
-            // 请求与压测页始终显示请求集合；历史页使用完整内容宽度。
+            const bool projectPage = (g_page == Page::Request || g_page == Page::Load) &&
+                                     g_activeProjectTabId != 0;
             float contentX = kRailWidth + kMargin;
-            if (g_page != Page::History) {
+            if (projectPage) {
                 drawSidebar(ui, screen, theme);
                 contentX = kRailWidth + kSidebarWidth + kMargin;
             }
 
             // ===================== 内容区 =====================
             const float contentW = screen.width - contentX - kMargin;
-            const float contentH = screen.height - 20.0f - kMargin * 2.0f;  // 减去状态条
+            const float contentH = screen.height - 20.0f - kMargin * 2.0f;
 
-            // 顶部两条：组织/项目切换 + 请求标签页（仅 Request/Load 页显示）。
             float pageY = kMargin;
-            if (g_page != Page::History) {
-                drawOrgProjectBar(ui, contentX, pageY, contentW, theme);
+            if (projectPage) {
+                drawProjectWorkspaceBar(ui, contentX, pageY, contentW, theme);
                 drawRequestTabStrip(ui, contentX, pageY + 32.0f, contentW, theme);
                 pageY += 64.0f;
             }
             const float pageH = contentH - (pageY - kMargin);
 
             switch (g_page) {
+                case Page::Home:
+                    drawHomePage(ui, contentX, pageY, contentW, pageH, theme);
+                    break;
                 case Page::Request:
-                    drawRequestPage(ui, contentX, pageY, contentW, pageH, theme);
+                    if (projectPage) drawRequestPage(ui, contentX, pageY, contentW, pageH, theme);
                     break;
                 case Page::Load:
-                    drawLoadPage(ui, contentX, pageY, contentW, pageH, theme);
+                    if (projectPage) drawLoadPage(ui, contentX, pageY, contentW, pageH, theme);
                     break;
                 case Page::History:
                     drawHistoryPage(ui, contentX, pageY, contentW, pageH, theme);
@@ -193,6 +204,9 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
 
             // ===================== 请求页弹窗（环境管理）=====================
             drawRequestPageDialogs(ui, screen, theme);
+
+            // ===================== 全局设置弹窗 =====================
+            drawSettingsDialog(ui, screen, theme);
 
             // ===================== 确认弹窗 =====================
             if (g_confirm.open) {

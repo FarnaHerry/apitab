@@ -55,7 +55,22 @@ export std::int64_t nowUnix() {
         .count();
 }
 
-// RFC 3986 unreserved 之外全部 %XX（query 参数编码，不依赖 curl —— k6 引擎也用）。
+// 判断开头是否为 RFC 3986 URI scheme（如 https:、custom+api:）。
+export bool hasUriScheme(std::string_view value) {
+    if (value.empty() || !((value.front() >= 'A' && value.front() <= 'Z') ||
+                           (value.front() >= 'a' && value.front() <= 'z'))) {
+        return false;
+    }
+    for (std::size_t i = 1; i < value.size(); ++i) {
+        const char c = value[i];
+        if (c == ':') return true;
+        const bool valid = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                           (c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.';
+        if (!valid) return false;
+    }
+    return false;
+}
+
 export std::string percentEncode(std::string_view s) {
     static constexpr char hex[] = "0123456789ABCDEF";
     std::string out;
