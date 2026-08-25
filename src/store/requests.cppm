@@ -115,6 +115,7 @@ public:
     std::string createProject(const std::string& name) {
         return guarded([&] {
             currentProjectId_ = db_->createProject(currentOrgId_, name);
+            (void)db_->createEnvironment(currentProjectId_, "localhost", "http://localhost");
             reloadProjects();
         });
     }
@@ -342,6 +343,20 @@ public:
         }
     }
 
+    std::vector<db::GlobalCookie> globalCookies() const {
+        try { return db_->listGlobalCookies(); } catch (...) { return {}; }
+    }
+    std::string saveGlobalCookie(db::GlobalCookie& cookie) {
+        try {
+            cookie.id = db_->saveGlobalCookie(cookie);
+            return {};
+        } catch (const std::exception& e) { return e.what(); }
+    }
+    std::string deleteGlobalCookie(std::int64_t id) {
+        try { db_->deleteGlobalCookie(id); return {}; }
+        catch (const std::exception& e) { return e.what(); }
+    }
+
     // ---- 发送 ----
 
     // 派发一次请求（异步）。finalUrl = url + 启用的 query 参数。requestId 用于
@@ -353,6 +368,10 @@ public:
         std::vector<std::pair<std::string, std::string>> enabled;
         for (const auto& p : spec.params) {
             if (p.enabled && !p.key.empty()) enabled.emplace_back(p.key, p.value);
+        }
+        const std::vector<db::GlobalCookie> global = globalCookies();
+        for (const auto& cookie : global) {
+            if (cookie.enabled) finalSpec.cookies.push_back({cookie.name, cookie.value, true, {}, {}});
         }
         finalSpec.url = appendQuery(trim(spec.url), enabled);
         pendingUrl_ = finalSpec.url;

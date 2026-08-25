@@ -14,6 +14,9 @@ import apitab.utils;
 export enum class Page { Home, GlobalSettings, Request, Load, History, ProjectSettings };
 export Page g_page = Page::Home;  // 默认打开主页面
 
+export enum class HomeTab { Projects, Members, Settings };
+export HomeTab g_homeTab = HomeTab::Projects;
+
 export bool isOverlayPage(Page page) {
     return page == Page::Home || page == Page::GlobalSettings;
 }
@@ -32,7 +35,7 @@ export std::int64_t g_homeSelectedOrgId = 0;
 
 // ---- 编辑器草稿 ----
 
-export enum class EditorTab { Params, Headers, Body };
+export enum class EditorTab { Params, Headers, Body, Cookies, Settings };
 
 export struct Draft {
     api::RequestKind kind = api::RequestKind::Http;
@@ -42,9 +45,12 @@ export struct Draft {
     std::string url;
     std::vector<api::KeyValue> params;
     std::vector<api::KeyValue> headers;
+    std::vector<api::KeyValue> cookies;
     api::BodyKind bodyKind = api::BodyKind::None;
     std::string body;
     EditorTab tab = EditorTab::Params;
+    bool followRedirects = true;
+    bool allowJsonComments = true;
     std::string wsProtocol;
     int tcpConnectTimeoutSec = 15;
 };
@@ -64,8 +70,11 @@ export void fillDraft(Draft& draft, const db::SavedRequest& r) {
     draft.url = r.url;
     draft.params = r.params;
     draft.headers = r.headers;
+    draft.cookies = r.cookies;
     draft.bodyKind = r.bodyKind;
     draft.body = r.body;
+    draft.followRedirects = r.followRedirects;
+    draft.allowJsonComments = r.allowJsonComments;
     draft.wsProtocol = r.wsProtocol;
 }
 
@@ -77,8 +86,11 @@ export api::RequestSpec buildSpec(const Draft& draft, const std::string& finalUr
     spec.url = trim(finalUrl);
     spec.params = draft.params;
     spec.headers = draft.headers;
+    spec.cookies = draft.cookies;
     spec.bodyKind = draft.bodyKind;
     spec.body = draft.body;
+    spec.followRedirects = draft.followRedirects;
+    spec.allowJsonComments = draft.allowJsonComments;
     return spec;
 }
 
@@ -293,6 +305,7 @@ export std::string g_requestRenameText;
 // ---- 环境管理弹窗 ----
 
 export bool g_envManageOpen = false;
+export bool g_globalCookieOpen = false;
 
 // ---- 确认弹窗（删除项目/组织等破坏性操作）----
 

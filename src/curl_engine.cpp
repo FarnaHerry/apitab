@@ -60,6 +60,59 @@ size_t onHeaderLine(char* ptr, size_t size, size_t nmemb, void* userdata) {
     return n;
 }
 
+std::string stripJsonComments(std::string_view input) {
+    std::string output;
+    output.reserve(input.size());
+    bool inString = false;
+    bool escaped = false;
+    for (std::size_t i = 0; i < input.size();) {
+        const char c = input[i];
+        if (inString) {
+            output.push_back(c);
+            if (escaped) escaped = false;
+            else if (c == '\\') escaped = true;
+            else if (c == '"') inString = false;
+            ++i;
+            continue;
+        }
+        if (c == '"') {
+            inString = true;
+            output.push_back(c);
+            ++i;
+        } else if (c == '/' && i + 1 < input.size() && input[i + 1] == '/') {
+            i += 2;
+            while (i < input.size() && input[i] != '\n') ++i;
+        } else if (c == '/' && i + 1 < input.size() && input[i + 1] == '*') {
+            i += 2;
+            while (i + 1 < input.size() && !(input[i] == '*' && input[i + 1] == '/')) ++i;
+            if (i + 1 < input.size()) i += 2;
+        } else {
+            output.push_back(c);
+            ++i;
+        }
+    }
+    return output;
+}
+
+std::vector<std::pair<std::string, std::string>> parseFormData(std::string_view body) {
+    std::vector<std::pair<std::string, std::string>> fields;
+    std::size_t start = 0;
+    while (start <= body.size()) {
+        const std::size_t end = body.find('\n', start);
+        std::string_view line = body.substr(start, end == std::string_view::npos ? body.size() - start : end - start);
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) line.remove_suffix(1);
+        const std::size_t equal = line.find('=');
+        if (equal != std::string_view::npos) {
+            std::string key(line.substr(0, equal));
+            std::string value(line.substr(equal + 1));
+            if (!key.empty()) fields.emplace_back(std::move(key), std::move(value));
+        }
+        if (end == std::string_view::npos) break;
+        start = end + 1;
+    }
+    return fields;
+}
+
 class CurlEngine final : public api::ApiEngine {
 public:
     CurlEngine() { curl_global_init(CURL_GLOBAL_DEFAULT); }
@@ -111,16 +164,23 @@ private:
         WriteCtx bodyCtx{&result.body};
         HeaderCtx headerCtx{&result.headers};
         struct curl_slist* headerList = nullptr;
+        curl_mime* mime = nullptr;
         for (const auto& h : spec.headers) {
             if (!h.enabled || h.key.empty()) continue;
             const std::string line = h.key + ": " + h.value;
             headerList = curl_slist_append(headerList, line.c_str());
         }
 
+        for (const auto& cookie : spec.cookies) {
+            if (!cookie.enabled || cookie.key.empty()) continue;
+            const std::string line = cookie.key + "=" + cookie.value;
+            headerList = curl_slist_append(headerList, ("Cookie: " + line).c_str());
+        }
         curl_easy_setopt(easy, CURLOPT_URL, spec.url.c_str());
         curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "http,https");
         curl_easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
         curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, spec.method.c_str());
+        curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, spec.followRedirects ? 1L : 0L);
         curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headerList);
         curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, &onBodyWrite);
         curl_easy_setopt(easy, CURLOPT_WRITEDATA, &bodyCtx);
@@ -134,9 +194,30 @@ private:
         curl_easy_setopt(easy, CURLOPT_XFERINFODATA, this);
         curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);  // 启用 xferinfo 回调
         if (spec.bodyKind != api::BodyKind::None) {
-            curl_easy_setopt(easy, CURLOPT_POSTFIELDS, spec.body.data());
+            std::string body = spec.body;
+            if (spec.bodyKind == api::BodyKind::Json && spec.allowJsonComments) {
+                body = stripJsonComments(body);
+            }
+            curl_easy_setopt(easy, CURLOPT_POSTFIELDS, body.data());
             curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE,
-                             static_cast<long>(spec.body.size()));
+                             static_cast<long>(body.size()));
+            if (spec.bodyKind == api::BodyKind::Json || spec.bodyKind == api::BodyKind::GraphQL) {
+                headerList = curl_slist_append(headerList, "Content-Type: application/json");
+            } else if (spec.bodyKind == api::BodyKind::FormData) {
+                const auto fields = parseFormData(body);
+                mime = curl_mime_init(easy);
+                for (const auto& [name, value] : fields) {
+                    curl_mimepart* part = curl_mime_addpart(mime);
+                    curl_mime_name(part, name.c_str());
+                    curl_mime_data(part, value.c_str(), CURL_ZERO_TERMINATED);
+                }
+                curl_easy_setopt(easy, CURLOPT_MIMEPOST, mime);
+            } else if (spec.bodyKind == api::BodyKind::FormUrlEncoded) {
+                headerList = curl_slist_append(headerList, "Content-Type: application/x-www-form-urlencoded");
+            } else if (spec.bodyKind == api::BodyKind::Xml) {
+                headerList = curl_slist_append(headerList, "Content-Type: application/xml");
+            }
+            curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headerList);
         }
 
         const CURLcode code = curl_easy_perform(easy);
@@ -165,6 +246,7 @@ private:
             result.error = curl_easy_strerror(code);
         }
 
+        if (mime) curl_mime_free(mime);
         curl_slist_free_all(headerList);
         curl_easy_cleanup(easy);
         finish(std::move(result));

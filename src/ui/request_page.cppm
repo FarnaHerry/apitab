@@ -27,6 +27,33 @@ bool g_envOpen = false;
 std::unordered_map<std::int64_t, std::string> g_envNameDrafts;
 std::unordered_map<std::int64_t, std::string> g_envUrlDrafts;
 std::int64_t g_envDraftProjectId = 0;
+std::vector<db::GlobalCookie> g_globalCookieDrafts;
+std::int64_t g_nextTempGlobalCookieId = -1;
+
+int bodyKindIndex(api::BodyKind kind) {
+    switch (kind) {
+        case api::BodyKind::None: return 0;
+        case api::BodyKind::Json: return 1;
+        case api::BodyKind::Text: return 2;
+        case api::BodyKind::FormData: return 3;
+        case api::BodyKind::FormUrlEncoded: return 4;
+        case api::BodyKind::Xml: return 5;
+        case api::BodyKind::GraphQL: return 6;
+    }
+    return 0;
+}
+
+api::BodyKind bodyKindFromIndex(int index) {
+    switch (std::clamp(index, 0, 6)) {
+        case 1: return api::BodyKind::Json;
+        case 2: return api::BodyKind::Text;
+        case 3: return api::BodyKind::FormData;
+        case 4: return api::BodyKind::FormUrlEncoded;
+        case 5: return api::BodyKind::Xml;
+        case 6: return api::BodyKind::GraphQL;
+        default: return api::BodyKind::None;
+    }
+}
 
 // 最终 URL = 环境 base + Path 分组前缀 + 相对路径（由领域 store 统一拼）。
 std::string composeFinalUrl(const Draft& draft) {
@@ -65,8 +92,11 @@ void persistCurrentRequest(const std::string& name) {
         .url = tab.draft.url,
         .params = tab.draft.params,
         .headers = tab.draft.headers,
+        .cookies = tab.draft.cookies,
         .bodyKind = tab.draft.bodyKind,
         .body = tab.draft.body,
+        .followRedirects = tab.draft.followRedirects,
+        .allowJsonComments = tab.draft.allowJsonComments,
     };
     const std::string err = g_requests.save(r);
     if (err.empty()) {
@@ -144,6 +174,53 @@ void drawSaveRequestNameDialog(eui::Ui& ui, const eui::Screen& screen,
 
 // ---- 编辑器区（按 tab 分发）----
 
+void drawGlobalCookieDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
+    if (!g_globalCookieOpen) return;
+    const auto& tokens = theme.components;
+    if (g_globalCookieDrafts.empty()) g_globalCookieDrafts = g_requests.globalCookies();
+    auto& cookies = g_globalCookieDrafts;
+    components::dialog(ui, "global.cookies.dialog")
+        .open(true).screen(screen.width, screen.height).size(480.0f, 300.0f)
+        .title("全局 Cookies").theme(tokens)
+        .content([&] {
+            float y = 50.0f;
+            for (auto& cookie : cookies) {
+                const std::string id = "global.cookie." + std::to_string(cookie.id);
+                components::input(ui, id + ".name").position(16.0f, y).size(120.0f, 24.0f)
+                    .value(cookie.name).placeholder("名称").theme(tokens)
+                    .onChange([&cookie](const std::string& v) { cookie.name = v; }).build();
+                components::input(ui, id + ".value").position(142.0f, y).size(250.0f, 24.0f)
+                    .value(cookie.value).placeholder("值").theme(tokens)
+                    .onChange([&cookie](const std::string& v) { cookie.value = v; }).build();
+                components::button(ui, id + ".delete").position(404.0f, y + 2.0f).size(20.0f, 20.0f)
+                    .icon(0xF1F8).text("").iconSize(8.0f).theme(tokens, false)
+                    .onClick([&cookies, id = cookie.id] {
+                        std::erase_if(cookies, [id](const db::GlobalCookie& c) { return c.id == id; });
+                        if (id > 0) (void)g_requests.deleteGlobalCookie(id);
+                    }).build();
+                y += 30.0f;
+            }
+            components::button(ui, "global.cookies.add").position(16.0f, y + 4.0f).size(80.0f, 24.0f)
+                .icon(0xF067).text("添加").fontSize(kFontLabel).theme(tokens, false)
+                .onClick([&cookies] { cookies.push_back({g_nextTempGlobalCookieId--, {}, {}, true}); }).build();
+            components::button(ui, "global.cookies.close").position(388.0f, 244.0f).size(74.0f, 24.0f)
+                .text("关闭").fontSize(kFontLabel).theme(tokens, false)
+                .onClick([] { g_globalCookieOpen = false; }).build();
+            components::button(ui, "global.cookies.save").position(306.0f, 244.0f).size(74.0f, 24.0f)
+                .text("保存").fontSize(kFontLabel).theme(tokens, true)
+                .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
+                .onClick([&cookies] {
+                    for (auto& cookie : cookies) {
+                        if (!cookie.name.empty()) {
+                            const std::string err = g_requests.saveGlobalCookie(cookie);
+                            if (!err.empty()) { showStatus("保存全局 Cookie 失败: " + err); return; }
+                        }
+                    }
+                    g_globalCookieOpen = false;
+                }).build();
+        }).build();
+}
+
 void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme& theme) {
     const auto& tokens = theme.components;
     Draft& draft = activeDraft();
@@ -170,19 +247,56 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                 .build();
             break;
         }
+        case EditorTab::Cookies: {
+            auto& items = draft.cookies;
+            components::scrollView(ui, "editor.cookies.scroll")
+                .position(x, y).size(w, std::max(40.0f, h - 32.0f)).theme(tokens)
+                .content([&](eui::Ui& cu, float contentWidth, float) {
+                    drawKvEditor(cu, "editor.cookies", 0, 0, contentWidth - 4.0f, items, theme);
+                }).build();
+            components::button(ui, "editor.cookies.global")
+                .position(x, y + std::max(0.0f, h - 26.0f)).size(150.0f, 24.0f)
+                .icon(0xF013).text("管理全局 Cookies").fontSize(kFontLabel)
+                .theme(tokens, false)
+                .onClick([] { g_globalCookieOpen = true; }).build();
+            break;
+        }
+        case EditorTab::Settings: {
+            ui.text("editor.settings.title")
+                .position(x, y).size(std::max(220.0f, w), 24.0f).text("请求设置")
+                .fontSize(kFontBody).color(theme.titleText).build();
+            ui.stack("editor.settings.redirects.wrap")
+                .position(x, y + 34.0f).size(std::max(220.0f, w), 24.0f)
+                .content([&] {
+                    components::checkbox(ui, "editor.settings.redirects")
+                        .size(std::max(220.0f, w), 24.0f)
+                        .text("自动跟随重定向").checked(draft.followRedirects)
+                        .theme(tokens)
+                        .onChange([](bool value) { activeDraft().followRedirects = value; }).build();
+                }).build();
+            ui.stack("editor.settings.json.comments.wrap")
+                .position(x, y + 66.0f).size(std::max(220.0f, w), 24.0f)
+                .content([&] {
+                    components::checkbox(ui, "editor.settings.json.comments")
+                        .size(std::max(220.0f, w), 24.0f)
+                        .text("兼容带注释的 JSON").checked(draft.allowJsonComments)
+                        .theme(tokens)
+                        .onChange([](bool value) { activeDraft().allowJsonComments = value; }).build();
+                }).build();
+            break;
+        }
         case EditorTab::Body: {
             constexpr float selectorH = 24.0f;
             ui.stack("editor.body.kind.wrap")
-                .position(x, y).size(250.0f, selectorH)
+                .position(x, y).size(std::min(430.0f, std::max(250.0f, w)), selectorH)
                 .content([&] {
-                    components::segmented(ui, "editor.body.kind")
-                        .size(250.0f, selectorH)
-                        .items({"None", "JSON", "Text", "Form"})
-                        .selected(static_cast<int>(draft.bodyKind))
+                components::segmented(ui, "editor.body.kind")
+                        .size(std::min(430.0f, std::max(250.0f, w)), selectorH)
+                        .items({"None", "JSON", "Text", "x-www-form-urlencoded", "form-data", "XML", "GraphQL"})
+                        .selected(bodyKindIndex(draft.bodyKind))
                         .theme(tokens).style(segmentedStyle(theme))
                         .onChange([](int i) {
-                            activeDraft().bodyKind = static_cast<api::BodyKind>(
-                                std::clamp(i, 0, 3));
+                            activeDraft().bodyKind = bodyKindFromIndex(i);
                         })
                         .build();
                 })
@@ -194,10 +308,16 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                     .fontSize(kFontLabel).color(theme.hintText).build();
             } else {
                 const char* placeholder = draft.bodyKind == api::BodyKind::Json
-                    ? "JSON 请求体"
+                    ? "例如：{\"name\":\"apitab\"}"
                     : draft.bodyKind == api::BodyKind::FormUrlEncoded
-                        ? "表单内容，例如 name=apitab&mode=test"
-                        : "文本请求体";
+                        ? "例如：name=apitab&mode=test"
+                        : draft.bodyKind == api::BodyKind::FormData
+                            ? "每行一个字段：name=apitab"
+                            : draft.bodyKind == api::BodyKind::Xml
+                                ? "例如：<user><name>apitab</name></user>"
+                                : draft.bodyKind == api::BodyKind::GraphQL
+                                    ? "输入 GraphQL 查询或 mutation"
+                                    : "输入纯文本请求体，例如：hello apitab";
                 components::input(ui, "editor.body")
                     .position(x, y + selectorH + 6.0f)
                     .size(w, std::max(40.0f, h - selectorH - 6.0f))
@@ -432,29 +552,32 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
 
     // ---- 第 2 行：Params/Headers/Body 切换 + 元信息 ----
     const float tabY = y + kInputHeight + 18.0f;
+    const float tabWidth = std::min(430.0f, std::max(220.0f, w));
     ui.stack("req.tabs.wrap")
         .position(x, tabY)
-        .size(230.0f, 24.0f)
+        .size(tabWidth, 24.0f)
         .content([&] {
             components::segmented(ui, "req.tabs")
-                .size(230.0f, 24.0f)
-                .items({"Params", "Headers", "Body"})
+                .size(tabWidth, 24.0f)
+                .items({"Params", "Headers", "Body", "Cookies", "设置"})
                 .selected(static_cast<int>(draft.tab))
                 .fontSize(kFontLabel)
                 .theme(tokens)
                 .style(segmentedStyle(theme))
-                .onChange([](int i) { activeDraft().tab = static_cast<EditorTab>(i); })
+                .onChange([](int i) {
+                    activeDraft().tab = static_cast<EditorTab>(std::clamp(i, 0, 4));
+                })
                 .build();
         })
         .build();
 
-    const float metaX = x + 240.0f;
+    const float metaX = x + tabWidth + kGap;
     const float metaW = x + w - metaX;
     if (metaW > 60.0f) {
         ui.text("req.tab.meta")
             .position(metaX, tabY)
             .size(metaW, 24.0f)
-            .text(std::format("{} 个参数 · {} 个请求头", draft.params.size(), draft.headers.size()))
+            .text(std::format("{} 个参数 · {} 个请求头 · {} 个 Cookie", draft.params.size(), draft.headers.size(), draft.cookies.size()))
             .fontSize(kFontLabel)
             .lineHeight(24.0f)
             .color(theme.hintText)
@@ -477,7 +600,8 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
 export void drawRequestPageDialogs(eui::Ui& ui, const eui::Screen& screen,
                                    const AppTheme& theme) {
     drawSaveRequestNameDialog(ui, screen, theme);
-    if (!g_envManageOpen) return;
+    drawGlobalCookieDialog(ui, screen, theme);
+    if (g_globalCookieOpen || !g_envManageOpen) return;
     const auto& tokens = theme.components;
     const auto& envs = g_requests.environments();
 

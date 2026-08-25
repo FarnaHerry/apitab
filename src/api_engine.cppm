@@ -19,7 +19,15 @@ export struct KeyValue {
     std::string remark;
 };
 
-export enum class BodyKind { None, Json, Text, FormUrlEncoded };
+export enum class BodyKind {
+    None = 0,
+    Json = 1,
+    Text = 2,
+    FormUrlEncoded = 3,
+    FormData = 4,
+    Xml = 5,
+    GraphQL = 6
+};
 export enum class RequestKind { Http = 0, WebSocket = 1, Tcp = 2 };
 export enum class TcpState { Disconnected, Resolving, Connecting, Handshaking, Connected, Failed };
 export enum class TcpEventKind { Connecting, Connected, Sent, Received, Disconnected, Error };
@@ -72,8 +80,11 @@ export struct RequestSpec {
     std::string url;
     std::vector<KeyValue> params;    // query 参数（拼进 URL）
     std::vector<KeyValue> headers;
+    std::vector<KeyValue> cookies;
     BodyKind bodyKind = BodyKind::None;
     std::string body;
+    bool followRedirects = true;
+    bool allowJsonComments = true;
     int timeoutSec = 30;
 };
 

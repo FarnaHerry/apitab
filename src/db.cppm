@@ -60,9 +60,19 @@ export struct SavedRequest {
     std::string url;
     std::vector<api::KeyValue> params;
     std::vector<api::KeyValue> headers;
+    std::vector<api::KeyValue> cookies;
     api::BodyKind bodyKind = api::BodyKind::None;
     std::string body;
+    bool followRedirects = true;
+    bool allowJsonComments = true;
     std::int64_t updatedAt = 0;
+};
+
+export struct GlobalCookie {
+    std::int64_t id = 0;
+    std::string name;
+    std::string value;
+    bool enabled = true;
 };
 
 export struct HistoryEntry {
@@ -134,6 +144,11 @@ public:
     std::vector<SavedRequest> listRequests(std::int64_t projectId);  // updated_at 降序
     std::int64_t saveRequest(const SavedRequest& r);   // id==0 插入，否则更新；返回 id
     void deleteRequest(std::int64_t id);
+
+    // ---- global cookies ----
+    std::vector<GlobalCookie> listGlobalCookies();
+    std::int64_t saveGlobalCookie(const GlobalCookie& cookie);
+    void deleteGlobalCookie(std::int64_t id);
 
     // ---- history ----
     void addHistory(const HistoryEntry& e);

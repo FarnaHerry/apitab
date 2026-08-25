@@ -98,7 +98,16 @@ CREATE TABLE IF NOT EXISTS requests (
     body         TEXT NOT NULL DEFAULT '',
     request_kind INTEGER NOT NULL DEFAULT 0,
     ws_protocol  TEXT NOT NULL DEFAULT '',
+    cookies      TEXT NOT NULL DEFAULT '[]',
+    follow_redirects INTEGER NOT NULL DEFAULT 1,
+    allow_json_comments INTEGER NOT NULL DEFAULT 1,
     updated_at   INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS global_cookies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    value TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,6 +144,9 @@ CREATE TABLE IF NOT EXISTS load_tests (
             bool hasBodyKind = false;
             bool hasRequestKind = false;
             bool hasWsProtocol = false;
+            bool hasCookies = false;
+            bool hasFollowRedirects = false;
+            bool hasAllowJsonComments = false;
             bool hasParentId = false;
             SQLite::Statement q(db, "PRAGMA table_info(requests)");
             while (q.executeStep()) {
@@ -143,6 +155,9 @@ CREATE TABLE IF NOT EXISTS load_tests (
                 if (col == "body_kind") hasBodyKind = true;
                 if (col == "request_kind") hasRequestKind = true;
                 if (col == "ws_protocol") hasWsProtocol = true;
+                if (col == "cookies") hasCookies = true;
+                if (col == "follow_redirects") hasFollowRedirects = true;
+                if (col == "allow_json_comments") hasAllowJsonComments = true;
             }
             SQLite::Statement groups(db, "PRAGMA table_info(groups)");
             while (groups.executeStep()) {
@@ -159,6 +174,15 @@ CREATE TABLE IF NOT EXISTS load_tests (
             }
             if (!hasWsProtocol) {
                 db.exec("ALTER TABLE requests ADD COLUMN ws_protocol TEXT NOT NULL DEFAULT ''");
+            }
+            if (!hasCookies) {
+                db.exec("ALTER TABLE requests ADD COLUMN cookies TEXT NOT NULL DEFAULT '[]'");
+            }
+            if (!hasFollowRedirects) {
+                db.exec("ALTER TABLE requests ADD COLUMN follow_redirects INTEGER NOT NULL DEFAULT 1");
+            }
+            if (!hasAllowJsonComments) {
+                db.exec("ALTER TABLE requests ADD COLUMN allow_json_comments INTEGER NOT NULL DEFAULT 1");
             }
             if (!hasParentId) {
                 db.exec("ALTER TABLE groups ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0");
@@ -307,6 +331,7 @@ std::int64_t Db::ensureDefaultProject() {
     }
     const std::int64_t orgId = createOrg("默认组织");
     const std::int64_t projectId = createProject(orgId, "默认项目");
+    createEnvironment(projectId, "localhost", "http://localhost");
     {
         SQLite::Statement q(impl_->db,
             "UPDATE requests SET project_id=? WHERE project_id=0 OR project_id NOT IN "
@@ -437,11 +462,12 @@ void Db::deleteGroup(std::int64_t id) {
 
 std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
     SQLite::Statement q(impl_->db,
-        "SELECT id,project_id,group_id,name,request_kind,ws_protocol,method,url,params,headers,body_kind,body,updated_at "
+        "SELECT id,project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,updated_at "
         "FROM requests WHERE project_id=? ORDER BY updated_at DESC");
     q.bind(1, projectId);
     std::vector<SavedRequest> out;
     while (q.executeStep()) {
+        // 旧库迁移字段使用默认值：follow redirects / JSON comments 均开启。
         SavedRequest r;
         r.id = q.getColumn(0).getInt64();
         r.projectId = q.getColumn(1).getInt64();
@@ -449,13 +475,16 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
         r.name = q.getColumn(3).getString();
         r.kind = static_cast<api::RequestKind>(q.getColumn(4).getInt());
         r.wsProtocol = q.getColumn(5).getString();
-        r.method = q.getColumn(6).getString();
-        r.url = q.getColumn(7).getString();
-        r.params = kvFromJson(q.getColumn(8).getString());
-        r.headers = kvFromJson(q.getColumn(9).getString());
-        r.bodyKind = static_cast<api::BodyKind>(q.getColumn(10).getInt());
-        r.body = q.getColumn(11).getString();
-        r.updatedAt = q.getColumn(12).getInt64();
+        r.cookies = kvFromJson(q.getColumn(6).getString());
+        r.followRedirects = q.getColumn(7).getInt() != 0;
+        r.allowJsonComments = q.getColumn(8).getInt() != 0;
+        r.method = q.getColumn(9).getString();
+        r.url = q.getColumn(10).getString();
+        r.params = kvFromJson(q.getColumn(11).getString());
+        r.headers = kvFromJson(q.getColumn(12).getString());
+        r.bodyKind = static_cast<api::BodyKind>(q.getColumn(13).getInt());
+        r.body = q.getColumn(14).getString();
+        r.updatedAt = q.getColumn(15).getInt64();
         out.push_back(std::move(r));
     }
     return out;
@@ -464,45 +493,87 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
 std::int64_t Db::saveRequest(const SavedRequest& r) {
     if (r.id == 0) {
         SQLite::Statement q(impl_->db,
-            "INSERT INTO requests(project_id,group_id,name,request_kind,ws_protocol,method,url,params,headers,body_kind,body,updated_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
+            "INSERT INTO requests(project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         q.bind(1, r.projectId);
         q.bind(2, r.groupId);
         q.bind(3, r.name);
         q.bind(4, static_cast<int>(r.kind));
         q.bind(5, r.wsProtocol);
-        q.bind(6, r.method);
-        q.bind(7, r.url);
-        q.bind(8, kvToJson(r.params));
-        q.bind(9, kvToJson(r.headers));
-        q.bind(10, static_cast<int>(r.bodyKind));
-        q.bind(11, r.body);
-        q.bind(12, r.updatedAt);
+        q.bind(6, kvToJson(r.cookies));
+        q.bind(7, r.followRedirects ? 1 : 0);
+        q.bind(8, r.allowJsonComments ? 1 : 0);
+        q.bind(9, r.method);
+        q.bind(10, r.url);
+        q.bind(11, kvToJson(r.params));
+        q.bind(12, kvToJson(r.headers));
+        q.bind(13, static_cast<int>(r.bodyKind));
+        q.bind(14, r.body);
+        q.bind(15, r.updatedAt);
         q.exec();
         return impl_->db.getLastInsertRowid();
     }
     SQLite::Statement q(impl_->db,
-        "UPDATE requests SET project_id=?,group_id=?,name=?,request_kind=?,ws_protocol=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,"
+        "UPDATE requests SET project_id=?,group_id=?,name=?,request_kind=?,ws_protocol=?,cookies=?,follow_redirects=?,allow_json_comments=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,"
         "updated_at=? WHERE id=?");
     q.bind(1, r.projectId);
     q.bind(2, r.groupId);
     q.bind(3, r.name);
     q.bind(4, static_cast<int>(r.kind));
     q.bind(5, r.wsProtocol);
-    q.bind(6, r.method);
-    q.bind(7, r.url);
-    q.bind(8, kvToJson(r.params));
-    q.bind(9, kvToJson(r.headers));
-    q.bind(10, static_cast<int>(r.bodyKind));
-    q.bind(11, r.body);
-    q.bind(12, r.updatedAt);
-    q.bind(13, r.id);
+    q.bind(6, kvToJson(r.cookies));
+    q.bind(7, r.followRedirects ? 1 : 0);
+    q.bind(8, r.allowJsonComments ? 1 : 0);
+    q.bind(9, r.method);
+    q.bind(10, r.url);
+    q.bind(11, kvToJson(r.params));
+    q.bind(12, kvToJson(r.headers));
+    q.bind(13, static_cast<int>(r.bodyKind));
+    q.bind(14, r.body);
+    q.bind(15, r.updatedAt);
+    q.bind(16, r.id);
     q.exec();
     return r.id;
 }
 
 void Db::deleteRequest(std::int64_t id) {
     SQLite::Statement q(impl_->db, "DELETE FROM requests WHERE id=?");
+    q.bind(1, id);
+    q.exec();
+}
+
+// ---- global cookies ----
+
+std::vector<GlobalCookie> Db::listGlobalCookies() {
+    SQLite::Statement q(impl_->db, "SELECT id,name,value,enabled FROM global_cookies ORDER BY id ASC");
+    std::vector<GlobalCookie> out;
+    while (q.executeStep()) {
+        out.push_back({q.getColumn(0).getInt64(), q.getColumn(1).getString(),
+                       q.getColumn(2).getString(), q.getColumn(3).getInt() != 0});
+    }
+    return out;
+}
+
+std::int64_t Db::saveGlobalCookie(const GlobalCookie& cookie) {
+    if (cookie.id == 0) {
+        SQLite::Statement q(impl_->db, "INSERT INTO global_cookies(name,value,enabled) VALUES(?,?,?)");
+        q.bind(1, cookie.name);
+        q.bind(2, cookie.value);
+        q.bind(3, cookie.enabled ? 1 : 0);
+        q.exec();
+        return impl_->db.getLastInsertRowid();
+    }
+    SQLite::Statement q(impl_->db, "UPDATE global_cookies SET name=?,value=?,enabled=? WHERE id=?");
+    q.bind(1, cookie.name);
+    q.bind(2, cookie.value);
+    q.bind(3, cookie.enabled ? 1 : 0);
+    q.bind(4, cookie.id);
+    q.exec();
+    return cookie.id;
+}
+
+void Db::deleteGlobalCookie(std::int64_t id) {
+    SQLite::Statement q(impl_->db, "DELETE FROM global_cookies WHERE id=?");
     q.bind(1, id);
     q.exec();
 }
