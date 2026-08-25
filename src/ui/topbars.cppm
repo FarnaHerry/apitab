@@ -8,6 +8,7 @@ export module apitab.ui.topbars;
 import std;
 import apitab.api_engine;
 import apitab.db;
+import apitab.i18n;
 import apitab.store.requests;
 import apitab.store.tcp;
 import apitab.store.websocket;
@@ -75,6 +76,8 @@ export void openProjectWorkspace(std::int64_t orgId, std::int64_t projectId) {
     g_activeProjectTabId = projectId;
     restoreTabs(projectId);
     g_page = Page::Request;
+    saveSessionPreference("active_project", std::to_string(projectId));
+    saveSessionPreference("open_projects", serializeIdList(g_openProjectIds));
 }
 
 export void closeProjectWorkspace(std::int64_t projectId) {
@@ -227,7 +230,10 @@ export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
                                    : components::theme::withAlpha(tokens.surface, 0.4f),
                             tokens.surfaceHover, tokens.surfaceActive)
                     .radius(6.0f)
-                    .onClick([uid = tab.uid] { g_activeTabUid = uid; })
+                    .onClick([uid = tab.uid] {
+            g_activeTabUid = uid;
+            persistSessionState();
+        })
                     .build();
                 ui.text(tabId + ".method")
                     .position(6.0f, 0).size(34.0f, 24.0f)
@@ -279,6 +285,7 @@ export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
                 .onOpenChange([](bool open) { g_topbarEnvOpen = open; })
                 .onChange([envs](int index) {
                     (void)g_requests.selectEnv(index > 0 ? envs[index - 1].id : 0);
+                    persistSessionState();
                 })
                 .build();
         })

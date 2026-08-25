@@ -10,6 +10,7 @@ export Language g_language = Language::Chinese;
 // ThemeMode lives in the UI theme module; keep the persisted value primitive here
 // so the preference layer remains independent of EUI and theme rendering.
 export int g_savedThemeMode = 2;
+export std::unordered_map<std::string, std::string> g_sessionPreference;
 
 export enum class UiText {
     AppTitle,
@@ -213,6 +214,11 @@ export void loadLanguagePreference() {
             } catch (...) {
                 g_savedThemeMode = 2;
             }
+        } else if (line.starts_with("session.")) {
+            const std::size_t equal = line.find('=');
+            if (equal != std::string::npos) {
+                g_sessionPreference[line.substr(8, equal - 8)] = line.substr(equal + 1);
+            }
         }
     }
 }
@@ -228,6 +234,9 @@ export void saveLanguagePreference() {
         if (!output) return;
         output << "language=" << (g_language == Language::English ? "en-US" : "zh-CN") << '\n';
         output << "theme=" << std::clamp(g_savedThemeMode, 0, 2) << '\n';
+        for (const auto& [key, value] : g_sessionPreference) {
+            output << "session." << key << '=' << value << '\n';
+        }
     }
     std::filesystem::rename(temporary, destination, ec);
     if (ec) {
@@ -237,6 +246,17 @@ export void saveLanguagePreference() {
     }
 }
 
+export void saveSessionPreference(std::string key, std::string value) {
+    g_sessionPreference[std::move(key)] = std::move(value);
+    saveLanguagePreference();
+}
+
+export std::string sessionPreference(std::string_view key) {
+    if (const auto it = g_sessionPreference.find(std::string(key)); it != g_sessionPreference.end()) {
+        return it->second;
+    }
+    return {};
+}
 export void setLanguage(Language language) {
     if (g_language == language) return;
     g_language = language;

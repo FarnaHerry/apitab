@@ -136,7 +136,16 @@ public:
         });
     }
 
-    // ---- 分组（当前项目的）----
+    std::int64_t currentEnvForProject(std::int64_t projectId) const {
+        if (const auto it = selectedEnvByProject_.find(projectId); it != selectedEnvByProject_.end()) return it->second;
+        return projectId == currentProjectId_ ? currentEnvId_ : 0;
+    }
+    std::string restoreEnvironment(std::int64_t projectId, std::int64_t envId) {
+        if (const std::string err = selectProject(projectId); !err.empty()) return err;
+        return selectEnv(envId);
+    }
+
+
 
     const std::vector<db::Group>& groups() const { return groups_; }
     const std::vector<db::Environment>& environments() const { return environments_; }

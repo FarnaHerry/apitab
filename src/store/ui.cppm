@@ -7,6 +7,7 @@ export module apitab.store.ui;
 import std;
 import apitab.api_engine;
 import apitab.db;
+import apitab.i18n;
 import apitab.utils;
 
 // ---- 页面 ----
@@ -230,7 +231,27 @@ export void clearTabs() {
     newDraftTab();
 }
 
-// ---- 项目工作区标签 ----
+export std::string serializeIdList(const std::vector<std::int64_t>& ids) {
+    std::string out;
+    for (const std::int64_t id : ids) {
+        if (!out.empty()) out += ',';
+        out += std::to_string(id);
+    }
+    return out;
+}
+
+export std::vector<std::int64_t> parseIdList(std::string_view text) {
+    std::vector<std::int64_t> ids;
+    std::size_t start = 0;
+    while (start <= text.size()) {
+        const std::size_t end = text.find(',', start);
+        const std::string_view part = text.substr(start, end == std::string_view::npos ? text.size() - start : end - start);
+        try { if (!part.empty()) ids.push_back(std::stoll(std::string(part))); } catch (...) {}
+        if (end == std::string_view::npos) break;
+        start = end + 1;
+    }
+    return ids;
+}
 // 打开的项目是会话状态，关闭标签不会删除持久化项目。
 export std::vector<std::int64_t> g_openProjectIds;
 export std::int64_t g_activeProjectTabId = 0;
@@ -256,6 +277,34 @@ export void appendLoadOutput(std::vector<std::string> lines) {
         g_loadOutput.erase(g_loadOutput.begin(),
                            g_loadOutput.end() - static_cast<std::ptrdiff_t>(kCap));
     }
+}
+
+export void restoreSessionState() {
+    const std::string page = sessionPreference("page");
+    if (!page.empty()) {
+        try {
+            const int value = std::stoi(page);
+            if (value >= 0 && value <= static_cast<int>(Page::ProjectSettings)) g_page = static_cast<Page>(value);
+        } catch (...) {}
+    }
+    const std::string org = sessionPreference("home_org");
+    if (!org.empty()) try { g_homeSelectedOrgId = std::stoll(org); } catch (...) {}
+    const std::string homeTab = sessionPreference("home_tab");
+    if (!homeTab.empty()) try {
+        const int value = std::stoi(homeTab);
+        if (value >= 0 && value <= 2) g_homeTab = static_cast<HomeTab>(value);
+    } catch (...) {}
+}
+
+export void persistSessionState() {
+    saveSessionPreference("page", std::to_string(static_cast<int>(g_page)));
+    saveSessionPreference("home_org", std::to_string(g_homeSelectedOrgId));
+    saveSessionPreference("home_tab", std::to_string(static_cast<int>(g_homeTab)));
+    saveSessionPreference("active_project", std::to_string(g_activeProjectTabId));
+    saveSessionPreference("open_projects", serializeIdList(g_openProjectIds));
+    saveSessionPreference("active_request", std::to_string(activeTab().requestId));
+    saveSessionPreference("editor_tab", std::to_string(static_cast<int>(activeDraft().tab)));
+    saveSessionPreference("response_tab", std::to_string(static_cast<int>(g_responseTab)));
 }
 
 // ---- 组织 / 项目重命名内联编辑状态 ----

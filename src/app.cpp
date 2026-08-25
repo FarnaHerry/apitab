@@ -43,6 +43,26 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         loadLanguagePreference();
         g_themeMode = static_cast<ThemeMode>(std::clamp(g_savedThemeMode, 0, 2));
         if (g_themeMode == ThemeMode::System) g_dark = systemDark();
+        restoreSessionState();
+        const auto openProjects = parseIdList(sessionPreference("open_projects"));
+        const auto projects = g_requests.allProjects();
+        for (const auto projectId : openProjects) {
+            for (const auto& project : projects) {
+                if (project.id == projectId) {
+                    openProjectWorkspace(project.orgId, project.id);
+                    break;
+                }
+            }
+        }
+        try {
+            const auto activeProject = std::stoll(sessionPreference("active_project"));
+            for (const auto& project : projects) {
+                if (project.id == activeProject) {
+                    openProjectWorkspace(project.orgId, project.id);
+                    break;
+                }
+            }
+        } catch (...) {}
         return true;
     }();
     (void)preferencesLoaded;
@@ -76,6 +96,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                        : ("压测异常: " + g_loadSummary.error));
     }
     for (std::string& msg : drainStatus()) showStatus(std::move(msg));
+    if (g_activeProjectTabId != 0) persistSessionState();
 
     for (RequestTab& tab : g_tabs) {
         if (tab.draft.kind == api::RequestKind::WebSocket) {

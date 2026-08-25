@@ -387,7 +387,10 @@ void drawResponse(eui::Ui& ui, float x, float y, float w, float h, const AppThem
                 .fontSize(kFontLabel)
                 .theme(tokens)
                 .style(segmentedStyle(theme))
-                .onChange([](int i) { g_responseTab = i == 0 ? ResponseTab::Body : ResponseTab::Headers; })
+                .onChange([](int i) {
+                    g_responseTab = i == 0 ? ResponseTab::Body : ResponseTab::Headers;
+                    persistSessionState();
+                })
                 .build();
         })
         .build();
@@ -561,6 +564,7 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
                 .style(segmentedStyle(theme))
                 .onChange([](int i) {
                     activeDraft().tab = static_cast<EditorTab>(std::clamp(i, 0, 4));
+                    persistSessionState();
                 })
                 .build();
         })
