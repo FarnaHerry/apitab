@@ -147,8 +147,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
 
             const bool overlayPage = isOverlayPage(g_page);
             const bool projectContext = isProjectPage(g_page) && g_activeProjectTabId != 0;
-            const bool compactShell = screen.width < 860.0f;
-            const bool showCollectionSidebar = projectContext && !compactShell &&
+            const bool showCollectionSidebar = projectContext &&
                                                (g_page == Page::Request || g_page == Page::Load);
             const bool requestTabs = showCollectionSidebar;
             const float bodyTop = workspaceH;
@@ -201,10 +200,11 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 drawRequestTabStrip(ui, contentX, pageY, contentW, theme);
                 pageY += 32.0f;
             }
-            if (compactShell && projectContext && (g_page == Page::Request || g_page == Page::Load)) {
+            const bool compactShell = screen.width < 860.0f;
+            if (compactShell && showCollectionSidebar) {
                 ui.text("shell.compact.notice")
                     .position(contentX, pageY).size(contentW, 24.0f)
-                    .text("请求集合侧栏已在窄窗口隐藏，可拉宽窗口查看")
+                    .text("窄窗口下请求集合保持显示，内容区可横向滚动")
                     .fontSize(kFontLabel).color(theme.hintText).build();
                 pageY += 30.0f;
             }
