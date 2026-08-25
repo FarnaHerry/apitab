@@ -60,6 +60,8 @@ export void drawHistoryPage(eui::Ui& ui, float x, float y, float w, float h,
     const auto& tokens = theme.components;
     if (g_historyDirty) reloadHistory();
 
+    drawIslandPanel(ui, "history.island", x, y - 4.0f, w, h + 4.0f, theme,
+                    theme.dark ? 0.68f : 0.86f);
     ui.text("history.title")
         .position(x, y).size(w - 80.0f, 22.0f)
         .text(std::format("请求历史（{} 条）", g_historyTotal))

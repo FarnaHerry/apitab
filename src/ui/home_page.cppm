@@ -88,6 +88,9 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
     const float contentX = x + orgListW + gap;
     const float contentW = std::max(0.0f, w - orgListW - gap);
 
+    drawIslandPanel(ui, "home.org.island", x, y - 4.0f, orgListW, h + 4.0f, theme, theme.dark ? 0.72f : 0.88f);
+    drawIslandPanel(ui, "home.projects.island", contentX, y - 4.0f, contentW, h + 4.0f, theme, theme.dark ? 0.62f : 0.82f);
+
     ui.text("home.orgs.title")
         .position(x, y).size(orgListW - 104.0f, 24.0f).text("组织")
         .fontSize(kFontBody + 2.0f).lineHeight(24.0f).color(theme.titleText)

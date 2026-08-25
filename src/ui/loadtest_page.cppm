@@ -146,12 +146,8 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
     // ---- 实时输出 ----
     const float outY = cfgY + kInputHeight + kGap;
     const float outH = std::max(60.0f, (y + h - outY) * 0.45f);
-    ui.rect("load.out.panel")
-        .position(x, outY)
-        .size(w, outH)
-        .color(components::theme::withAlpha(tokens.surface, theme.dark ? 0.35f : 0.6f))
-        .radius(kPanelRadius)
-        .build();
+    drawIslandPanel(ui, "load.output.island", x, outY, w, outH, theme,
+                    theme.dark ? 0.68f : 0.86f);
     // 运行中跟随尾部（超大 offset 由组件 clamp 到底）；结束后自由滚动。
     components::scrollView(ui, "load.out.scroll")
         .position(x + 4.0f, outY + 4.0f)

@@ -11,7 +11,18 @@ import apitab.api_engine;
 import apitab.ui.theme;
 import apitab.ui.utils;
 
-// ---- rail 导航项（图标 + 激活高亮，无 tooltip）----
+export void drawIslandPanel(eui::Ui& ui, const std::string& id, float x, float y,
+                            float w, float h, const AppTheme& theme,
+                            float opacity = 0.92f) {
+    if (w <= 0.0f || h <= 0.0f) return;
+    components::panel(ui, id, theme.components)
+        .position(x, y)
+        .size(w, h)
+        .opacity(std::clamp(opacity, 0.0f, 1.0f))
+        .build();
+}
+
+
 
 export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float railWidth,
                          unsigned int icon, bool active, const AppTheme& theme,

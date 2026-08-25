@@ -61,6 +61,8 @@ export void drawGlobalSettingsPage(eui::Ui& ui, float x, float y, float w, float
             const float languageLabelY = compact ? 150.0f : 124.0f;
             const float languageFieldY = compact ? 176.0f : 124.0f;
             const float hintY = compact ? 212.0f : 162.0f;
+            drawIslandPanel(ui, "settings.island", contentX, 20.0f, contentW, panelH + 58.0f, theme,
+                            theme.dark ? 0.76f : 0.90f);
             ui.text("settings.title")
                 .position(contentX, 30.0f).size(contentW, 26.0f).text(tr(UiText::GlobalSettings))
                 .fontSize(kFontBody + 2.0f).lineHeight(26.0f).color(theme.titleText)

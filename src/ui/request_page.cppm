@@ -592,11 +592,16 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
     // ---- 编辑器区（上 45%）----
     const float editorY = tabY + 30.0f;
     const float editorH = std::max(80.0f, (y + h - editorY) * 0.42f);
-    drawEditor(ui, x, editorY, w, editorH, theme);
-
     // ---- 响应区（下方剩余）----
     const float respY = editorY + editorH + kGap;
-    drawResponse(ui, x, respY, w, y + h - respY, theme);
+    drawIslandPanel(ui, "req.response.island", x, respY - 4.0f, w,
+                    std::max(0.0f, y + h - respY + 4.0f), theme,
+                    theme.dark ? 0.64f : 0.84f);
+    drawEditor(ui, x + 8.0f, editorY + 8.0f, std::max(0.0f, w - 16.0f),
+               std::max(0.0f, editorH - 12.0f), theme);
+
+    drawResponse(ui, x + 8.0f, respY + 8.0f, std::max(0.0f, w - 16.0f),
+                 std::max(0.0f, y + h - respY - 12.0f), theme);
 }
 
 // 环境管理弹窗（需要全屏坐标系，由 app.cpp 传入 screen）。

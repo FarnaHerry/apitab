@@ -159,9 +159,8 @@ export void drawTcpPage(eui::Ui& ui, float x, float y, float w, float h,
     const float composerH = 58.0f;
     const float timelineY = y + 56.0f;
     const float timelineH = std::max(70.0f, h - 56.0f - composerH - kGap);
-    ui.rect(id + ".timeline.panel").position(x, timelineY).size(w, timelineH)
-        .color(components::theme::withAlpha(tokens.surface, theme.dark ? 0.35f : 0.60f))
-        .radius(kPanelRadius).build();
+    drawIslandPanel(ui, id + ".timeline.island", x, timelineY, w, timelineH, theme,
+                    theme.dark ? 0.68f : 0.86f);
     components::scrollView(ui, id + ".timeline.scroll")
         .position(x + 4.0f, timelineY + 4.0f).size(w - 8.0f, timelineH - 8.0f)
         .offset(tab.tcpScroll).theme(tokens)
