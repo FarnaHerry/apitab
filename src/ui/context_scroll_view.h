@@ -11,6 +11,9 @@
 
 namespace apitab_components {
 
+inline constexpr float kScrollbarWidth = 4.0f;
+inline constexpr float kScrollbarGap = 6.0f;
+
 class ContextScrollViewBuilder {
 public:
     ContextScrollViewBuilder(core::dsl::Ui& ui, std::string id)
@@ -58,8 +61,8 @@ public:
     void build() {
         const float contentHeight = measureContentHeight(width_, height_);
         const bool scrollable = contentHeight > height_;
-        const float scrollWidth = scrollable ? 10.0f : 0.0f;
-        const float scrollGap = scrollable ? 4.0f : 0.0f;
+        const float scrollWidth = scrollable ? kScrollbarWidth : 0.0f;
+        const float scrollGap = scrollable ? kScrollbarGap : 0.0f;
         const float contentWidth = std::max(0.0f, width_ - scrollWidth - scrollGap);
         const float measuredHeight = scrollable ? measureContentHeight(contentWidth, height_) : contentHeight;
         const float maxOffset = std::max(0.0f, measuredHeight - height_);

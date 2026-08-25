@@ -21,6 +21,14 @@ namespace {
 
 bool g_topbarEnvOpen = false;
 
+struct HorizontalStripState {
+    float offset = 0.0f;
+    float maxOffset = 0.0f;
+};
+
+HorizontalStripState g_workspaceScroll;
+HorizontalStripState g_requestScroll;
+
 std::string orgName(std::int64_t orgId) {
     for (const auto& org : g_requests.orgs()) {
         if (org.id == orgId) return org.name;
@@ -153,50 +161,53 @@ export void drawProjectWorkspaceBar(eui::Ui& ui, float x, float y, float w,
 
     const std::vector<db::Project> all = g_requests.allProjects();
     const int count = static_cast<int>(g_openProjectIds.size());
-    const float areaW = std::max(64.0f, tabsRight - (x + homeW + kGap));
-    const float tabW = count > 0 ? std::clamp(areaW / count, 108.0f, 190.0f) : 108.0f;
-    float tx = x + homeW + kGap;
-    for (const std::int64_t id : g_openProjectIds) {
-        const db::Project* project = findProject(all, id);
-        if (!project) continue;
-        const bool active = isProjectPage(g_page) && id == g_activeProjectTabId;
-        const std::string tabId = "workspace.project." + std::to_string(id);
-        const float tabWidth = std::min(tabW - 3.0f, std::max(40.0f, tabsRight - tx));
-        if (tabWidth <= 40.0f) break;
-        ui.stack(tabId)
-            .position(tx, y)
-            .size(tabWidth, kInputHeight)
-            .content([&] {
-                ui.rect(tabId + ".hit")
-                    .size(tabWidth, kInputHeight)
-                    .states(active ? components::theme::withAlpha(tokens.primary, 0.20f)
-                                   : components::theme::withAlpha(tokens.surface, 0.5f),
-                            tokens.surfaceHover, tokens.surfaceActive)
-                    .radius(6.0f)
-                    .onClick([orgId = project->orgId, id] { openProjectWorkspace(orgId, id); })
-                    .build();
-                ui.text(tabId + ".name")
-                    .position(8.0f, 0)
-                    .size(std::max(0.0f, tabWidth - 30.0f), kInputHeight)
-                    .text(project->name + " · " + orgName(project->orgId))
-                    .fontSize(kFontLabel)
-                    .lineHeight(kInputHeight)
-                    .color(active ? theme.titleText : theme.metaText)
-                    .verticalAlign(core::VerticalAlign::Center)
-                    .build();
-                components::button(ui, tabId + ".close")
-                    .position(tabWidth - 22.0f, 3.0f)
-                    .size(18.0f, 18.0f)
-                    .icon(0xF00D)
-                    .text("")
-                    .iconSize(8.0f)
-                    .theme(tokens, false)
-                    .onClick([id] { closeProjectWorkspace(id); })
-                    .build();
-            })
-            .build();
-        tx += tabW;
-    }
+    const float viewportX = x + homeW + kGap;
+    const float viewportW = std::max(0.0f, tabsRight - viewportX);
+    const float tabW = count > 0 ? std::clamp(viewportW / count, 108.0f, 190.0f) : 108.0f;
+    const float totalW = std::max(0.0f, tabW * static_cast<float>(count));
+    auto& scroll = g_workspaceScroll;
+    scroll.maxOffset = std::max(0.0f, totalW - viewportW);
+    scroll.offset = std::clamp(scroll.offset, 0.0f, scroll.maxOffset);
+
+    ui.stack("workspace.projects.viewport")
+        .position(viewportX, y).size(viewportW, kInputHeight).clip().zIndex(20)
+        .content([&] {
+            components::mouseArea(ui, "workspace.projects.wheel")
+                .size(viewportW, kInputHeight).scrollStep(36.0f).maxScrollStep(4.0f)
+                .onScroll([](const components::MouseScrollEvent& event) {
+                    auto& state = g_workspaceScroll;
+                    const float delta = std::abs(event.deltaX) > 0.01f ? event.deltaX : -event.deltaY;
+                    state.offset = std::clamp(state.offset - delta * 36.0f, 0.0f, state.maxOffset);
+                }).build();
+            ui.stack("workspace.projects.content")
+                .size(totalW, kInputHeight).translateX(-scroll.offset).transformedHitTest()
+                .content([&] {
+                    float tx = 0.0f;
+                    for (const std::int64_t id : g_openProjectIds) {
+                        const db::Project* project = findProject(all, id);
+                        if (!project) { tx += tabW; continue; }
+                        const bool active = isProjectPage(g_page) && id == g_activeProjectTabId;
+                        const std::string tabId = "workspace.project." + std::to_string(id);
+                        const float tabWidth = std::max(40.0f, tabW - 3.0f);
+                        ui.stack(tabId).position(tx, 0).size(tabWidth, kInputHeight).content([&] {
+                            ui.rect(tabId + ".hit").size(tabWidth, kInputHeight)
+                                .states(active ? components::theme::withAlpha(tokens.primary, 0.20f)
+                                               : components::theme::withAlpha(tokens.surface, 0.5f),
+                                        tokens.surfaceHover, tokens.surfaceActive).radius(6.0f)
+                                .onClick([orgId = project->orgId, id] { openProjectWorkspace(orgId, id); }).build();
+                            ui.text(tabId + ".name").position(8.0f, 0)
+                                .size(std::max(0.0f, tabWidth - 30.0f), kInputHeight)
+                                .text(project->name + " · " + orgName(project->orgId)).fontSize(kFontLabel)
+                                .lineHeight(kInputHeight).color(active ? theme.titleText : theme.metaText)
+                                .verticalAlign(core::VerticalAlign::Center).build();
+                            components::button(ui, tabId + ".close").position(tabWidth - 22.0f, 3.0f)
+                                .size(18.0f, 18.0f).icon(0xF00D).text("").iconSize(8.0f)
+                                .theme(tokens, false).onClick([id] { closeProjectWorkspace(id); }).build();
+                        }).build();
+                        tx += tabW;
+                    }
+                }).build();
+        }).build();
 
     const float settingsX = x + w - settingsW;
     drawIconBtn(ui, "workspace.settings", settingsX, y + 2.0f, 0xF013,
@@ -211,56 +222,63 @@ export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
     const float gearW = 26.0f;
     const float envControlsW = envW + kGap + gearW;
     const float addW = 26.0f;
-    const float avail = std::max(60.0f, w - envControlsW - kGap - addW);
+    const float avail = std::max(0.0f, w - envControlsW - kGap - addW);
     const int count = static_cast<int>(g_tabs.size());
     const float tabW = count > 0 ? std::clamp(avail / count, 110.0f, 200.0f) : 200.0f;
+    const float totalW = std::max(0.0f, tabW * static_cast<float>(count));
+    auto& scroll = g_requestScroll;
+    scroll.maxOffset = std::max(0.0f, totalW - avail);
+    scroll.offset = std::clamp(scroll.offset, 0.0f, scroll.maxOffset);
 
-    float tx = x;
-    for (const auto& tab : g_tabs) {
-        const std::string tabId = "reqtabs.tab." + std::to_string(tab.uid);
-        const bool active = tab.uid == g_activeTabUid;
-        ui.stack(tabId)
-            .position(tx, y)
-            .size(tabW - 3.0f, 24.0f)
-            .content([&] {
-                const float tabWidth = tabW - 3.0f;
-                ui.rect(tabId + ".hit")
-                    .size(tabWidth, 24.0f)
-                    .states(active ? components::theme::withAlpha(tokens.primary, 0.20f)
-                                   : components::theme::withAlpha(tokens.surface, 0.4f),
-                            tokens.surfaceHover, tokens.surfaceActive)
-                    .radius(6.0f)
-                    .onClick([uid = tab.uid] {
-            g_activeTabUid = uid;
-            persistSessionState();
-        })
-                    .build();
-                ui.text(tabId + ".method")
-                    .position(6.0f, 0).size(34.0f, 24.0f)
-                    .text(tabBadge(tab)).fontSize(8.0f).lineHeight(24.0f)
-                    .color(tab.draft.kind == api::RequestKind::Http ? methodColor(tabBadge(tab), theme)
-                           : tab.draft.kind == api::RequestKind::WebSocket ? theme.redirect : theme.clientErr)
-                    .verticalAlign(core::VerticalAlign::Center).build();
-                ui.text(tabId + ".name")
-                    .position(42.0f, 0).size(tabWidth - 66.0f, 24.0f)
-                    .text(tabTitle(tab) + (tab.requestId == 0 ? " •" : ""))
-                    .fontSize(kFontLabel).lineHeight(24.0f)
-                    .color(active ? theme.titleText : theme.metaText)
-                    .verticalAlign(core::VerticalAlign::Center).build();
-                components::button(ui, tabId + ".close")
-                    .position(tabWidth - 22.0f, 3.0f).size(18.0f, 18.0f)
-                    .icon(0xF00D).text("").iconSize(8.0f).theme(tokens, false)
-                    .onClick([uid = tab.uid] {
-                        g_websocket.release(uid);
-                        g_tcp.release(uid);
-                        closeTab(uid);
-                    }).build();
-            })
-            .build();
-        tx += tabW;
-    }
+    ui.stack("reqtabs.viewport")
+        .position(x, y).size(avail, 24.0f).clip().zIndex(20)
+        .content([&] {
+            components::mouseArea(ui, "reqtabs.wheel")
+                .size(avail, 24.0f).scrollStep(36.0f).maxScrollStep(4.0f)
+                .onScroll([](const components::MouseScrollEvent& event) {
+                    auto& state = g_requestScroll;
+                    const float delta = std::abs(event.deltaX) > 0.01f ? event.deltaX : -event.deltaY;
+                    state.offset = std::clamp(state.offset - delta * 36.0f, 0.0f, state.maxOffset);
+                }).build();
+            ui.stack("reqtabs.content")
+                .size(totalW, 24.0f).translateX(-scroll.offset).transformedHitTest()
+                .content([&] {
+                    float tx = 0.0f;
+                    for (const auto& tab : g_tabs) {
+                        const std::string tabId = "reqtabs.tab." + std::to_string(tab.uid);
+                        const bool active = tab.uid == g_activeTabUid;
+                        const float tabWidth = std::max(40.0f, tabW - 3.0f);
+                        ui.stack(tabId).position(tx, 0).size(tabWidth, 24.0f).content([&] {
+                            ui.rect(tabId + ".hit").size(tabWidth, 24.0f)
+                                .states(active ? components::theme::withAlpha(tokens.primary, 0.20f)
+                                               : components::theme::withAlpha(tokens.surface, 0.4f),
+                                        tokens.surfaceHover, tokens.surfaceActive).radius(6.0f)
+                                .onClick([uid = tab.uid] { g_activeTabUid = uid; persistSessionState(); }).build();
+                            ui.text(tabId + ".method").position(6.0f, 0).size(34.0f, 24.0f)
+                                .text(tabBadge(tab)).fontSize(8.0f).lineHeight(24.0f)
+                                .color(tab.draft.kind == api::RequestKind::Http ? methodColor(tabBadge(tab), theme)
+                                       : tab.draft.kind == api::RequestKind::WebSocket ? theme.redirect : theme.clientErr)
+                                .verticalAlign(core::VerticalAlign::Center).build();
+                            ui.text(tabId + ".name").position(42.0f, 0)
+                                .size(std::max(0.0f, tabWidth - 66.0f), 24.0f)
+                                .text(tabTitle(tab) + (tab.requestId == 0 ? " •" : ""))
+                                .fontSize(kFontLabel).lineHeight(24.0f)
+                                .color(active ? theme.titleText : theme.metaText)
+                                .verticalAlign(core::VerticalAlign::Center).build();
+                            components::button(ui, tabId + ".close").position(tabWidth - 22.0f, 3.0f)
+                                .size(18.0f, 18.0f).icon(0xF00D).text("").iconSize(8.0f)
+                                .theme(tokens, false).onClick([uid = tab.uid] {
+                                    g_websocket.release(uid);
+                                    g_tcp.release(uid);
+                                    closeTab(uid);
+                                }).build();
+                        }).build();
+                        tx += tabW;
+                    }
+                }).build();
+        }).build();
     const float envX = x + w - envControlsW;
-    drawIconBtn(ui, "reqtabs.add", std::min(tx, envX - addW - kGap), y + 1.0f,
+    drawIconBtn(ui, "reqtabs.add", envX - addW - kGap, y + 1.0f,
                 0xF067, theme, [] { (void)newDraftTab(); });
 
     const auto& envs = g_requests.environments();

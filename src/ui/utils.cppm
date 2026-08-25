@@ -26,6 +26,9 @@ export constexpr float kFontMono = 11.0f;         // 等宽（响应体 / 压测
 export constexpr float kRowHeight = 24.0f;        // KV 编辑行高
 export constexpr float kPanelRadius = 8.0f;       // 面板圆角
 
+export constexpr float kScrollbarWidth = 4.0f;
+export constexpr float kScrollbarGap = 6.0f;
+
 export constexpr float kCompactWidth = 720.0f;
 export constexpr float kMediumWidth = 960.0f;
 

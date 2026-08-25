@@ -229,9 +229,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     .fontSize(kFontLabel).color(theme.hintText).build();
                 pageY += 30.0f;
             }
-            const float projectFooterH = projectContext ? 26.0f : 0.0f;
-            const float projectFooterGap = projectContext ? kGap : 0.0f;
-            const float pageH = std::max(0.0f, bodyBottom - pageY - projectFooterH - projectFooterGap);
+            const float pageH = std::max(0.0f, bodyBottom - pageY);
 
             switch (g_page) {
                 case Page::Home:
@@ -264,31 +262,6 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 case Page::ProjectSettings:
                     if (projectContext) drawProjectSettingsPage(ui, contentX, pageY, contentW, pageH, theme);
                     break;
-            }
-
-            if (projectContext) {
-                const float footerY = std::max(pageY, bodyBottom - projectFooterH);
-                ui.stack("project.footer")
-                    .position(contentX, footerY)
-                    .size(contentW, projectFooterH)
-                    .zIndex(8)
-                    .content([&] {
-                        ui.rect("project.footer.bg")
-                            .size(contentW, projectFooterH)
-                            .color(components::theme::withAlpha(theme.components.surface,
-                                                                theme.dark ? 0.72f : 0.88f))
-                            .border(1.0f, components::theme::withAlpha(theme.components.border, 0.55f))
-                            .radius(5.0f)
-                            .build();
-                        components::button(ui, "project.footer.cookies")
-                            .position(std::max(0.0f, contentW - 142.0f), 1.0f)
-                            .size(138.0f, 24.0f)
-                            .icon(0xF013).text("全局 Cookies").fontSize(kFontLabel)
-                            .theme(theme.components, false)
-                            .onClick([] { g_globalCookieOpen = true; })
-                            .build();
-                    })
-                    .build();
             }
 
             drawStatusBar(ui, screen.width, screen.height, g_statusMessage, theme);

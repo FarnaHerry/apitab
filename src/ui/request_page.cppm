@@ -250,10 +250,15 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
         case EditorTab::Cookies: {
             auto& items = draft.cookies;
             components::scrollView(ui, "editor.cookies.scroll")
-                .position(x, y).size(w, h).theme(tokens)
+                .position(x, y).size(w, std::max(40.0f, h - 32.0f)).theme(tokens)
                 .content([&](eui::Ui& cu, float contentWidth, float) {
                     drawKvEditor(cu, "editor.cookies", 0, 0, contentWidth - 4.0f, items, theme);
                 }).build();
+            components::button(ui, "editor.cookies.global")
+                .position(x, y + std::max(0.0f, h - 26.0f)).size(150.0f, 24.0f)
+                .icon(0xF013).text("管理全局 Cookies").fontSize(kFontLabel)
+                .theme(tokens, false)
+                .onClick([] { g_globalCookieOpen = true; }).build();
             break;
         }
         case EditorTab::Settings: {

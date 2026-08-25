@@ -60,6 +60,32 @@ std::string savedBadge(const db::SavedRequest& request) {
     return "?";
 }
 
+std::string truncateLabel(const std::string& value, float maxWidth, float fontSize) {
+    if (maxWidth <= 0.0f) return {};
+    if (core::TextPrimitive::measureTextWidth(value, {}, fontSize, 400) <= maxWidth) return value;
+    constexpr std::string_view ellipsis = "…";
+    const float ellipsisWidth = core::TextPrimitive::measureTextWidth(
+        std::string(ellipsis), {}, fontSize, 400);
+    if (ellipsisWidth > maxWidth) return {};
+    std::size_t end = 0;
+    while (end < value.size()) {
+        ++end;
+        while (end < value.size() && (static_cast<unsigned char>(value[end]) & 0xC0u) == 0x80u) ++end;
+        const std::string candidate = value.substr(0, end) + std::string(ellipsis);
+        if (core::TextPrimitive::measureTextWidth(candidate, {}, fontSize, 400) > maxWidth) break;
+    }
+    if (end == 0) return std::string(ellipsis);
+    while (end > 0) {
+        const std::string candidate = value.substr(0, end) + std::string(ellipsis);
+        if (core::TextPrimitive::measureTextWidth(candidate, {}, fontSize, 400) <= maxWidth) {
+            return candidate;
+        }
+        --end;
+        while (end > 0 && (static_cast<unsigned char>(value[end]) & 0xC0u) == 0x80u) --end;
+    }
+    return {};
+}
+
 void deleteRequest(std::int64_t requestId) {
     std::vector<std::int64_t> uids;
     for (const auto& tab : g_tabs) {
@@ -179,13 +205,14 @@ void drawGroupRow(eui::Ui& ui, const std::string& rowId, float width, float inde
     const std::int64_t groupId = group.id;
     const bool collapsed = g_groupCollapsed.contains(groupId) && g_groupCollapsed.at(groupId);
     const bool renaming = g_renamingGroupId == groupId;
-    const float menuX = width - 22.0f;
+    const float rowW = std::max(0.0f, width);
+    const float menuX = std::max(0.0f, rowW - 22.0f);
     const float textX = indent + 34.0f;
-    const float textW = std::max(40.0f, width - textX - 54.0f);
+    const float textW = std::max(0.0f, rowW - textX - 54.0f);
 
-    ui.stack(rowId).size(width, kGroupRowH).content([&] {
+    ui.stack(rowId).size(rowW, kGroupRowH).content([&] {
         ui.rect(rowId + ".hit")
-            .size(width, kGroupRowH)
+            .size(rowW, kGroupRowH)
             .states(core::Color{0, 0, 0, 0}, theme.components.surfaceHover,
                     theme.components.surfaceActive)
             .radius(5.0f)
@@ -218,7 +245,7 @@ void drawGroupRow(eui::Ui& ui, const std::string& rowId, float width, float inde
                 .build();
         } else {
             ui.text(rowId + ".name")
-                .position(textX, 0).size(textW, kGroupRowH).text(group.name)
+                .position(textX, 0).size(textW, kGroupRowH).text(truncateLabel(group.name, textW, kFontBody))
                 .fontSize(kFontBody).lineHeight(kGroupRowH).color(theme.titleText)
                 .verticalAlign(core::VerticalAlign::Center).build();
         }
@@ -248,12 +275,15 @@ void drawRequestRow(eui::Ui& ui, const std::string& rowId, float width, float in
                     const db::SavedRequest& request, const AppTheme& theme) {
     const std::int64_t requestId = request.id;
     const bool selected = activeTab().requestId == requestId;
-    ui.stack(rowId).size(width, kReqRowH).content([&] {
-        ui.rect(rowId + ".bg").size(width, kReqRowH)
+    const float rowW = std::max(0.0f, width);
+    const float nameX = indent + 46.0f;
+    const float nameW = std::max(0.0f, rowW - nameX - 6.0f);
+    ui.stack(rowId).size(rowW, kReqRowH).content([&] {
+        ui.rect(rowId + ".bg").size(rowW, kReqRowH)
             .color(selected ? components::theme::withAlpha(theme.components.primary, 0.18f)
                             : core::Color{0, 0, 0, 0})
             .radius(6.0f).build();
-        ui.rect(rowId + ".hit").size(width, kReqRowH)
+        ui.rect(rowId + ".hit").size(rowW, kReqRowH)
             .states(core::Color{0, 0, 0, 0}, theme.components.surfaceHover,
                     theme.components.surfaceActive)
             .radius(6.0f)
@@ -276,8 +306,8 @@ void drawRequestRow(eui::Ui& ui, const std::string& rowId, float width, float in
                    : request.kind == api::RequestKind::WebSocket ? theme.redirect : theme.clientErr)
             .verticalAlign(core::VerticalAlign::Center).build();
         ui.text(rowId + ".name")
-            .position(indent + 46.0f, 0).size(width - indent - 52.0f, kReqRowH)
-            .text(request.name).fontSize(kFontBody).lineHeight(kReqRowH).color(theme.bodyText)
+            .position(nameX, 0).size(nameW, kReqRowH)
+            .text(truncateLabel(request.name, nameW, kFontBody)).fontSize(kFontBody).lineHeight(kReqRowH).color(theme.bodyText)
             .verticalAlign(core::VerticalAlign::Center).build();
     }).build();
 }
@@ -324,7 +354,7 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top,
     const float listY = top + 36.0f;
     const float listH = height - 20.0f - listY - 4.0f;
     apitab_components::contextScrollView(ui, "sidebar.list")
-        .position(x0, listY).size(w, listH).offset(g_sidebarScroll).step(40.0f).theme(tokens)
+        .position(x0, listY).size(std::max(0.0f, w), std::max(0.0f, listH)).offset(g_sidebarScroll).step(40.0f).theme(tokens)
         .onChange([](float value) { g_sidebarScroll = value; })
         .onContextMenu(openCollectionMenu)
         .content([&](eui::Ui& content, float contentWidth, float) {
