@@ -172,7 +172,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                                (g_page == Page::Request || g_page == Page::Load);
             const bool requestTabs = showCollectionSidebar;
             const float bodyTop = workspaceH;
-            const float bodyBottom = std::max(bodyTop, screen.height - 20.0f - kMargin);
+            const float bodyBottom = std::max(bodyTop, screen.height - kMargin);
 
             // Home 与全局设置覆盖最高级 rail 和项目侧栏。
             if (!overlayPage) {
@@ -264,7 +264,6 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     break;
             }
 
-            drawStatusBar(ui, screen.width, screen.height, g_statusMessage, theme);
             if (showCollectionSidebar) {
                 drawSidebarDialogs(ui, screen, theme);
             }

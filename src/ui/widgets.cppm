@@ -332,18 +332,9 @@ export float drawParamEditor(eui::Ui& ui, const std::string& id, float x, float 
 
 export void drawStatusBar(eui::Ui& ui, float width, float height,
                           const std::string& message, const AppTheme& theme) {
-    ui.rect("statusbar.bg")
-        .position(0, height - 20.0f)
-        .size(width, 20.0f)
-        .color(components::theme::withAlpha(theme.components.surface, 0.6f))
-        .build();
-    ui.text("statusbar.text")
-        .position(kRailWidth + kMargin, height - 20.0f)
-        .size(width - kRailWidth - kMargin * 2.0f, 20.0f)
-        .text(message)
-        .fontSize(kFontLabel)
-        .lineHeight(20.0f)
-        .color(theme.statusText)
-        .verticalAlign(core::VerticalAlign::Center)
-        .build();
+    (void)ui;
+    (void)width;
+    (void)height;
+    (void)message;
+    (void)theme;
 }
