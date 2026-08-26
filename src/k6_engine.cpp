@@ -17,6 +17,7 @@ module;
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <stringapiset.h>
 #else
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -55,6 +56,33 @@ constexpr auto kGracePeriod = std::chrono::seconds(3);
 
 std::string jsString(const std::string& s) { return json(s).dump(); }
 
+std::string formUrlEncode(std::string_view s) {
+    static constexpr char hex[] = "0123456789ABCDEF";
+    std::string out;
+    for (const unsigned char c : s) {
+        if (c == ' ') out.push_back('+');
+        else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                 (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
+            out.push_back(static_cast<char>(c));
+        } else {
+            out.push_back('%');
+            out.push_back(hex[c >> 4]);
+            out.push_back(hex[c & 0x0F]);
+        }
+    }
+    return out;
+}
+
+std::string serializeFormUrlEncoded(const std::vector<api::KeyValue>& fields) {
+    std::string out;
+    for (const auto& field : fields) {
+        if (!field.enabled || field.key.empty()) continue;
+        if (!out.empty()) out.push_back('&');
+        out += formUrlEncode(field.key) + "=" + formUrlEncode(field.value);
+    }
+    return out;
+}
+
 std::string buildScript(const api::RequestSpec& spec, const api::LoadOptions& opts) {
     std::string headersObj = "{";
     bool first = true;
@@ -66,7 +94,9 @@ std::string buildScript(const api::RequestSpec& spec, const api::LoadOptions& op
     }
     headersObj += "}";
 
-    const std::string bodyJs = spec.bodyKind == api::BodyKind::None ? "null" : jsString(spec.body);
+    const std::string bodyText = spec.bodyKind == api::BodyKind::FormUrlEncoded
+        ? serializeFormUrlEncoded(spec.bodyFields) : spec.body;
+    const std::string bodyJs = spec.bodyKind == api::BodyKind::None ? "null" : jsString(bodyText);
     const std::string timeout = std::format("{}s", opts.timeoutSec);
 
     std::string script;
@@ -254,7 +284,13 @@ private:
         si.hStdError = writePipe;
         si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
 
-        std::wstring cmd = L"\"" + std::wstring(binary_.begin(), binary_.end()) +
+        const int binaryLength = MultiByteToWideChar(CP_UTF8, 0, binary_.data(),
+                                                      static_cast<int>(binary_.size()), nullptr, 0);
+        if (binaryLength <= 0) return false;
+        std::wstring binaryWide(static_cast<std::size_t>(binaryLength), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, binary_.data(), static_cast<int>(binary_.size()),
+                            binaryWide.data(), binaryLength);
+        std::wstring cmd = L"\"" + binaryWide +
                            L"\" run --no-color \"" + scriptPath_.wstring() + L"\"";
         PROCESS_INFORMATION pi{};
         std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
