@@ -76,9 +76,15 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
 
     // ---- k6 引擎状态行 ----
     const bool available = g_loadtest.available();
+    // 单行最小跨度 ≈ 372（target 文本起点）；低于阈值参数行/按钮行分开，
+    // 不再让固定 x+272/x+372 把控件推出岛屿。
+    const bool twoRows = w < 372.0f;
+    const float controlsH = twoRows ? 90.0f : 58.0f;
+    drawIslandPanel(ui, "load.controls.island", x, y, w, controlsH, theme,
+                    theme.dark ? 0.56f : 0.78f);
     ui.text("load.engine")
-        .position(x, y)
-        .size(w, 18.0f)
+        .position(x + kPanelPad, y + 6.0f)
+        .size(nonNegative(w - kPanelPad * 2.0f), 18.0f)
         .text(available ? "k6 引擎: " + g_loadtest.binaryPath()
                         : "未找到 k6 二进制（engines/ 或 PATH），压测不可用")
         .fontSize(kFontLabel)
@@ -88,19 +94,22 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         .build();
 
     // ---- 参数行：VUs / Duration / 启停 ----
-    const float cfgY = y + 24.0f;
-    drawSectionLabel(ui, "load.vus.label", x, cfgY + 5.0f, 60.0f, "VUs", theme);
+    const float cfgY = y + 28.0f;
+    const float innerX = x + kPanelPad;
+    const float innerW = nonNegative(w - kPanelPad * 2.0f);
+    const float btnRowY = twoRows ? cfgY + kInputHeight + kGap : cfgY;
+    drawSectionLabel(ui, "load.vus.label", innerX, cfgY + 5.0f, 34.0f, "VUs", theme);
     components::input(ui, "load.vus")
-        .position(x + 64.0f, cfgY)
+        .position(innerX + 38.0f, cfgY)
         .size(64.0f, kInputHeight)
         .value(g_vusText)
         .placeholder("10")
         .theme(tokens)
         .onChange([](const std::string& v) { g_vusText = v; })
         .build();
-    drawSectionLabel(ui, "load.dur.label", x + 140.0f, cfgY + 5.0f, 60.0f, "时长", theme);
+    drawSectionLabel(ui, "load.dur.label", innerX + 110.0f, cfgY + 5.0f, 40.0f, "时长", theme);
     components::input(ui, "load.dur")
-        .position(x + 180.0f, cfgY)
+        .position(innerX + 154.0f, cfgY)
         .size(80.0f, kInputHeight)
         .value(g_durationText)
         .placeholder("30s / 1m")
@@ -110,90 +119,111 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
 
     const bool supported = activeTab().draft.kind == api::RequestKind::Http;
     const bool running = g_loadtest.running();
-    components::button(ui, "load.toggle")
-        .position(x + 272.0f, cfgY)
-        .size(90.0f, kButtonHeight)
-        .icon(running ? 0xF04D : 0xF04B)  // stop / play
-        .text(running ? "停止" : "开始压测")
-        .fontSize(kFontBody)
-        .theme(tokens, true)
-        .textColor(onPrimaryColor(theme))
-        .iconColor(onPrimaryColor(theme))
-        .disabled((!available || !supported) && !running)
-        .onClick([running] {
-            if (running) {
-                g_loadtest.stop();
-                showStatus("停止中…");
-            } else {
-                startLoad();
-            }
-        })
-        .build();
-    ui.text("load.target")
-        .position(x + 372.0f, cfgY)
-        .size(std::max(0.0f, w - 372.0f), kInputHeight)
-        .text(!supported ? "当前请求类型不支持 k6 压测" : "目标: " + [&] {
-            const std::string finalUrl = g_requests.composeUrl(
-                activeDraft().url, activeDraft().groupId, g_requests.currentEnvId());
-            return finalUrl.empty() ? std::string("(当前标签页 URL 为空)") : finalUrl;
-        }())
-        .fontSize(kFontLabel)
-        .lineHeight(kInputHeight)
-        .color(theme.metaText)
-        .verticalAlign(core::VerticalAlign::Center)
-        .build();
+    const float toggleX = twoRows ? innerX : innerX + 246.0f;
+    const float targetX = twoRows ? innerX + 96.0f : innerX + 342.0f;
+    const float targetW = nonNegative(innerX + innerW - targetX);
+    if (!twoRows || innerW >= 100.0f) {
+        components::button(ui, "load.toggle")
+            .position(toggleX, btnRowY)
+            .size(90.0f, kButtonHeight)
+            .icon(running ? 0xF04D : 0xF04B)  // stop / play
+            .text(running ? "停止" : "开始压测")
+            .fontSize(kFontBody)
+            .theme(tokens, true)
+            .textColor(onPrimaryColor(theme))
+            .iconColor(onPrimaryColor(theme))
+            .radius(kButtonRadius)
+            .disabled((!available || !supported) && !running)
+            .onClick([running] {
+                if (running) {
+                    g_loadtest.stop();
+                    showStatus("停止中…");
+                } else {
+                    startLoad();
+                }
+            })
+            .build();
+    }
+    if (targetW > 24.0f) {
+        ui.text("load.target")
+            .position(targetX, btnRowY)
+            .size(targetW, kInputHeight)
+            .text(!supported ? "当前请求类型不支持 k6 压测" : "目标: " + [&] {
+                const std::string finalUrl = g_requests.composeUrl(
+                    activeDraft().url, activeDraft().groupId, g_requests.currentEnvId());
+                return finalUrl.empty() ? std::string("(当前标签页 URL 为空)") : finalUrl;
+            }())
+            .fontSize(kFontLabel)
+            .lineHeight(kInputHeight)
+            .color(theme.metaText)
+            .verticalAlign(core::VerticalAlign::Center)
+            .build();
+    }
 
-    // ---- 实时输出 ----
-    const float outY = cfgY + kInputHeight + kGap;
-    const float outH = std::max(60.0f, (y + h - outY) * 0.45f);
+    // ---- 实时输出：高度随可用空间分配，不再 min 60 把结果区推出页面 ----
+    const float outY = y + controlsH + kGap;
+    const float outH = nonNegative((y + h - outY) * 0.45f);
     drawIslandPanel(ui, "load.output.island", x, outY, w, outH, theme,
                     theme.dark ? 0.68f : 0.86f);
-    // 运行中跟随尾部（超大 offset 由组件 clamp 到底）；结束后自由滚动。
-    components::scrollView(ui, "load.out.scroll")
-        .position(x + 4.0f, outY + 4.0f)
-        .size(w - 8.0f, outH - 8.0f)
-        .offset(running ? 1.0e9f : g_outputScroll)
-        .theme(tokens)
-        .onChange([](float v) { g_outputScroll = v; })
-        .content([&](eui::Ui& cu, float contentWidth, float viewportH) {
-            if (g_loadOutput.empty()) {
-                cu.text("load.out.empty")
+    const float outScrollW = nonNegative(w - kPanelPad * 2.0f);
+    const float outScrollH = nonNegative(outH - kPanelPad * 2.0f);
+    if (outScrollW > 0.0f && outScrollH > 0.0f) {
+        // 运行中跟随尾部（超大 offset 由组件 clamp 到底）；结束后自由滚动。
+        components::scrollView(ui, "load.out.scroll")
+            .position(x + kPanelPad, outY + kPanelPad)
+            .size(outScrollW, outScrollH)
+            .offset(running ? 1.0e9f : g_outputScroll)
+            .theme(tokens)
+            .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
+            .onChange([](float v) { g_outputScroll = v; })
+            .content([&](eui::Ui& cu, float contentWidth, float viewportH) {
+                if (g_loadOutput.empty()) {
+                    cu.text("load.out.empty")
+                        .position(4.0f, 4.0f)
+                        .size(nonNegative(contentWidth - 8.0f), 16.0f)
+                        .text(running ? "等待 k6 输出…" : "（尚无输出）")
+                        .fontSize(kFontLabel)
+                        .color(theme.hintText)
+                        .build();
+                    return;
+                }
+                // 输出按行拼装成一段等宽文本（行高一致，滚动顺畅）。
+                // 换行后的真实高度进 scroll root，不用 viewport 高度冒充内容高。
+                std::string all;
+                for (const auto& l : g_loadOutput) {
+                    all += l;
+                    all += '\n';
+                }
+                const float textW = nonNegative(contentWidth - 8.0f);
+                const float textH = std::max(viewportH,
+                    measureWrappedTextHeight(all, textW, kFontMono, "monospace"));
+                cu.text("load.out.text")
                     .position(4.0f, 4.0f)
-                    .size(contentWidth - 8.0f, 16.0f)
-                    .text(running ? "等待 k6 输出…" : "（尚无输出）")
-                    .fontSize(kFontLabel)
-                    .color(theme.hintText)
+                    .size(textW, textH)
+                    .text(all)
+                    .fontFamily("monospace")
+                    .fontSize(kFontMono)
+                    .color(theme.bodyText)
+                    .wrap(true)
                     .build();
-                return;
-            }
-            // 输出按行拼装成一段等宽文本（行高一致，滚动顺畅）。
-            std::string all;
-            for (const auto& l : g_loadOutput) {
-                all += l;
-                all += '\n';
-            }
-            cu.text("load.out.text")
-                .position(4.0f, 4.0f)
-                .size(contentWidth - 8.0f, viewportH)
-                .text(all)
-                .fontFamily("monospace")
-                .fontSize(kFontMono)
-                .color(theme.bodyText)
-                .wrap(true)
-                .build();
-        })
-        .build();
+            })
+            .build();
+    }
 
     // ---- 结果区：本次汇总 / 历史记录 ----
     const float resY = outY + outH + kGap;
-    const float resH = y + h - resY;
+    const float resH = nonNegative(y + h - resY);
 
+    drawIslandPanel(ui, "load.results.island", x, resY, w, resH, theme,
+                    theme.dark ? 0.56f : 0.78f);
+    if (resH < 30.0f) return;  // 太矮只留岛面，不画越界控件
+    const float tabsW = std::min(170.0f, nonNegative(w - kPanelPad * 2.0f));
     ui.stack("load.res.tabs.wrap")
-        .position(x, resY)
-        .size(170.0f, 22.0f)
+        .position(x + kPanelPad, resY + 6.0f)
+        .size(tabsW, 22.0f)
         .content([&] {
             components::segmented(ui, "load.res.tabs")
-                .size(170.0f, 22.0f)
+                .size(tabsW, 22.0f)
                 .items({"本次汇总", "历史记录"})
                 .selected(g_showLoadRecords ? 1 : 0)
                 .fontSize(kFontLabel)
@@ -207,14 +237,15 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         })
         .build();
 
-    const float tblY = resY + 26.0f;
-    const float tblH = resH - 26.0f;
+    const float tblY = resY + 32.0f;
+    const float tblH = nonNegative(resH - 32.0f - 6.0f);
+    const float tblW = nonNegative(w - kPanelPad * 2.0f);
 
     if (!g_showLoadRecords) {
         if (!g_hasLoadSummary) {
             ui.text("load.sum.hint")
-                .position(x, tblY)
-                .size(w, 18.0f)
+                .position(x + kPanelPad, tblY)
+                .size(tblW, 18.0f)
                 .text(running ? "压测进行中…" : "（尚无汇总 —— 跑一次压测）")
                 .fontSize(kFontLabel)
                 .color(theme.hintText)
@@ -224,32 +255,39 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         const auto& s = g_loadSummary;
         if (!s.ok) {
             ui.text("load.sum.err")
-                .position(x, tblY)
-                .size(w, 18.0f)
+                .position(x + kPanelPad, tblY)
+                .size(tblW, 18.0f)
                 .text("压测异常: " + s.error)
                 .fontSize(kFontBody)
                 .color(theme.serverErr)
                 .build();
             return;
         }
+        if (tblH <= 0.0f) return;
+        // 与记录表同理：汇总表 2 列在窄窗口也按列文本可用宽截断。
+        const float sumTextW = nonNegative(
+            (tblW - tokens.metrics.spacing.hairline * 2.0f) / 2.0f
+            - tokens.metrics.spacing.section * 2.0f);
+        const float sumFont = tokens.metrics.typography.label;
+        auto fitSum = [&](const std::string& s) { return fitTextToWidth(s, sumTextW, sumFont); };
         ui.stack("load.sum.table.wrap")
-            .position(x, tblY)
-            .size(w, tblH)
+            .position(x + kPanelPad, tblY)
+            .size(tblW, tblH)
             .content([&] {
                 components::dataTable(ui, "load.sum.table")
-                    .size(w, tblH)
-                    .columns({"指标", "值"})
+                    .size(tblW, tblH)
+                    .columns({fitSum("指标"), fitSum("值")})
                     .rows({
-                        {"总请求数", std::to_string(s.requests)},
-                        {"RPS", std::format("{:.1f}", s.rps)},
-                        {"平均耗时", formatMs(s.avgMs)},
-                        {"最小 / 最大", formatMs(s.minMs) + " / " + formatMs(s.maxMs)},
-                        {"P50", formatMs(s.p50Ms)},
-                        {"P90", formatMs(s.p90Ms)},
-                        {"P95", formatMs(s.p95Ms)},
-                        {"P99", formatMs(s.p99Ms)},
-                        {"失败率", formatPct(s.failRate)},
-                        {"实际时长", std::format("{:.1f} s", s.durationSec)},
+                        {fitSum("总请求数"), fitSum(std::to_string(s.requests))},
+                        {fitSum("RPS"), fitSum(std::format("{:.1f}", s.rps))},
+                        {fitSum("平均耗时"), fitSum(formatMs(s.avgMs))},
+                        {fitSum("最小 / 最大"), fitSum(formatMs(s.minMs) + " / " + formatMs(s.maxMs))},
+                        {fitSum("P50"), fitSum(formatMs(s.p50Ms))},
+                        {fitSum("P90"), fitSum(formatMs(s.p90Ms))},
+                        {fitSum("P95"), fitSum(formatMs(s.p95Ms))},
+                        {fitSum("P99"), fitSum(formatMs(s.p99Ms))},
+                        {fitSum("失败率"), fitSum(formatPct(s.failRate))},
+                        {fitSum("实际时长"), fitSum(std::format("{:.1f} s", s.durationSec))},
                     })
                     .theme(tokens)
                     .build();
@@ -260,27 +298,54 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
             g_records = g_loadtest.records();
             g_recordsDirty = false;
         }
+        // dataTable 等宽列 + 单元格/表头文本都不裁剪：全部按列文本可用宽截断，
+        // 避免窄窗口下长内容溢出到下一列（见 widgets.cppm::fitTextToWidth）。
+        // 9 列需要每列至少 textInset*2+正文 ≈ 76px；窗口太窄时减到 5 列核心指标，
+        // 不再硬塞 9 列让 textInset 吃掉全部文本宽（单元格全空）。
+        const bool fullCols = tblW >= 684.0f;
+        const int colCount = fullCols ? 9 : 5;
+        const float cellTextW = nonNegative(
+            (tblW - tokens.metrics.spacing.hairline * 2.0f) / static_cast<float>(colCount)
+            - tokens.metrics.spacing.section * 2.0f);
+        const float cellFont = tokens.metrics.typography.label;
+        auto fit = [&](const std::string& s) { return fitTextToWidth(s, cellTextW, cellFont); };
         std::vector<std::vector<std::string>> rows;
         for (const auto& r : g_records) {
-            rows.push_back({
-                formatTime(r.createdAt),
-                r.name,
-                std::format("{}×{}", r.vus, r.duration),
-                std::to_string(r.requests),
-                std::format("{:.0f}", r.rps),
-                formatMs(r.p50Ms),
-                formatMs(r.p95Ms),
-                formatMs(r.p99Ms),
-                formatPct(r.failRate),
-            });
+            if (fullCols) {
+                rows.push_back({
+                    fit(formatTime(r.createdAt)),
+                    fit(r.name),
+                    fit(std::format("{}×{}", r.vus, r.duration)),
+                    fit(std::to_string(r.requests)),
+                    fit(std::format("{:.0f}", r.rps)),
+                    fit(formatMs(r.p50Ms)),
+                    fit(formatMs(r.p95Ms)),
+                    fit(formatMs(r.p99Ms)),
+                    fit(formatPct(r.failRate)),
+                });
+            } else {
+                rows.push_back({
+                    fit(formatTime(r.createdAt)),
+                    fit(r.name),
+                    fit(std::to_string(r.requests)),
+                    fit(std::format("{:.0f}", r.rps)),
+                    fit(formatMs(r.p95Ms)),
+                });
+            }
         }
+        if (tblH <= 0.0f) return;
         ui.stack("load.rec.table.wrap")
-            .position(x, tblY)
-            .size(w, tblH)
+            .position(x + kPanelPad, tblY)
+            .size(tblW, tblH)
             .content([&] {
                 components::dataTable(ui, "load.rec.table")
-                    .size(w, tblH)
-                    .columns({"时间", "名称", "并发×时长", "请求数", "RPS", "P50", "P95", "P99", "失败率"})
+                    .size(tblW, tblH)
+                    .columns(fullCols
+                        ? std::vector<std::string>{fit("时间"), fit("名称"), fit("并发×时长"),
+                                                   fit("请求数"), fit("RPS"), fit("P50"),
+                                                   fit("P95"), fit("P99"), fit("失败率")}
+                        : std::vector<std::string>{fit("时间"), fit("名称"), fit("请求数"),
+                                                   fit("RPS"), fit("P95")})
                     .rows(std::move(rows))
                     .theme(tokens)
                     .build();

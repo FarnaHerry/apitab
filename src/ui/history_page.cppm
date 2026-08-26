@@ -172,6 +172,6 @@ export void drawHistoryPage(eui::Ui& ui, const eui::Screen& screen, float x, flo
         .color(theme.metaText).verticalAlign(core::VerticalAlign::Center).build();
     components::button(ui, "history.next")
         .position(pgX + 128.0f, pgY).size(24.0f, 24.0f)
-        .icon(0xF054).text("").iconSize(8.0f).theme(tokens, false).disabled(last)
+        .icon(0xF054).text("").iconSize(8.0f).theme(tokens, false).radius(12.0f).disabled(last)
         .onClick([] { if (g_historyPage + 1 < pageCount()) { ++g_historyPage; g_historyDirty = true; } }).build();
 }

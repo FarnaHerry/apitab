@@ -197,13 +197,16 @@ export void drawProjectSettingsPage(eui::Ui& ui, float x, float y, float w, floa
                     .position(0, btnY).size(102.0f, 24.0f)
                     .icon(0xF013).text("环境管理").fontSize(kFontLabel).iconSize(8.0f)
                     .theme(tokens, false)
+                    .radius(kButtonRadius)
                     .onClick([] { g_envManageOpen = true; })
                     .build();
                 if (bodyW >= 190.0f) {
                     components::button(cu, "project.settings.save")
                         .position(bodyW - 74.0f, btnY).size(74.0f, 24.0f)
                         .text("保存").fontSize(kFontLabel).theme(tokens, true)
+                        .radius(kButtonRadius)
                         .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
+                        .radius(kButtonRadius)
                         .onClick([projectId] {
                             const std::string name = trim(g_projectNameDraft);
                             if (name.empty()) { showStatus("项目名称不能为空"); return; }

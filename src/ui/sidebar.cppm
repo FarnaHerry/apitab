@@ -103,65 +103,55 @@ void deleteRequest(std::int64_t requestId) {
 void drawRenameRequestDialog(eui::Ui& ui, const eui::Screen& screen,
                              const AppTheme& theme) {
     if (!g_renameRequestOpen) return;
-    components::dialog(ui, "sidebar.request.rename")
-        .open(true)
-        .screen(screen.width, screen.height)
-        .size(360.0f, 154.0f)
-        .title("重命名请求")
-        .theme(theme.components)
-        .content([&] {
-            components::input(ui, "sidebar.request.rename.input")
-                .position(20.0f, 56.0f).size(320.0f, kInputHeight)
-                .value(g_requestRenameText).placeholder("请求名称").theme(theme.components)
-                .onChange([](const std::string& value) { g_requestRenameText = value; }).build();
-            components::button(ui, "sidebar.request.rename.cancel")
-                .position(184.0f, 104.0f).size(74.0f, 24.0f)
-                .text("取消").fontSize(kFontLabel).theme(theme.components, false)
-                .onClick([] {
-                    g_renameRequestOpen = false;
-                    g_renameRequestId = 0;
-                    g_requestRenameText.clear();
-                }).build();
-            components::button(ui, "sidebar.request.rename.confirm")
-                .position(266.0f, 104.0f).size(74.0f, 24.0f)
-                .text("确定").fontSize(kFontLabel).theme(theme.components, true)
-                .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
-                .onClick([] {
-                    const std::string name = trim(g_requestRenameText);
-                    if (name.empty()) { showStatus("请求名称不能为空"); return; }
-                    const db::SavedRequest* saved = g_requests.find(g_renameRequestId);
-                    if (!saved) { showStatus("请求不存在或已删除"); return; }
-                    db::SavedRequest renamed = *saved;
-                    renamed.name = name;
-                    const std::string err = g_requests.save(renamed);
-                    if (!err.empty()) { showStatus("重命名失败: " + err); return; }
-                    for (auto& tab : g_tabs) {
-                        if (tab.requestId == renamed.id) tab.draft.name = name;
-                    }
-                    g_renameRequestOpen = false;
-                    g_renameRequestId = 0;
-                    g_requestRenameText.clear();
-                    showStatus("已重命名: " + name);
-                }).build();
-        }).build();
+    drawInputDialog(ui, screen, theme, "sidebar.request.rename", "重命名请求",
+                    g_requestRenameText, "请求名称", "确定",
+                    [] {
+                        g_renameRequestOpen = false;
+                        g_renameRequestId = 0;
+                        g_requestRenameText.clear();
+                    },
+                    [] {
+                        const std::string name = trim(g_requestRenameText);
+                        if (name.empty()) { showStatus("请求名称不能为空"); return; }
+                        const db::SavedRequest* saved = g_requests.find(g_renameRequestId);
+                        if (!saved) { showStatus("请求不存在或已删除"); return; }
+                        db::SavedRequest renamed = *saved;
+                        renamed.name = name;
+                        const std::string err = g_requests.save(renamed);
+                        if (!err.empty()) { showStatus("重命名失败: " + err); return; }
+                        for (auto& tab : g_tabs) {
+                            if (tab.requestId == renamed.id) tab.draft.name = name;
+                        }
+                        g_renameRequestOpen = false;
+                        g_renameRequestId = 0;
+                        g_requestRenameText.clear();
+                        showStatus("已重命名: " + name);
+                    });
 }
 
 void drawNewGroupDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     if (!g_newGroupOpen) return;
     const bool child = g_newGroupParentId != 0;
+    const float dlgW = dialogWidth(screen.width, 360.0f);
+    const float dlgH = dialogHeight(screen.height, 200.0f);
+    const float pad = 20.0f;
+    const float btnW = 74.0f;
+    const float btnH = 24.0f;
+    const float btnY = nonNegative(dlgH - btnH - 26.0f);
+    const float confirmX = nonNegative(dlgW - pad - btnW);
+    const float cancelX = nonNegative(confirmX - 8.0f - btnW);
+    const float cy = std::min(56.0f, nonNegative(btnY - kInputHeight - 10.0f - 24.0f - 34.0f));
+    const float cw = nonNegative(dlgW - pad * 2.0f);
     components::dialog(ui, "sidebar.group.new")
-        .open(true).screen(screen.width, screen.height).size(360.0f, 200.0f)
+        .open(true).screen(screen.width, screen.height).size(dlgW, dlgH)
         .title(child ? "新建子目录" : "新建分组").theme(theme.components)
         .content([&] {
-            constexpr float cx = 20.0f;
-            constexpr float cy = 56.0f;
-            constexpr float cw = 320.0f;
             components::input(ui, "sidebar.group.new.name")
-                .position(cx, cy).size(cw, kInputHeight).value(g_newGroupText)
+                .position(pad, cy).size(cw, kInputHeight).value(g_newGroupText)
                 .placeholder("目录名称").theme(theme.components)
                 .onChange([](const std::string& value) { g_newGroupText = value; }).build();
             ui.stack("sidebar.group.new.mode.wrap")
-                .position(cx, cy + kInputHeight + 10.0f).size(cw, 24.0f)
+                .position(pad, cy + kInputHeight + 10.0f).size(cw, 24.0f)
                 .content([&] {
                     components::segmented(ui, "sidebar.group.new.mode")
                         .size(cw, 24.0f).items({"仅名称", "路径"}).selected(g_newGroupMode)
@@ -169,12 +159,13 @@ void drawNewGroupDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                         .onChange([](int index) { g_newGroupMode = index; }).build();
                 }).build();
             ui.text("sidebar.group.new.hint")
-                .position(cx, cy + kInputHeight + 40.0f).size(cw, 28.0f)
+                .position(pad, cy + kInputHeight + 40.0f).size(cw, 28.0f)
                 .text("路径模式：此目录名作为 URL 前缀")
                 .fontSize(kFontLabel).color(theme.hintText).wrap(true).build();
             components::button(ui, "sidebar.group.new.cancel")
-                .position(cx + 164.0f, cy + kInputHeight + 70.0f).size(74.0f, 24.0f)
+                .position(cancelX, btnY).size(btnW, btnH)
                 .text("取消").fontSize(kFontLabel).theme(theme.components, false)
+                .radius(kButtonRadius)
                 .onClick([] {
                     g_newGroupOpen = false;
                     g_newGroupText.clear();
@@ -182,8 +173,9 @@ void drawNewGroupDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                     g_newGroupParentId = 0;
                 }).build();
             components::button(ui, "sidebar.group.new.create")
-                .position(cx + 246.0f, cy + kInputHeight + 70.0f).size(74.0f, 24.0f)
+                .position(confirmX, btnY).size(btnW, btnH)
                 .text("创建").fontSize(kFontLabel).theme(theme.components, true)
+                .radius(kButtonRadius)
                 .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
                 .onClick([] {
                     const std::string name = trim(g_newGroupText);
@@ -256,6 +248,7 @@ void drawGroupRow(eui::Ui& ui, const std::string& rowId, float width, float inde
         components::button(ui, rowId + ".menu")
             .position(menuX, 2.0f).size(18.0f, 18.0f).icon(0xF141).text("")
             .iconSize(8.0f).theme(theme.components, false)
+            .radius(9.0f)
             .build();
         components::mouseArea(ui, rowId + ".menu.hit")
             .position(menuX, 2.0f).size(18.0f, 18.0f).zIndex(1)
@@ -314,14 +307,16 @@ void drawRequestRow(eui::Ui& ui, const std::string& rowId, float width, float in
 
 } // namespace
 
-export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top,
-                        const AppTheme& theme) {
+// 侧栏几何由 app 壳层决定：top/bottom 对齐项目 shell 岛的上下边，
+// width 在窄窗口被壳层收缩（不再固定 190 把右侧内容压成负宽）。
+export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top, float bottom,
+                        float width, const AppTheme& theme) {
     const auto& tokens = theme.components;
-    const float height = screen.height;
     const float x0 = kRailWidth;
-    const float w = kSidebarWidth;
+    const float w = nonNegative(width);
+    const float bgH = nonNegative(bottom - top);
 
-    ui.rect("sidebar.bg").position(x0, top).size(w, height - 20.0f - top)
+    ui.rect("sidebar.bg").position(x0, top).size(w, bgH)
         .color(components::theme::withAlpha(tokens.surface, theme.dark ? 0.35f : 0.6f)).build();
 
     auto openCollectionMenu = [](const eui::PointerEvent& event, const eui::Rect&) {
@@ -335,33 +330,37 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top,
     ui.rect("sidebar.title.context").position(x0, top).size(w, 36.0f)
         .color(core::Color{0, 0, 0, 0}).onContextMenu(openCollectionMenu).build();
     ui.text("sidebar.title").position(x0 + kMargin, top + 8.0f)
-        .size(w - kMargin * 2.0f - 30.0f, 22.0f).text("请求集合")
+        .size(nonNegative(w - kMargin * 2.0f - 30.0f), 22.0f).text("请求集合")
         .fontSize(kFontBody + 1.0f).lineHeight(22.0f).color(theme.titleText)
         .verticalAlign(core::VerticalAlign::Center).build();
-    const float newX = x0 + w - kMargin - 24.0f;
-    components::button(ui, "sidebar.new")
-        .position(newX, top + 8.0f).size(24.0f, 22.0f)
-        .icon(0xF067).text("").iconSize(10.0f).theme(tokens, false)
-        .build();
-    components::mouseArea(ui, "sidebar.new.hit")
-        .position(newX, top + 8.0f).size(24.0f, 22.0f).zIndex(1)
-        .onTap([](const components::MouseEvent& event) {
-            openRequestTypeMenu(event.bounds.x, event.bounds.y + event.bounds.height);
-        }).build();
+    const float newX = x0 + nonNegative(w - kMargin - 24.0f);
+    if (w >= 56.0f) {
+        components::button(ui, "sidebar.new")
+            .position(newX, top + 8.0f).size(24.0f, 22.0f)
+            .icon(0xF067).text("").iconSize(10.0f).theme(tokens, false)
+                .radius(11.0f)
+            .build();
+        components::mouseArea(ui, "sidebar.new.hit")
+            .position(newX, top + 8.0f).size(24.0f, 22.0f).zIndex(1)
+            .onTap([](const components::MouseEvent& event) {
+                openRequestTypeMenu(event.bounds.x, event.bounds.y + event.bounds.height);
+            }).build();
+    }
 
     const auto& items = g_requests.list();
     const auto& groups = g_requests.groups();
     const float listY = top + 36.0f;
-    const float listH = height - 20.0f - listY - 4.0f;
+    const float listH = nonNegative(bottom - listY - 4.0f);
     apitab_components::contextScrollView(ui, "sidebar.list")
         .position(x0, listY).size(std::max(0.0f, w), std::max(0.0f, listH)).offset(g_sidebarScroll).step(40.0f).theme(tokens)
         .onChange([](float value) { g_sidebarScroll = value; })
         .onContextMenu(openCollectionMenu)
         .content([&](eui::Ui& content, float contentWidth, float) {
+            const float rowW = nonNegative(contentWidth - 8.0f);
             if (items.empty() && groups.empty()) {
-                content.stack("sidebar.empty.row").size(contentWidth - 8.0f, 56.0f).content([&] {
+                content.stack("sidebar.empty.row").size(rowW, 56.0f).content([&] {
                     content.text("sidebar.empty").position(kMargin, 8.0f)
-                        .size(contentWidth - kMargin * 2.0f, 40.0f)
+                        .size(nonNegative(contentWidth - kMargin * 2.0f), 40.0f)
                         .text("还没有保存的请求\n点右上角 + 新建").fontSize(kFontLabel)
                         .color(theme.hintText).build();
                 }).build();
@@ -372,13 +371,13 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top,
                 for (const auto& group : groups) {
                     if (group.parentId != parentId) continue;
                     const std::string groupRow = "sidebar.grp." + std::to_string(group.id);
-                    drawGroupRow(content, groupRow, contentWidth - 8.0f, indent, group, theme);
+                    drawGroupRow(content, groupRow, rowW, indent, group, theme);
                     const bool collapsed = g_groupCollapsed.contains(group.id) && g_groupCollapsed.at(group.id);
                     if (collapsed) continue;
                     for (const auto& request : items) {
                         if (request.groupId != group.id) continue;
                         drawRequestRow(content, groupRow + ".req." + std::to_string(request.id),
-                                       contentWidth - 8.0f, indent + 14.0f, request, theme);
+                                       rowW, indent + 14.0f, request, theme);
                     }
                     drawTree(group.id, indent + 14.0f);
                 }
@@ -387,7 +386,7 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top,
             for (const auto& request : items) {
                 if (request.groupId != 0) continue;
                 drawRequestRow(content, "sidebar.req." + std::to_string(request.id),
-                               contentWidth - 8.0f, 0.0f, request, theme);
+                               rowW, 0.0f, request, theme);
             }
         }).build();
 

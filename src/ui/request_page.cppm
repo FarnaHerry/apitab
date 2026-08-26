@@ -205,6 +205,7 @@ void drawGlobalCookieDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                                 components::button(cu, id + ".delete")
                                     .position(nonNegative(rowW - delW), 2.0f).size(delW, delW)
                                     .icon(0xF1F8).text("").iconSize(8.0f).theme(tokens, false)
+                                    .radius(10.0f)
                                     .onClick([&cookies, id = cookie.id] {
                                         std::erase_if(cookies, [id](const db::GlobalCookie& c) { return c.id == id; });
                                         if (id > 0) (void)g_requests.deleteGlobalCookie(id);
@@ -216,14 +217,17 @@ void drawGlobalCookieDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             }
             components::button(ui, "global.cookies.add").position(pad, addY).size(80.0f, 24.0f)
                 .icon(0xF067).text("添加").fontSize(kFontLabel).theme(tokens, false)
+                .radius(kButtonRadius)
                 .onClick([&cookies] { cookies.push_back({g_nextTempGlobalCookieId--, {}, {}, true}); }).build();
             const float saveX = nonNegative(dlgW - pad - btnW);
             const float closeX = nonNegative(saveX - 8.0f - btnW);
             components::button(ui, "global.cookies.close").position(closeX, footerY).size(btnW, btnH)
                 .text("关闭").fontSize(kFontLabel).theme(tokens, false)
+                .radius(kButtonRadius)
                 .onClick([] { g_globalCookieOpen = false; }).build();
             components::button(ui, "global.cookies.save").position(saveX, footerY).size(btnW, btnH)
                 .text("保存").fontSize(kFontLabel).theme(tokens, true)
+                .radius(kButtonRadius)
                 .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
                 .onClick([&cookies] {
                     for (auto& cookie : cookies) {
@@ -281,6 +285,7 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                     .position(x, y + nonNegative(h - 26.0f)).size(150.0f, 24.0f)
                     .icon(0xF013).text("管理全局 Cookies").fontSize(kFontLabel)
                     .theme(tokens, false)
+                    .radius(kButtonRadius)
                     .onClick([] { g_globalCookieOpen = true; }).build();
             }
             break;
@@ -370,6 +375,7 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                         .size(82.0f, 22.0f)
                         .icon(0xF1C9).text("格式化").fontSize(kFontLabel)
                         .iconSize(kCardActionIconSize).theme(tokens, false)
+                        .radius(kButtonRadius)
                         .onClick([] { formatJsonBody(); })
                         .build();
                 }
@@ -610,6 +616,7 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
         .theme(tokens, true)
         .textColor(onPrimaryColor(theme))   // 白底主色 → 深色字/图标才可读
         .iconColor(onPrimaryColor(theme))
+        .radius(kButtonRadius)
         .onClick([busy] {
             if (busy) {
                 g_requests.cancel();
@@ -627,6 +634,7 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
         .text("保存")
         .fontSize(kFontBody)
         .theme(tokens, false)
+        .radius(kButtonRadius)
         .onClick([] { saveCurrentRequest(); })
         .build();
 
@@ -794,6 +802,7 @@ export void drawRequestPageDialogs(eui::Ui& ui, const eui::Screen& screen,
                                     .text("")
                                     .iconSize(9.0f)
                                     .theme(tokens, false)
+                                    .radius(10.0f)
                                     .onClick([id = e.id, name = e.name] {
                                         askConfirm("删除环境",
                                                    std::format("将删除环境「{}」。", name),
@@ -817,6 +826,7 @@ export void drawRequestPageDialogs(eui::Ui& ui, const eui::Screen& screen,
                 .fontSize(kFontLabel)
                 .iconSize(8.0f)
                 .theme(tokens, false)
+                .radius(kButtonRadius)
                 .onClick([] {
                     (void)g_requests.createEnvironment("新环境", "http://localhost:8080/");
                 })
@@ -829,6 +839,7 @@ export void drawRequestPageDialogs(eui::Ui& ui, const eui::Screen& screen,
                 .text("取消")
                 .fontSize(kFontLabel)
                 .theme(tokens, false)
+                .radius(kButtonRadius)
                 .onClick([] {
                     g_envManageOpen = false;
                     g_envNameDrafts.clear();
@@ -841,6 +852,7 @@ export void drawRequestPageDialogs(eui::Ui& ui, const eui::Screen& screen,
                 .text("保存")
                 .fontSize(kFontLabel)
                 .theme(tokens, true)
+                .radius(kButtonRadius)
                 .textColor(onPrimaryColor(theme))
                 .iconColor(onPrimaryColor(theme))
                 .onClick([envs] {

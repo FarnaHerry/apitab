@@ -117,24 +117,37 @@ export void drawTcpPage(eui::Ui& ui, float x, float y, float w, float h,
     constexpr float connectW = 84.0f;
     constexpr float saveW = 52.0f;
     constexpr float timeoutW = 64.0f;
-    const float urlW = std::max(120.0f, w - connectW - saveW - timeoutW - kGap * 3.0f);
+    // 单行最小跨度 338（url120+timeout64+connect84+save52+gaps18），低于阈值
+    // 换两行：URL 独占一行，timeout/connect/save 第二行。宽度全部非负。
+    const bool twoRows = w < 338.0f;
+    const float toolbarH = twoRows ? kInputHeight * 2.0f + kGap : kInputHeight;
+    const float urlW = twoRows
+        ? w
+        : nonNegative(w - connectW - saveW - timeoutW - kGap * 3.0f);
+    drawIslandPanel(ui, id + ".toolbar.island", x, y, w, toolbarH,
+                    theme, theme.dark ? 0.56f : 0.78f);
     components::input(ui, id + ".url")
         .position(x, y).size(urlW, kInputHeight).value(draft.url)
         .placeholder(tls ? "tcps://example.com:443" : "tcp://127.0.0.1:9000")
         .fontFamily("monospace").theme(tokens)
         .onChange([](const std::string& value) { activeDraft().url = value; }).build();
+    const float row2Y = twoRows ? y + kInputHeight + kGap : y;
+    const float timeoutX = twoRows ? x : x + urlW + kGap;
+    const float connectX = timeoutX + timeoutW + kGap;
+    const float saveX = connectX + connectW + kGap;
     components::input(ui, id + ".timeout")
-        .position(x + urlW + kGap, y).size(timeoutW, kInputHeight)
+        .position(timeoutX, row2Y).size(timeoutW, kInputHeight)
         .value(std::to_string(draft.tcpConnectTimeoutSec)).placeholder("超时")
         .theme(tokens).onChange([](const std::string& value) {
             try { activeDraft().tcpConnectTimeoutSec = std::clamp(std::stoi(value), 1, 120); }
             catch (...) {}
         }).build();
     components::button(ui, id + ".connect")
-        .position(x + urlW + timeoutW + kGap * 2.0f, y).size(connectW, kButtonHeight)
+        .position(connectX, row2Y).size(connectW, kButtonHeight)
         .icon(busy ? 0xF04D : 0xF1D8).text(busy ? "断开" : "连接")
         .fontSize(kFontLabel).theme(tokens, true)
         .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
+        .radius(kButtonRadius)
         .onClick([busy] {
             RequestTab& active = activeTab();
             if (busy) { g_tcp.disconnect(active.uid); return; }
@@ -145,89 +158,141 @@ export void drawTcpPage(eui::Ui& ui, float x, float y, float w, float h,
             showStatus(error.empty() ? "TCP 连接中…" : error);
         }).build();
     components::button(ui, id + ".save")
-        .position(x + urlW + timeoutW + connectW + kGap * 3.0f, y).size(saveW, kButtonHeight)
+        .position(saveX, row2Y).size(saveW, kButtonHeight)
         .icon(0xF0C7).text("保存").fontSize(kFontLabel).theme(tokens, false)
+        .radius(kButtonRadius)
         .onClick([] { saveTcpRequest(); }).build();
 
-    ui.text(id + ".state")
-        .position(x, y + 32.0f).size(w, 18.0f)
-        .text(std::string(tls ? "TCPS · " : "TCP · ") + stateLabel(state) + " · " + trim(draft.url))
-        .fontSize(kFontLabel).lineHeight(18.0f)
-        .color(state == api::TcpState::Failed ? theme.serverErr : theme.metaText)
-        .verticalAlign(core::VerticalAlign::Center).build();
+    // 状态行在短窗口让位（时间线/composer 优先保住）。
+    const bool showState = h >= 170.0f;
+    if (showState) {
+        ui.text(id + ".state")
+            .position(x, y + toolbarH + 6.0f).size(w, 18.0f)
+            .text(std::string(tls ? "TCPS · " : "TCP · ") + stateLabel(state) + " · " + trim(draft.url))
+            .fontSize(kFontLabel).lineHeight(18.0f)
+            .color(state == api::TcpState::Failed ? theme.serverErr : theme.metaText)
+            .verticalAlign(core::VerticalAlign::Center).build();
+    }
 
-    const float composerH = 58.0f;
-    const float timelineY = y + 56.0f;
-    const float timelineH = std::max(70.0f, h - 56.0f - composerH - kGap);
+    // ---- 时间线 + composer：composer 高度固定，时间线吃掉剩余（不为负）。----
+    const bool narrowComposer = w < 340.0f;
+    const float composerH = narrowComposer ? 56.0f : 58.0f;
+    const float timelineY = y + toolbarH + (showState ? 30.0f : 6.0f);
+    const float timelineH = nonNegative(h - (timelineY - y) - composerH - kGap);
     drawIslandPanel(ui, id + ".timeline.island", x, timelineY, w, timelineH, theme,
                     theme.dark ? 0.68f : 0.86f);
-    components::scrollView(ui, id + ".timeline.scroll")
-        .position(x + 4.0f, timelineY + 4.0f).size(w - 8.0f, timelineH - 8.0f)
-        .offset(tab.tcpScroll).theme(tokens)
-        .onChange([](float value) { activeTab().tcpScroll = value; })
-        .content([&](eui::Ui& content, float contentWidth, float) {
-            if (tab.tcpEvents.empty()) {
-                content.stack(id + ".timeline.empty.row").size(contentWidth, 32.0f).content([&] {
-                    content.text(id + ".timeline.empty").position(8.0f, 8.0f)
-                        .size(contentWidth - 16.0f, 18.0f).text("连接后将在此显示原始 TCP 数据")
-                        .fontSize(kFontLabel).color(theme.hintText).build();
-                }).build();
-            }
-            for (int i = 0; i < static_cast<int>(tab.tcpEvents.size()); ++i) {
-                const auto& event = tab.tcpEvents[i];
-                const std::string row = id + ".timeline." + std::to_string(i);
-                std::string prefix;
-                switch (event.kind) {
-                    case api::TcpEventKind::Connecting: prefix = "CONNECT"; break;
-                    case api::TcpEventKind::Connected: prefix = "OPEN"; break;
-                    case api::TcpEventKind::Sent: prefix = "→ TX"; break;
-                    case api::TcpEventKind::Received: prefix = "← RX"; break;
-                    case api::TcpEventKind::Disconnected: prefix = "CLOSE"; break;
-                    case api::TcpEventKind::Error: prefix = "ERROR"; break;
+    const float scrollW = nonNegative(w - kPanelPad * 2.0f);
+    const float scrollH = nonNegative(timelineH - kPanelPad * 2.0f);
+    if (scrollW > 0.0f && scrollH > 0.0f) {
+        components::scrollView(ui, id + ".timeline.scroll")
+            .position(x + kPanelPad, timelineY + kPanelPad).size(scrollW, scrollH)
+            .offset(tab.tcpScroll).theme(tokens)
+            .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
+            .onChange([](float value) { activeTab().tcpScroll = value; })
+            .content([&](eui::Ui& content, float contentWidth, float) {
+                const float rowW = nonNegative(contentWidth);
+                if (tab.tcpEvents.empty()) {
+                    content.stack(id + ".timeline.empty.row").size(rowW, 32.0f).content([&] {
+                        content.text(id + ".timeline.empty").position(8.0f, 8.0f)
+                            .size(nonNegative(rowW - 16.0f), 18.0f).text("连接后将在此显示原始 TCP 数据")
+                            .fontSize(kFontLabel).color(theme.hintText).build();
+                    }).build();
                 }
-                const std::string payload = tab.tcpReceiveFormat == api::TcpPayloadFormat::Hex
-                    ? hex(event.payload) : textPreview(event.payload);
-                const std::string text = prefix + (event.wireBytes ? " [" + std::to_string(event.wireBytes) + " B] " : " ") +
-                                         (!payload.empty() ? payload : event.detail);
-                content.stack(row).size(contentWidth, 22.0f).content([&] {
-                    content.text(row + ".text").position(8.0f, 2.0f)
-                        .size(contentWidth - 16.0f, 18.0f).text(text).fontFamily("monospace")
-                        .fontSize(kFontMono)
-                        .color(event.kind == api::TcpEventKind::Error ? theme.serverErr : theme.bodyText)
-                        .wrap(true).build();
-                }).build();
-            }
-        }).build();
+                for (int i = 0; i < static_cast<int>(tab.tcpEvents.size()); ++i) {
+                    const auto& event = tab.tcpEvents[i];
+                    const std::string row = id + ".timeline." + std::to_string(i);
+                    std::string prefix;
+                    switch (event.kind) {
+                        case api::TcpEventKind::Connecting: prefix = "CONNECT"; break;
+                        case api::TcpEventKind::Connected: prefix = "OPEN"; break;
+                        case api::TcpEventKind::Sent: prefix = "→ TX"; break;
+                        case api::TcpEventKind::Received: prefix = "← RX"; break;
+                        case api::TcpEventKind::Disconnected: prefix = "CLOSE"; break;
+                        case api::TcpEventKind::Error: prefix = "ERROR"; break;
+                    }
+                    const std::string payload = tab.tcpReceiveFormat == api::TcpPayloadFormat::Hex
+                        ? hex(event.payload) : textPreview(event.payload);
+                    const std::string text = prefix + (event.wireBytes ? " [" + std::to_string(event.wireBytes) + " B] " : " ") +
+                                             (!payload.empty() ? payload : event.detail);
+                    // wrap 文本量出真实行高，scroll 测量与视觉一致。
+                    const float textH = measureWrappedTextHeight(
+                        text, nonNegative(rowW - 16.0f), kFontMono, "monospace");
+                    const float rowH = std::max(22.0f, textH + 4.0f);
+                    content.stack(row).size(rowW, rowH).content([&] {
+                        content.text(row + ".text").position(8.0f, 2.0f)
+                            .size(nonNegative(rowW - 16.0f), textH).text(text).fontFamily("monospace")
+                            .fontSize(kFontMono)
+                            .color(event.kind == api::TcpEventKind::Error ? theme.serverErr : theme.bodyText)
+                            .wrap(true).build();
+                    }).build();
+                }
+            }).build();
+    }
 
+    // ---- composer：宽窗口 message 在左、控制在右；窄窗口 message 独占一行、
+    // 三个控制第二行均分。右侧控件永远不越出岛屿。
     const float composerY = timelineY + timelineH + kGap;
-    components::input(ui, id + ".message")
-        .position(x, composerY).size(std::max(80.0f, w - 246.0f), composerH)
-        .value(tab.tcpMessage).placeholder(tab.tcpSendFormat == api::TcpPayloadFormat::Hex ? "48 65 6C 6C 6F" : "输入要发送的数据")
-        .multiline().fontFamily("monospace").theme(tokens)
-        .onChange([](const std::string& value) { activeTab().tcpMessage = value; }).build();
-    ui.stack(id + ".send.mode.wrap").position(x + w - 240.0f, composerY).size(112.0f, 24.0f)
-        .content([&] {
-            components::segmented(ui, id + ".send.mode").size(112.0f, 24.0f)
-                .items({"文本", "Hex"}).selected(tab.tcpSendFormat == api::TcpPayloadFormat::Hex ? 1 : 0)
-                .theme(tokens).style(segmentedStyle(theme))
-                .onChange([](int index) { activeTab().tcpSendFormat = index == 1 ? api::TcpPayloadFormat::Hex : api::TcpPayloadFormat::Text; }).build();
-        }).build();
-    ui.stack(id + ".receive.mode.wrap").position(x + w - 120.0f, composerY).size(120.0f, 24.0f)
-        .content([&] {
-            components::segmented(ui, id + ".receive.mode").size(120.0f, 24.0f)
-                .items({"接收文本", "接收 Hex"}).selected(tab.tcpReceiveFormat == api::TcpPayloadFormat::Hex ? 1 : 0)
-                .theme(tokens).style(segmentedStyle(theme))
-                .onChange([](int index) { activeTab().tcpReceiveFormat = index == 1 ? api::TcpPayloadFormat::Hex : api::TcpPayloadFormat::Text; }).build();
-        }).build();
-    components::button(ui, id + ".send")
-        .position(x + w - 120.0f, composerY + 32.0f).size(120.0f, 26.0f)
-        .icon(0xF1D8).text("发送数据").fontSize(kFontLabel).theme(tokens, true)
-        .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
-        .onClick([] {
-            RequestTab& active = activeTab();
-            std::vector<std::uint8_t> bytes;
-            if (const std::string error = encodeMessage(active, bytes); !error.empty()) { showStatus(error); return; }
-            if (const std::string error = g_tcp.send(active.uid, bytes); !error.empty()) { showStatus(error); return; }
-            active.tcpMessage.clear();
-        }).build();
+    drawIslandPanel(ui, id + ".composer.island", x, composerY, w, composerH,
+                    theme, theme.dark ? 0.52f : 0.74f);
+    auto sendMessage = [] {
+        RequestTab& active = activeTab();
+        std::vector<std::uint8_t> bytes;
+        if (const std::string error = encodeMessage(active, bytes); !error.empty()) { showStatus(error); return; }
+        if (const std::string error = g_tcp.send(active.uid, bytes); !error.empty()) { showStatus(error); return; }
+        active.tcpMessage.clear();
+    };
+    if (narrowComposer) {
+        const float thirdW = nonNegative((w - kGap * 2.0f) / 3.0f);
+        components::input(ui, id + ".message")
+            .position(x, composerY).size(w, 26.0f)
+            .value(tab.tcpMessage).placeholder(tab.tcpSendFormat == api::TcpPayloadFormat::Hex ? "48 65 6C 6C 6F" : "输入要发送的数据")
+            .multiline().fontFamily("monospace").theme(tokens)
+            .onChange([](const std::string& value) { activeTab().tcpMessage = value; }).build();
+        ui.stack(id + ".send.mode.wrap").position(x, composerY + 30.0f).size(thirdW, 24.0f)
+            .content([&] {
+                components::segmented(ui, id + ".send.mode").size(thirdW, 24.0f)
+                    .items({"文本", "Hex"}).selected(tab.tcpSendFormat == api::TcpPayloadFormat::Hex ? 1 : 0)
+                    .theme(tokens).style(segmentedStyle(theme))
+                    .onChange([](int index) { activeTab().tcpSendFormat = index == 1 ? api::TcpPayloadFormat::Hex : api::TcpPayloadFormat::Text; }).build();
+            }).build();
+        ui.stack(id + ".receive.mode.wrap").position(x + thirdW + kGap, composerY + 30.0f).size(thirdW, 24.0f)
+            .content([&] {
+                components::segmented(ui, id + ".receive.mode").size(thirdW, 24.0f)
+                    .items({"收文本", "收 Hex"}).selected(tab.tcpReceiveFormat == api::TcpPayloadFormat::Hex ? 1 : 0)
+                    .theme(tokens).style(segmentedStyle(theme))
+                    .onChange([](int index) { activeTab().tcpReceiveFormat = index == 1 ? api::TcpPayloadFormat::Hex : api::TcpPayloadFormat::Text; }).build();
+            }).build();
+        components::button(ui, id + ".send")
+            .position(x + (thirdW + kGap) * 2.0f, composerY + 30.0f).size(thirdW, 26.0f)
+            .icon(0xF1D8).text("发送").fontSize(kFontLabel).theme(tokens, true)
+            .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
+            .radius(kButtonRadius)
+            .onClick(sendMessage).build();
+    } else {
+        components::input(ui, id + ".message")
+            .position(x, composerY).size(nonNegative(w - 246.0f), composerH)
+            .value(tab.tcpMessage).placeholder(tab.tcpSendFormat == api::TcpPayloadFormat::Hex ? "48 65 6C 6C 6F" : "输入要发送的数据")
+            .multiline().fontFamily("monospace").theme(tokens)
+            .onChange([](const std::string& value) { activeTab().tcpMessage = value; }).build();
+        ui.stack(id + ".send.mode.wrap").position(x + w - 240.0f, composerY).size(112.0f, 24.0f)
+            .content([&] {
+                components::segmented(ui, id + ".send.mode").size(112.0f, 24.0f)
+                    .items({"文本", "Hex"}).selected(tab.tcpSendFormat == api::TcpPayloadFormat::Hex ? 1 : 0)
+                    .theme(tokens).style(segmentedStyle(theme))
+                    .onChange([](int index) { activeTab().tcpSendFormat = index == 1 ? api::TcpPayloadFormat::Hex : api::TcpPayloadFormat::Text; }).build();
+            }).build();
+        ui.stack(id + ".receive.mode.wrap").position(x + w - 120.0f, composerY).size(120.0f, 24.0f)
+            .content([&] {
+                components::segmented(ui, id + ".receive.mode").size(120.0f, 24.0f)
+                    .items({"接收文本", "接收 Hex"}).selected(tab.tcpReceiveFormat == api::TcpPayloadFormat::Hex ? 1 : 0)
+                    .theme(tokens).style(segmentedStyle(theme))
+                    .onChange([](int index) { activeTab().tcpReceiveFormat = index == 1 ? api::TcpPayloadFormat::Hex : api::TcpPayloadFormat::Text; }).build();
+            }).build();
+        components::button(ui, id + ".send")
+            .position(x + w - 120.0f, composerY + 32.0f).size(120.0f, 26.0f)
+            .icon(0xF1D8).text("发送数据").fontSize(kFontLabel).theme(tokens, true)
+            .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
+            .radius(kButtonRadius)
+            .onClick(sendMessage).build();
+    }
 }
