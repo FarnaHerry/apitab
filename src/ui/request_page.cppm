@@ -276,8 +276,8 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                 .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
                 .onChange([](float v) { g_editorScroll = v; })
                 .content([&](eui::Ui& cu, float contentWidth, float) {
-                    drawParamEditor(cu, "editor.params", 0, 0, nonNegative(contentWidth - 4.0f),
-                                     draft.params, theme);
+                    drawFieldTable(cu, "editor.params.table", 0, 0,
+                                   nonNegative(contentWidth - 4.0f), draft.params, theme, true);
                 })
                 .build();
             break;
@@ -389,8 +389,8 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                         .position(x, y + selectorH + 6.0f).size(w, bodyH).theme(tokens)
                         .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
                         .content([&](eui::Ui& cu, float contentWidth, float) {
-                            drawParamEditor(cu, "editor.body.form", 0, 0,
-                                             nonNegative(contentWidth - 4.0f), fields, theme);
+                            drawFieldTable(cu, "editor.body.form.table", 0, 0,
+                                           nonNegative(contentWidth - 4.0f), fields, theme, false);
                         }).build();
                     break;
                 }

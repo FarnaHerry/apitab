@@ -404,6 +404,84 @@ export float drawKvEditor(eui::Ui& ui, const std::string& id, float x, float y, 
     return y + items.size() * (kEditorRowHeight + colGap) + 22.0f;
 }
 
+export float drawFieldTable(eui::Ui& ui, const std::string& id, float x, float y, float w,
+                            std::vector<api::KeyValue>& items, const AppTheme& theme,
+                            bool showMeta = true) {
+    const auto& tokens = theme.components;
+    constexpr float headerH = 24.0f;
+    constexpr float rowH = 28.0f;
+    const float gap = kEditorRowGap;
+    const float actionW = kIconButtonSize;
+    const float enabledW = 24.0f;
+    const float usable = nonNegative(w - enabledW - actionW - gap * 4.0f);
+    const float keyW = usable * (showMeta ? 0.24f : 0.38f);
+    const float valueW = usable * (showMeta ? 0.27f : 0.52f);
+    const float typeW = showMeta ? 86.0f : 0.0f;
+    const float remarkW = showMeta ? nonNegative(usable - keyW - valueW - typeW) : 0.0f;
+    const auto colX = [&](float offset) { return x + offset; };
+
+    ui.stack(id + ".header").position(x, y).size(w, headerH).content([&] {
+        ui.text(id + ".header.enabled").position(0, 0).size(enabledW, headerH)
+            .text("启").fontSize(kFontLabel).lineHeight(headerH).color(theme.metaText)
+            .horizontalAlign(core::HorizontalAlign::Center).verticalAlign(core::VerticalAlign::Center).build();
+        ui.text(id + ".header.key").position(colX(enabledW + gap), 0).size(keyW, headerH)
+            .text("Key").fontSize(kFontLabel).lineHeight(headerH).color(theme.metaText).build();
+        ui.text(id + ".header.value").position(colX(enabledW + gap * 2 + keyW), 0).size(valueW, headerH)
+            .text("Value").fontSize(kFontLabel).lineHeight(headerH).color(theme.metaText).build();
+        if (showMeta) {
+            ui.text(id + ".header.type").position(colX(enabledW + gap * 3 + keyW + valueW), 0).size(typeW, headerH)
+                .text("类型").fontSize(kFontLabel).lineHeight(headerH).color(theme.metaText).build();
+            ui.text(id + ".header.remark").position(colX(enabledW + gap * 3 + keyW + valueW + typeW), 0)
+                .size(remarkW, headerH).text("备注").fontSize(kFontLabel).lineHeight(headerH).color(theme.metaText).build();
+        }
+        drawEditorDivider(ui, id + ".header.divider", 0, headerH - kEditorDividerHeight, w, theme);
+    }).build();
+
+    const std::vector<std::string> types = {"string", "integer", "number", "boolean"};
+    for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+        const std::string rowId = id + ".row." + std::to_string(i);
+        const float rowY = y + headerH + static_cast<float>(i) * rowH;
+        ui.stack(rowId).position(x, rowY).size(w, rowH).content([&] {
+            ui.stack(rowId + ".enabled.wrap").position(0, 0).size(enabledW, rowH).content([&] {
+                components::checkbox(ui, rowId + ".enabled").size(enabledW, 24.0f)
+                    .checked(items[i].enabled).theme(tokens)
+                    .onChange([&items, i](bool value) { items[i].enabled = value; }).build();
+            }).build();
+            components::input(ui, rowId + ".key").position(enabledW + gap, 2.0f).size(keyW, 24.0f)
+                .value(items[i].key).placeholder("Key").theme(tokens)
+                .onChange([&items, i](const std::string& value) { items[i].key = value; }).build();
+            components::input(ui, rowId + ".value").position(enabledW + gap * 2 + keyW, 2.0f).size(valueW, 24.0f)
+                .value(items[i].value).placeholder("Value").theme(tokens)
+                .onChange([&items, i](const std::string& value) { items[i].value = value; }).build();
+            if (showMeta) {
+                const std::string typeId = rowId + ".type";
+                ui.stack(typeId + ".wrap").position(enabledW + gap * 3 + keyW + valueW, 2.0f).size(typeW, 24.0f)
+                    .zIndex(30).content([&] {
+                        registerSelectionPopup(typeId, g_paramTypeOpen[rowId], [key = rowId] { g_paramTypeOpen[key] = false; });
+                        components::dropdown(ui, typeId).size(typeW, 24.0f).items(types)
+                            .selected([&] { const auto it = std::ranges::find(types, items[i].type); return it == types.end() ? 0 : static_cast<int>(it - types.begin()); }())
+                            .open(g_paramTypeOpen[rowId]).theme(tokens)
+                            .onOpenChange([key = rowId](bool open) { g_paramTypeOpen[key] = open; setSelectionPopupOpen(key + ".type", open); })
+                            .onChange([&items, i, types, key = rowId](int selected) { items[i].type = types[std::clamp(selected, 0, static_cast<int>(types.size()) - 1)]; g_paramTypeOpen[key] = false; })
+                            .build();
+                    }).build();
+                components::input(ui, rowId + ".remark").position(enabledW + gap * 4 + keyW + valueW + typeW, 2.0f).size(remarkW, 24.0f)
+                    .value(items[i].remark).placeholder("备注").theme(tokens)
+                    .onChange([&items, i](const std::string& value) { items[i].remark = value; }).build();
+            }
+            components::button(ui, rowId + ".delete").position(w - actionW, 4.0f).size(actionW, actionW)
+                .icon(0xF00D).text("").iconSize(9.0f).theme(tokens, false).radius(kIconButtonRadius)
+                .onClick([&items, i] { items.erase(items.begin() + i); }).build();
+            drawEditorDivider(ui, rowId + ".divider", 0, rowH - kEditorDividerHeight, w, theme);
+        }).build();
+    }
+    const float addY = y + headerH + static_cast<float>(items.size()) * rowH;
+    components::button(ui, id + ".add").position(x, addY).size(64.0f, kCompactButtonHeight)
+        .icon(0xF067).text("添加").fontSize(kFontLabel).theme(tokens, false).radius(kButtonRadius)
+        .onClick([&items, showMeta] { items.push_back({.enabled = true, .type = showMeta ? "string" : ""}); }).build();
+    return addY + kCompactButtonHeight;
+}
+
 export float drawParamEditor(eui::Ui& ui, const std::string& id, float x, float y, float w,
                              std::vector<api::KeyValue>& items, const AppTheme& theme) {
     const float delW = kIconButtonSize;
