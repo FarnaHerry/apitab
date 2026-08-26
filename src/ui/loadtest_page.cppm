@@ -74,7 +74,7 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
                          const AppTheme& theme) {
     const auto& tokens = theme.components;
 
-    // ---- k6 引擎状态行 ----
+    // 控制、输出、结果分别是独立功能岛，页面不再由外部项目大岛包裹。
     const bool available = g_loadtest.available();
     // 单行最小跨度 ≈ 372（target 文本起点）；低于阈值参数行/按钮行分开，
     // 不再让固定 x+272/x+372 把控件推出岛屿。

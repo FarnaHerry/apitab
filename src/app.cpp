@@ -317,19 +317,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             const float sidebarW = showCollectionSidebar
                 ? std::min(kSidebarWidth, nonNegative(shellW - 96.0f)) : 0.0f;
 
-            if (projectContext) {
-                const float shellY = bodyTop + kIslandVInset;
-                const float shellH = std::max(0.0f, bodyBottom - shellY);
-                const float shellX = static_cast<float>(kRailWidth);
-                if (showCollectionSidebar) {
-                    drawIslandPanel(ui, "project.sidebar.island", shellX, shellY,
-                                    sidebarW, shellH, theme, theme.dark ? 0.56f : 0.78f);
-                    drawIslandPanel(ui, "project.content.island",
-                                    shellX + sidebarW + kIslandGap, shellY,
-                                    std::max(0.0f, shellW - sidebarW - kIslandGap), shellH,
-                                    theme, theme.dark ? 0.62f : 0.84f);
-                }
-            }
+            // 侧栏与页面各自负责自己的内容岛；不再绘制覆盖整个项目区的外部壳岛。
 
             // Home 与全局设置覆盖最高级 rail 和项目侧栏。
             if (!overlayPage) {

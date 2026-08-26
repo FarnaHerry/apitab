@@ -721,20 +721,19 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
             .build();
     }
 
-    // ---- 编辑器区（上 42%）/ 响应区（下方剩余）：高度全部从可用空间推导， ----
-    // 不再用 min 80 把响应区推出页面。岛屿精确覆盖，内容内缩 kPanelPad。
+    // 编辑器与响应各自是独立功能岛，内容区不再套在外部大岛内。
     const float editorY = tabY + 30.0f;
     const float splitH = nonNegative(y + h - editorY);
     const float editorH = nonNegative(splitH * 0.42f);
-    drawIslandPanel(ui, "req.tabs.island", x, tabY, w, 24.0f, theme,
-                    theme.dark ? 0.50f : 0.72f);
+    drawIslandPanel(ui, "req.editor.island", x, editorY, w, editorH, theme,
+                    theme.dark ? 0.56f : 0.78f);
     const float respY = editorY + editorH + kGap;
     const float respH = nonNegative(y + h - respY);
     drawIslandPanel(ui, "req.response.island", x, respY, w, respH, theme,
                     theme.dark ? 0.64f : 0.84f);
     if (editorH > 0.0f) {
         drawEditor(ui, x + kPanelPad, editorY + kPanelPad, nonNegative(w - kPanelPad * 2.0f),
-                   nonNegative(editorH - kPanelPad), theme);
+                   nonNegative(editorH - kPanelPad * 2.0f), theme);
     }
     if (respH > 0.0f) {
         drawResponse(ui, x + kPanelPad, respY + kPanelPad, nonNegative(w - kPanelPad * 2.0f),

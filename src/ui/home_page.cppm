@@ -86,7 +86,7 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
     // 组织栏优先 150~220，但极窄窗口必须给内容区留出至少 160 —— 组织栏收缩，
     // 不再用 min 150 把内容区压成负宽。
     const float orgListW = std::min(std::clamp(w * 0.24f, 150.0f, 220.0f),
-                                    nonNegative(w - 12.0f - 160.0f));
+                                    nonNegative(w - kIslandGap - 160.0f));
     const float gap = kIslandGap;
     const float contentX = x + orgListW + gap + kPanelPad;
     const float contentW = nonNegative(w - orgListW - gap - kPanelPad * 2.0f);
