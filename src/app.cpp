@@ -1,6 +1,15 @@
 // app.cpp — apitab 薄入口。
 #include <eui_neo.h>
 
+#include <string.h>
+
+#ifdef __linux__
+#include <dlfcn.h>
+#include <X11/Xatom.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#endif
+
 import std;
 import apitab.api_engine;
 import apitab.i18n;
@@ -24,6 +33,124 @@ import apitab.ui.settings_page;
 
 namespace app {
 
+namespace {
+
+#ifdef __linux__
+// EUI 0.5.7 的 DslAppConfig 没有最小窗口尺寸，窄窗口会触发各页换行布局
+// （WS 工具栏阈值 444 内容宽 + 壳层 rail40+sidebar190+margin16 = 690 逻辑宽）。
+// 这里用 X11 WM_NORMAL_HINTS 给主窗口设最小宽度（KWin/XWayland 会遵守，
+// 包括交互拖拽与程序化 resize）。libX11 是 GLFW 3.4 运行时 dlopen 加载的，
+// 不在链接行上，所以同样走 dlopen/dlsym 取函数，不引入新的链接依赖。
+// 非 X11 后端（纯 Wayland）下找不到窗口，静默跳过。
+// TODO(upstream-eui): 作者已确认最小窗口尺寸后续进 DslAppConfig —— 每次升级
+// EUI 版本时 grep 新版 dsl_app.h 是否有 minWindowSize/minimumSize 之类的接口，
+// 有了就删掉这整块 X11 workaround（详见 docs/eui-neo-compat.md）。
+constexpr float kMinWindowWidthLogical = 700.0f;
+
+struct X11Fns {
+    decltype(&XOpenDisplay) openDisplay = nullptr;
+    decltype(&XCloseDisplay) closeDisplay = nullptr;
+    decltype(&XQueryTree) queryTree = nullptr;
+    decltype(&XGetWindowProperty) getWindowProperty = nullptr;
+    decltype(&XGetWindowAttributes) getWindowAttributes = nullptr;
+    decltype(&XInternAtom) internAtom = nullptr;
+    decltype(&XSetWMNormalHints) setWMNormalHints = nullptr;
+    decltype(&XResizeWindow) resizeWindow = nullptr;
+    decltype(&XFlush) flush = nullptr;
+    decltype(&XFree) free = nullptr;
+};
+
+Window findWindowByTitle(Display* dpy, Window root, const X11Fns& X,
+                         Atom netWmName, Atom utf8, const std::string& title,
+                         int depth) {
+    if (depth > 4) return None;
+    Window rootOut = None, parentOut = None;
+    Window* children = nullptr;
+    unsigned count = 0;
+    if (X.queryTree(dpy, root, &rootOut, &parentOut, &children, &count) == 0) return None;
+    Window found = None;
+    for (unsigned i = 0; i < count && found == None; ++i) {
+        Atom actual = None;
+        int format = 0;
+        unsigned long n = 0, after = 0;
+        unsigned char* value = nullptr;
+        const int ok = X.getWindowProperty(dpy, children[i], netWmName, 0, 256, False,
+                                           AnyPropertyType, &actual, &format, &n, &after, &value);
+        if (ok == Success && value != nullptr) {
+            while (n > 0 && value[n - 1] == 0) --n;  // 去掉可能的结尾 NUL
+            if ((actual == utf8 || actual == XA_STRING) &&
+                n == title.size() && memcmp(value, title.data(), n) == 0) {
+                found = children[i];
+            }
+            X.free(value);
+        }
+        if (found == None) {
+            found = findWindowByTitle(dpy, children[i], X, netWmName, utf8, title, depth + 1);
+        }
+    }
+    if (children != nullptr) X.free(children);
+    return found;
+}
+
+// 返回 true 表示已成功设置（或非 X11 环境无需重试）；false 表示窗口还没找到，下帧重试。
+bool applyMinWindowSize(float logicalWidth, const std::string& title) {
+    void* lib = dlopen("libX11.so.6", RTLD_NOW | RTLD_NOLOAD);
+    if (lib == nullptr) lib = dlopen("libX11.so.6", RTLD_NOW | RTLD_LOCAL);
+    if (lib == nullptr) return true;    X11Fns X;
+    X.openDisplay = reinterpret_cast<decltype(X.openDisplay)>(dlsym(lib, "XOpenDisplay"));
+    X.closeDisplay = reinterpret_cast<decltype(X.closeDisplay)>(dlsym(lib, "XCloseDisplay"));
+    X.queryTree = reinterpret_cast<decltype(X.queryTree)>(dlsym(lib, "XQueryTree"));
+    X.getWindowProperty = reinterpret_cast<decltype(X.getWindowProperty)>(dlsym(lib, "XGetWindowProperty"));
+    X.getWindowAttributes = reinterpret_cast<decltype(X.getWindowAttributes)>(dlsym(lib, "XGetWindowAttributes"));
+    X.internAtom = reinterpret_cast<decltype(X.internAtom)>(dlsym(lib, "XInternAtom"));
+    X.setWMNormalHints = reinterpret_cast<decltype(X.setWMNormalHints)>(dlsym(lib, "XSetWMNormalHints"));
+    X.resizeWindow = reinterpret_cast<decltype(X.resizeWindow)>(dlsym(lib, "XResizeWindow"));
+    X.flush = reinterpret_cast<decltype(X.flush)>(dlsym(lib, "XFlush"));
+    X.free = reinterpret_cast<decltype(X.free)>(dlsym(lib, "XFree"));
+    if (!X.openDisplay || !X.closeDisplay || !X.queryTree || !X.getWindowProperty ||
+        !X.getWindowAttributes || !X.internAtom || !X.setWMNormalHints ||
+        !X.resizeWindow || !X.flush || !X.free) {
+        return true;
+    }
+    Display* dpy = X.openDisplay(nullptr);
+    if (dpy == nullptr) return true;
+    const Atom netWmName = X.internAtom(dpy, "_NET_WM_NAME", True);
+    const Atom utf8 = X.internAtom(dpy, "UTF8_STRING", True);
+    const Window win = findWindowByTitle(dpy, DefaultRootWindow(dpy), X,
+                                         netWmName, utf8, title, 0);
+    bool applied = false;
+    if (win != None && logicalWidth > 0.0f) {
+        XWindowAttributes attrs{};
+        if (X.getWindowAttributes(dpy, win, &attrs) != 0 && attrs.width > 0) {
+            // X11 像素与逻辑像素的比例在运行时实测（XWayland 可能被合成器缩放），
+            // 不硬编码 kUI 或合成器缩放系数。
+            const float scale = static_cast<float>(attrs.width) / logicalWidth;
+            XSizeHints hints{};
+            hints.flags = PMinSize;
+            hints.min_width = static_cast<int>(kMinWindowWidthLogical * scale + 0.5f);
+            hints.min_height = 1;  // 只约束宽度；高度方向页面内部滚动兜底
+            X.setWMNormalHints(dpy, win, &hints);
+            if (attrs.width < hints.min_width) {
+                X.resizeWindow(dpy, win, static_cast<unsigned>(hints.min_width),
+                               static_cast<unsigned>(attrs.height));
+            }
+            X.flush(dpy);
+            applied = true;
+        }
+    }
+    X.closeDisplay(dpy);
+    return applied;
+}
+#endif
+
+#ifndef __linux__
+bool applyMinWindowSize(float, const std::string&) {
+    return true;
+}
+#endif
+
+} // namespace
+
 const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = DslAppConfig{}
         .title("apitab — API 测试与压测")
@@ -43,7 +170,6 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         loadLanguagePreference();
         g_themeMode = static_cast<ThemeMode>(std::clamp(g_savedThemeMode, 0, 2));
         if (g_themeMode == ThemeMode::System) g_dark = systemDark();
-        restoreSessionState();
         const auto openProjects = parseIdList(sessionPreference("open_projects"));
         const auto projects = g_requests.allProjects();
         for (const auto projectId : openProjects) {
@@ -63,9 +189,18 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 }
             }
         } catch (...) {}
+        // 页面恢复放在工作区恢复之后：openProjectWorkspace 恒切到 Request 页，
+        // 先恢复页面会被覆盖，History/ProjectSettings 等页永远恢复不出来。
+        restoreSessionState();
         return true;
     }();
     (void)preferencesLoaded;
+    // 最小窗口宽度：首帧窗口可能尚未映射，找不到就在下个事件帧重试，
+    // 成功后只跑一次（重试成本 = 一次 dlopen(NOLOAD) + 窗口树遍历，仅事件帧发生）。
+    static bool minWindowApplied = false;
+    if (!minWindowApplied) {
+        minWindowApplied = applyMinWindowSize(screen.width, dslAppConfig().titleValue);
+    }
     api::ResponseView resp;
     if (g_requests.pollResult(resp)) {
         RequestTab& tab = [&]() -> RequestTab& {
@@ -128,10 +263,12 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
 
     if (isProjectPage(g_page) && g_activeProjectTabId == 0) g_page = Page::Home;
     const AppTheme& theme = currentTheme();
+    beginSelectionPopupFrame();
     constexpr float workspaceH = 42.0f;
 
     ui.stack("root")
         .size(screen.width, screen.height)
+        .clip()
         .content([&] {
             ui.rect("theme.background")
                 .position(0, 0).size(screen.width, screen.height)
@@ -158,11 +295,11 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .build();
             ui.stack("workspace.bar.wrap")
                 .position(kMargin + 32.0f, kMargin)
-                .size(screen.width - kMargin * 2.0f - 32.0f, kInputHeight)
+                .size(nonNegative(screen.width - kMargin * 2.0f - 32.0f), kInputHeight)
                 .zIndex(40)
                 .content([&] {
                     drawProjectWorkspaceBar(ui, 0, 0,
-                                            screen.width - kMargin * 2.0f - 32.0f, theme);
+                                            nonNegative(screen.width - kMargin * 2.0f - 32.0f), theme);
                 })
                 .build();
 
@@ -172,7 +309,27 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                                (g_page == Page::Request || g_page == Page::Load);
             const bool requestTabs = showCollectionSidebar;
             const float bodyTop = workspaceH;
-            const float bodyBottom = std::max(bodyTop, screen.height - kMargin);
+            const float bodyBottom = std::max(bodyTop, screen.height - kMargin -
+                                                       (projectContext ? kIslandVInset : 0.0f));
+            // 侧栏宽优先 kSidebarWidth；shell 太窄时收缩侧栏（至少给内容区留 96），
+            // 不再固定 190 把内容区压成负宽。上下边与 shell 岛对齐。
+            const float shellW = std::max(0.0f, screen.width - kRailWidth - kRightMargin);
+            const float sidebarW = showCollectionSidebar
+                ? std::min(kSidebarWidth, nonNegative(shellW - 96.0f)) : 0.0f;
+
+            if (projectContext) {
+                const float shellY = bodyTop + kIslandVInset;
+                const float shellH = std::max(0.0f, bodyBottom - shellY);
+                const float shellX = static_cast<float>(kRailWidth);
+                if (showCollectionSidebar) {
+                    drawIslandPanel(ui, "project.sidebar.island", shellX, shellY,
+                                    sidebarW, shellH, theme, theme.dark ? 0.56f : 0.78f);
+                    drawIslandPanel(ui, "project.content.island",
+                                    shellX + sidebarW + kIslandGap, shellY,
+                                    std::max(0.0f, shellW - sidebarW - kIslandGap), shellH,
+                                    theme, theme.dark ? 0.62f : 0.84f);
+                }
+            }
 
             // Home 与全局设置覆盖最高级 rail 和项目侧栏。
             if (!overlayPage) {
@@ -212,8 +369,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
 
             float contentX = overlayPage ? kMargin : kRailWidth + kMargin;
             if (showCollectionSidebar) {
-                drawSidebar(ui, screen, bodyTop, theme);
-                contentX = kRailWidth + kSidebarWidth + kMargin;
+                // 侧栏宽优先 kSidebarWidth；shell 太窄时收缩侧栏（至少给内容区留 96），
+                // 不再固定 190 把内容区压成负宽。上下边与 shell 岛对齐。
+                drawSidebar(ui, screen, bodyTop + kIslandVInset, bodyBottom, sidebarW, theme);
+                contentX = kRailWidth + sidebarW + kMargin;
             }
             const float contentW = std::max(0.0f, screen.width - contentX - kMargin);
             float pageY = bodyTop + kMargin;
@@ -225,13 +384,14 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             if (compactShell && showCollectionSidebar) {
                 ui.text("shell.compact.notice")
                     .position(contentX, pageY).size(contentW, 24.0f)
-                    .text("窄窗口下请求集合保持显示，内容区可横向滚动")
+                    .text("窄窗口下请求集合保持显示，右侧内容区收窄")
                     .fontSize(kFontLabel).color(theme.hintText).build();
                 pageY += 30.0f;
             }
             const float pageH = std::max(0.0f, bodyBottom - pageY);
 
-            switch (g_page) {
+            // 页面区域被压没（极窄/极矮窗口）时跳过分页绘制，避免负几何控件。
+            if (contentW > 0.0f && pageH > 0.0f) switch (g_page) {
                 case Page::Home:
                     drawHomePage(ui, screen, contentX, pageY, contentW, pageH, theme);
                     break;
@@ -257,7 +417,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     if (projectContext) drawLoadPage(ui, contentX, pageY, contentW, pageH, theme);
                     break;
                 case Page::History:
-                    drawHistoryPage(ui, contentX, pageY, contentW, pageH, theme);
+                    drawHistoryPage(ui, screen, contentX, pageY, contentW, pageH, theme);
                     break;
                 case Page::ProjectSettings:
                     if (projectContext) drawProjectSettingsPage(ui, contentX, pageY, contentW, pageH, theme);
@@ -272,21 +432,19 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             }
 
             if (g_confirm.open) {
-                components::dialog(ui, "confirm")
-                    .open(true).screen(screen.width, screen.height).size(380.0f, 160.0f)
-                    .title(g_confirm.title).message(g_confirm.message)
-                    .primaryText(tr(UiText::Confirm)).secondaryText(tr(UiText::Cancel)).theme(theme.components)
-                    .onPrimary([] {
-                        if (g_confirm.action) g_confirm.action();
-                        g_confirm.open = false;
-                        g_confirm.action = nullptr;
-                    })
-                    .onSecondary([] {
-                        g_confirm.open = false;
-                        g_confirm.action = nullptr;
-                    })
-                    .build();
+                drawConfirmDialog(ui, screen, theme, "confirm",
+                                  g_confirm.title, g_confirm.message, tr(UiText::Confirm),
+                                  [] {
+                                      g_confirm.open = false;
+                                      g_confirm.action = nullptr;
+                                  },
+                                  [] {
+                                      if (g_confirm.action) g_confirm.action();
+                                      g_confirm.open = false;
+                                      g_confirm.action = nullptr;
+                                  });
             }
+            drawSelectionPopupDismissLayer(ui, screen);
         })
         .build();
 }

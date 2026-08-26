@@ -87,17 +87,14 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
     // 不再用 min 150 把内容区压成负宽。
     const float orgListW = std::min(std::clamp(w * 0.24f, 150.0f, 220.0f),
                                     nonNegative(w - 12.0f - 160.0f));
-    const float gap = 12.0f;
-    const float contentX = x + orgListW + gap;
-    const float contentW = nonNegative(w - orgListW - gap);
+    const float gap = kIslandGap;
+    const float contentX = x + orgListW + gap + kPanelPad;
+    const float contentW = nonNegative(w - orgListW - gap - kPanelPad * 2.0f);
 
-    // 组织导航与项目内容属于同一工作区，使用一张大岛承载两列；
-    // 中间留出的 gap 只作为视觉分隔，不再切出两张独立背景。
-    // 岛屿精确覆盖页面 bounds（不再 y-4/h+4 外扩），内容全部内缩。
-    drawIslandPanel(ui, "home.workspace.island", x, y, w, h,
-                    theme, theme.dark ? 0.66f : 0.84f);
-    drawIslandDivider(ui, "home.workspace.divider", contentX - gap * 0.5f,
-                      y, h, theme);
+    drawIslandPanel(ui, "home.orgs.island", x, y, orgListW, h, theme,
+                    theme.dark ? 0.56f : 0.78f);
+    drawIslandPanel(ui, "home.projects.island", contentX, y, contentW, h, theme,
+                    theme.dark ? 0.62f : 0.84f);
 
     ui.text("home.orgs.title")
         .position(x, y).size(nonNegative(orgListW - 104.0f), 24.0f).text("组织")
@@ -114,10 +111,10 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
             }).build();
     }
 
-    const float orgScrollH = nonNegative(h - 34.0f);
+    const float orgScrollH = nonNegative(h - 34.0f - kPanelPad);
     if (orgListW > 0.0f && orgScrollH > 0.0f) {
         components::scrollView(ui, "home.orgs.scroll")
-            .position(x, y + 34.0f).size(orgListW, orgScrollH).theme(tokens)
+            .position(x + kPanelPad, y + 34.0f).size(orgListW, orgScrollH).theme(tokens)
             .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
         .content([&](eui::Ui& cu, float contentWidth, float) {
             for (const auto& org : orgs) {
@@ -156,7 +153,7 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
         if (project.orgId == g_homeSelectedOrgId) projects.push_back(project);
     }
 
-    const float tabY = y;
+    const float tabY = y + kPanelPad;
     const float tabH = 28.0f;
     // 三个标签优先 88 宽；内容区不够时等比收缩，始终留在 contentW 内。
     const float tabW = std::min(88.0f, nonNegative(contentW - 8.0f) / 3.0f);
@@ -201,7 +198,7 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
         const float minCardW = 150.0f;
         const float cardH = 120.0f;
         const float cardTop = y + 72.0f;
-        const float gridH = nonNegative(h - 72.0f);
+        const float gridH = nonNegative(h - 72.0f - kPanelPad);
         const float menuScreenW = screen.width;
         const float menuScreenH = screen.height;
         if (contentW > 0.0f && gridH > 0.0f) {
