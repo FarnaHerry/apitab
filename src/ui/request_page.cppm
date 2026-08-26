@@ -289,7 +289,8 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                 .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
                 .onChange([](float v) { g_editorScroll = v; })
                 .content([&](eui::Ui& cu, float contentWidth, float) {
-                    drawKvEditor(cu, "editor.headers", 0, 0, nonNegative(contentWidth - 4.0f), items, theme);
+                    drawFieldTable(cu, "editor.headers.table", 0, 0,
+                                   nonNegative(contentWidth - 4.0f), items, theme, false);
                 })
                 .build();
             break;
@@ -302,7 +303,8 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                     .position(x, y).size(w, cookieListH).theme(tokens)
                     .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
                     .content([&](eui::Ui& cu, float contentWidth, float) {
-                        drawKvEditor(cu, "editor.cookies", 0, 0, nonNegative(contentWidth - 4.0f), items, theme);
+                        drawFieldTable(cu, "editor.cookies.table", 0, 0,
+                                           nonNegative(contentWidth - 4.0f), items, theme, false);
                     }).build();
             }
             if (h >= 26.0f) {
@@ -326,6 +328,7 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                         .size(w, 24.0f)
                         .text("自动跟随重定向").checked(draft.followRedirects)
                         .theme(tokens)
+                        .style(checkboxStyle(theme))
                         .onChange([](bool value) { activeDraft().followRedirects = value; }).build();
                 }).build();
             ui.stack("editor.settings.json.comments.wrap")
@@ -335,6 +338,7 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                         .size(w, 24.0f)
                         .text("兼容带注释的 JSON").checked(draft.allowJsonComments)
                         .theme(tokens)
+                        .style(checkboxStyle(theme))
                         .onChange([](bool value) { activeDraft().allowJsonComments = value; }).build();
                 }).build();
             break;

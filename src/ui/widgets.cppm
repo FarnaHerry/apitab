@@ -103,6 +103,13 @@ export core::Color onPrimaryColor(const AppTheme& theme) {
                                  : core::Color{0.95f, 0.95f, 0.95f, 1.0f};
 }
 
+export components::CheckboxStyle checkboxStyle(const AppTheme& theme) {
+    components::CheckboxStyle style(theme.components);
+    // apitab 深色主题的 checked 背景是白色 primary；EUI 默认 mark 也是白色，
+    // 覆写为 primary 对比色后勾选标记才可见。
+    style.mark = onPrimaryColor(theme);
+    return style;
+}
 // segmented 选中文字色修正（默认 selectedText 恒近白，白底主色下不可读）。
 export components::SegmentedStyle segmentedStyle(const AppTheme& theme) {
     components::SegmentedStyle style(theme.components);
@@ -445,6 +452,7 @@ export float drawFieldTable(eui::Ui& ui, const std::string& id, float x, float y
             ui.stack(rowId + ".enabled.wrap").position(0, 0).size(enabledW, rowH).content([&] {
                 components::checkbox(ui, rowId + ".enabled").size(enabledW, 24.0f)
                     .checked(items[i].enabled).theme(tokens)
+                    .style(checkboxStyle(theme))
                     .onChange([&items, i](bool value) { items[i].enabled = value; }).build();
             }).build();
             components::input(ui, rowId + ".key").position(enabledW + gap, 2.0f).size(keyW, 24.0f)
