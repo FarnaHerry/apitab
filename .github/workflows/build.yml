@@ -1,0 +1,94 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Linux x86_64 release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ca-certificates \
+            curl \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libxrender-dev \
+            libxcb1-dev \
+            libxau-dev \
+            libxdmcp-dev \
+            mesa-common-dev \
+            pkg-config
+
+      - name: Restore mcpp cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.mcpp
+          key: mcpp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mcpp.toml', 'mcpp.lock') }}
+          restore-keys: |
+            mcpp-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install mcpp
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v "$HOME/.mcpp/bin/mcpp" >/dev/null 2>&1; then
+            curl -fsSL https://github.com/mcpp-community/mcpp/releases/latest/download/install.sh | bash
+          fi
+          echo "$HOME/.mcpp/bin" >> "$GITHUB_PATH"
+          "$HOME/.mcpp/bin/mcpp" --version
+
+      - name: Build release
+        run: mcpp build --release
+
+      - name: Check source whitespace
+        run: git diff --check
+
+      - name: Stage release binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin_dir="$(find target/x86_64-linux-gnu -mindepth 2 -maxdepth 2 -type d -name bin -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2- | head -n1)"
+          if [[ -z "$bin_dir" || ! -x "$bin_dir/apitab" ]]; then
+            echo "apitab release binary not found" >&2
+            find target -maxdepth 5 -type f -name 'apitab*' -print >&2 || true
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$bin_dir/apitab" dist/apitab
+          chmod +x dist/apitab
+          file dist/apitab
+          ls -lh dist/apitab
+
+      - name: Upload release binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: apitab-linux-x86_64
+          path: dist/apitab
+          if-no-files-found: error
+          retention-days: 14
