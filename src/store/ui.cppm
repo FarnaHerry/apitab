@@ -49,6 +49,7 @@ export struct Draft {
     std::vector<api::KeyValue> cookies;
     api::BodyKind bodyKind = api::BodyKind::None;
     std::string body;
+    std::array<api::BodyContent, 7> bodyContents{};
     EditorTab tab = EditorTab::Params;
     bool followRedirects = true;
     bool allowJsonComments = true;
@@ -74,6 +75,7 @@ export void fillDraft(Draft& draft, const db::SavedRequest& r) {
     draft.cookies = r.cookies;
     draft.bodyKind = r.bodyKind;
     draft.body = r.body;
+    draft.bodyContents = r.bodyContents;
     draft.followRedirects = r.followRedirects;
     draft.allowJsonComments = r.allowJsonComments;
     draft.wsProtocol = r.wsProtocol;
@@ -89,7 +91,14 @@ export api::RequestSpec buildSpec(const Draft& draft, const std::string& finalUr
     spec.headers = draft.headers;
     spec.cookies = draft.cookies;
     spec.bodyKind = draft.bodyKind;
-    spec.body = draft.body;
+    const auto bodyIndex = static_cast<std::size_t>(draft.bodyKind);
+    if (bodyIndex < draft.bodyContents.size()) {
+        const auto& content = draft.bodyContents[bodyIndex];
+        spec.body = content.text;
+        spec.bodyFields = content.fields;
+    } else {
+        spec.body = draft.body;
+    }
     spec.followRedirects = draft.followRedirects;
     spec.allowJsonComments = draft.allowJsonComments;
     return spec;

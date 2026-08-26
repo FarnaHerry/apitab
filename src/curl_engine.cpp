@@ -94,6 +94,28 @@ std::string stripJsonComments(std::string_view input) {
     return output;
 }
 
+std::string formUrlEncode(std::string_view s) {
+    static constexpr char hex[] = "0123456789ABCDEF";
+    std::string out;
+    for (const unsigned char c : s) {
+        if (c == ' ') out.push_back('+');
+        else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                 (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') out.push_back(static_cast<char>(c));
+        else { out.push_back('%'); out.push_back(hex[c >> 4]); out.push_back(hex[c & 0xF]); }
+    }
+    return out;
+}
+
+std::string serializeFormUrlEncoded(const std::vector<api::KeyValue>& fields) {
+    std::string out;
+    for (const auto& field : fields) {
+        if (!field.enabled || field.key.empty()) continue;
+        if (!out.empty()) out.push_back('&');
+        out += formUrlEncode(field.key) + "=" + formUrlEncode(field.value);
+    }
+    return out;
+}
+
 std::vector<std::pair<std::string, std::string>> parseFormData(std::string_view body) {
     std::vector<std::pair<std::string, std::string>> fields;
     std::size_t start = 0;
@@ -193,8 +215,13 @@ private:
         curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, &onProgress);
         curl_easy_setopt(easy, CURLOPT_XFERINFODATA, this);
         curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);  // 启用 xferinfo 回调
+        // CURLOPT_POSTFIELDS 只保存指针，不复制内容；body 必须活到 perform() 完成。
+        std::string body;
         if (spec.bodyKind != api::BodyKind::None) {
-            std::string body = spec.body;
+            body = spec.body;
+            if (spec.bodyKind == api::BodyKind::FormUrlEncoded) {
+                body = serializeFormUrlEncoded(spec.bodyFields);
+            }
             if (spec.bodyKind == api::BodyKind::Json && spec.allowJsonComments) {
                 body = stripJsonComments(body);
             }
@@ -204,12 +231,12 @@ private:
             if (spec.bodyKind == api::BodyKind::Json || spec.bodyKind == api::BodyKind::GraphQL) {
                 headerList = curl_slist_append(headerList, "Content-Type: application/json");
             } else if (spec.bodyKind == api::BodyKind::FormData) {
-                const auto fields = parseFormData(body);
                 mime = curl_mime_init(easy);
-                for (const auto& [name, value] : fields) {
+                for (const auto& field : spec.bodyFields) {
+                    if (!field.enabled || field.key.empty()) continue;
                     curl_mimepart* part = curl_mime_addpart(mime);
-                    curl_mime_name(part, name.c_str());
-                    curl_mime_data(part, value.c_str(), CURL_ZERO_TERMINATED);
+                    curl_mime_name(part, field.key.c_str());
+                    curl_mime_data(part, field.value.c_str(), CURL_ZERO_TERMINATED);
                 }
                 curl_easy_setopt(easy, CURLOPT_MIMEPOST, mime);
             } else if (spec.bodyKind == api::BodyKind::FormUrlEncoded) {

@@ -39,6 +39,26 @@ std::vector<api::KeyValue> kvFromJson(const std::string& text) {
     return out;
 }
 
+std::string bodyContentsToJson(const std::array<api::BodyContent, 7>& contents) {
+    json out = json::array();
+    for (const auto& content : contents) {
+        out.push_back({{"text", content.text}, {"fields", json::parse(kvToJson(content.fields))}});
+    }
+    return out.dump();
+}
+
+std::array<api::BodyContent, 7> bodyContentsFromJson(const std::string& text) {
+    std::array<api::BodyContent, 7> out{};
+    const json arr = json::parse(text, nullptr, false);
+    if (!arr.is_array()) return out;
+    for (std::size_t i = 0; i < std::min<std::size_t>(arr.size(), out.size()); ++i) {
+        if (!arr[i].is_object()) continue;
+        out[i].text = arr[i].value("text", "");
+        if (arr[i].contains("fields")) out[i].fields = kvFromJson(arr[i]["fields"].dump());
+    }
+    return out;
+}
+
 } // namespace
 
 const char* groupModeName(GroupMode mode) { return mode == GroupMode::Path ? "路径" : "仅名称"; }
@@ -101,6 +121,7 @@ CREATE TABLE IF NOT EXISTS requests (
     cookies      TEXT NOT NULL DEFAULT '[]',
     follow_redirects INTEGER NOT NULL DEFAULT 1,
     allow_json_comments INTEGER NOT NULL DEFAULT 1,
+    body_contents TEXT NOT NULL DEFAULT '{}',
     updated_at   INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS global_cookies (
@@ -147,6 +168,7 @@ CREATE TABLE IF NOT EXISTS load_tests (
             bool hasCookies = false;
             bool hasFollowRedirects = false;
             bool hasAllowJsonComments = false;
+            bool hasBodyContents = false;
             bool hasParentId = false;
             SQLite::Statement q(db, "PRAGMA table_info(requests)");
             while (q.executeStep()) {
@@ -158,6 +180,7 @@ CREATE TABLE IF NOT EXISTS load_tests (
                 if (col == "cookies") hasCookies = true;
                 if (col == "follow_redirects") hasFollowRedirects = true;
                 if (col == "allow_json_comments") hasAllowJsonComments = true;
+                if (col == "body_contents") hasBodyContents = true;
             }
             SQLite::Statement groups(db, "PRAGMA table_info(groups)");
             while (groups.executeStep()) {
@@ -183,6 +206,9 @@ CREATE TABLE IF NOT EXISTS load_tests (
             }
             if (!hasAllowJsonComments) {
                 db.exec("ALTER TABLE requests ADD COLUMN allow_json_comments INTEGER NOT NULL DEFAULT 1");
+            }
+            if (!hasBodyContents) {
+                db.exec("ALTER TABLE requests ADD COLUMN body_contents TEXT NOT NULL DEFAULT '{}'");
             }
             if (!hasParentId) {
                 db.exec("ALTER TABLE groups ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0");
@@ -462,7 +488,7 @@ void Db::deleteGroup(std::int64_t id) {
 
 std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
     SQLite::Statement q(impl_->db,
-        "SELECT id,project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,updated_at "
+        "SELECT id,project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,body_contents,updated_at "
         "FROM requests WHERE project_id=? ORDER BY updated_at DESC");
     q.bind(1, projectId);
     std::vector<SavedRequest> out;
@@ -484,7 +510,12 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
         r.headers = kvFromJson(q.getColumn(12).getString());
         r.bodyKind = static_cast<api::BodyKind>(q.getColumn(13).getInt());
         r.body = q.getColumn(14).getString();
-        r.updatedAt = q.getColumn(15).getInt64();
+        r.bodyContents = bodyContentsFromJson(q.getColumn(15).getString());
+        const auto bodyIndex = static_cast<std::size_t>(r.bodyKind);
+        if (bodyIndex < r.bodyContents.size() && r.bodyContents[bodyIndex].text.empty()) {
+            r.bodyContents[bodyIndex].text = r.body;
+        }
+        r.updatedAt = q.getColumn(16).getInt64();
         out.push_back(std::move(r));
     }
     return out;
@@ -493,8 +524,8 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
 std::int64_t Db::saveRequest(const SavedRequest& r) {
     if (r.id == 0) {
         SQLite::Statement q(impl_->db,
-            "INSERT INTO requests(project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,updated_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            "INSERT INTO requests(project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,body_contents,updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         q.bind(1, r.projectId);
         q.bind(2, r.groupId);
         q.bind(3, r.name);
@@ -509,12 +540,13 @@ std::int64_t Db::saveRequest(const SavedRequest& r) {
         q.bind(12, kvToJson(r.headers));
         q.bind(13, static_cast<int>(r.bodyKind));
         q.bind(14, r.body);
-        q.bind(15, r.updatedAt);
+        q.bind(15, bodyContentsToJson(r.bodyContents));
+        q.bind(16, r.updatedAt);
         q.exec();
         return impl_->db.getLastInsertRowid();
     }
     SQLite::Statement q(impl_->db,
-        "UPDATE requests SET project_id=?,group_id=?,name=?,request_kind=?,ws_protocol=?,cookies=?,follow_redirects=?,allow_json_comments=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,"
+        "UPDATE requests SET project_id=?,group_id=?,name=?,request_kind=?,ws_protocol=?,cookies=?,follow_redirects=?,allow_json_comments=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,body_contents=?,"
         "updated_at=? WHERE id=?");
     q.bind(1, r.projectId);
     q.bind(2, r.groupId);
@@ -530,8 +562,9 @@ std::int64_t Db::saveRequest(const SavedRequest& r) {
     q.bind(12, kvToJson(r.headers));
     q.bind(13, static_cast<int>(r.bodyKind));
     q.bind(14, r.body);
-    q.bind(15, r.updatedAt);
-    q.bind(16, r.id);
+    q.bind(15, bodyContentsToJson(r.bodyContents));
+    q.bind(16, r.updatedAt);
+    q.bind(17, r.id);
     q.exec();
     return r.id;
 }

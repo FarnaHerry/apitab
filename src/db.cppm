@@ -62,7 +62,8 @@ export struct SavedRequest {
     std::vector<api::KeyValue> headers;
     std::vector<api::KeyValue> cookies;
     api::BodyKind bodyKind = api::BodyKind::None;
-    std::string body;
+    std::string body;                    // legacy/current text body
+    std::array<api::BodyContent, 7> bodyContents{};
     bool followRedirects = true;
     bool allowJsonComments = true;
     std::int64_t updatedAt = 0;

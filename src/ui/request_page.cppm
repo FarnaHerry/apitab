@@ -7,6 +7,7 @@ module;
 export module apitab.ui.request_page;
 
 import std;
+import nlohmann.json;
 import apitab.api_engine;
 import apitab.db;
 import apitab.store.requests;  // g_requests
@@ -35,8 +36,8 @@ int bodyKindIndex(api::BodyKind kind) {
         case api::BodyKind::None: return 0;
         case api::BodyKind::Json: return 1;
         case api::BodyKind::Text: return 2;
-        case api::BodyKind::FormData: return 3;
-        case api::BodyKind::FormUrlEncoded: return 4;
+        case api::BodyKind::FormUrlEncoded: return 3;
+        case api::BodyKind::FormData: return 4;
         case api::BodyKind::Xml: return 5;
         case api::BodyKind::GraphQL: return 6;
     }
@@ -47,11 +48,28 @@ api::BodyKind bodyKindFromIndex(int index) {
     switch (std::clamp(index, 0, 6)) {
         case 1: return api::BodyKind::Json;
         case 2: return api::BodyKind::Text;
-        case 3: return api::BodyKind::FormData;
-        case 4: return api::BodyKind::FormUrlEncoded;
+        case 3: return api::BodyKind::FormUrlEncoded;
+        case 4: return api::BodyKind::FormData;
         case 5: return api::BodyKind::Xml;
         case 6: return api::BodyKind::GraphQL;
         default: return api::BodyKind::None;
+    }
+}
+
+void formatJsonBody() {
+    Draft& draft = activeDraft();
+    const auto index = static_cast<std::size_t>(draft.bodyKind);
+    std::string& body = index < draft.bodyContents.size()
+        ? draft.bodyContents[index].text : draft.body;
+    try {
+        const auto value = nlohmann::json::parse(body);
+        body = value.dump(2);
+        showStatus("JSON 已格式化");
+    } catch (const std::exception& e) {
+        std::string message = e.what();
+        constexpr std::size_t maxDetail = 120;
+        if (message.size() > maxDetail) message.resize(maxDetail);
+        showStatus("JSON 格式错误: " + message);
     }
 }
 
@@ -95,6 +113,7 @@ void persistCurrentRequest(const std::string& name) {
         .cookies = tab.draft.cookies,
         .bodyKind = tab.draft.bodyKind,
         .body = tab.draft.body,
+        .bodyContents = tab.draft.bodyContents,
         .followRedirects = tab.draft.followRedirects,
         .allowJsonComments = tab.draft.allowJsonComments,
     };
@@ -121,55 +140,24 @@ void saveCurrentRequest() {
 void drawSaveRequestNameDialog(eui::Ui& ui, const eui::Screen& screen,
                                const AppTheme& theme) {
     if (!g_saveRequestNameOpen) return;
-    components::dialog(ui, "req.save.name.dialog")
-        .open(true)
-        .screen(screen.width, screen.height)
-        .size(360.0f, 154.0f)
-        .title("保存请求")
-        .theme(theme.components)
-        .content([&] {
-            components::input(ui, "req.save.name.input")
-                .position(20.0f, 56.0f)
-                .size(320.0f, kInputHeight)
-                .value(g_saveRequestNameText)
-                .placeholder("请求名称")
-                .theme(theme.components)
-                .onChange([](const std::string& v) { g_saveRequestNameText = v; })
-                .build();
-            components::button(ui, "req.save.name.cancel")
-                .position(184.0f, 104.0f)
-                .size(74.0f, 24.0f)
-                .text("取消")
-                .fontSize(kFontLabel)
-                .theme(theme.components, false)
-                .onClick([] {
-                    g_saveRequestNameOpen = false;
-                    g_saveRequestNameText.clear();
-                })
-                .build();
-            components::button(ui, "req.save.name.confirm")
-                .position(266.0f, 104.0f)
-                .size(74.0f, 24.0f)
-                .text("保存")
-                .fontSize(kFontLabel)
-                .theme(theme.components, true)
-                .textColor(onPrimaryColor(theme))
-                .iconColor(onPrimaryColor(theme))
-                .onClick([] {
-                    const std::string name = trim(g_saveRequestNameText);
-                    if (name.empty()) {
-                        showStatus("请求名称不能为空");
-                        return;
-                    }
-                    persistCurrentRequest(name);
-                    if (activeTab().requestId != 0) {
+    drawInputDialog(ui, screen, theme, "req.save.name.dialog", "保存请求",
+                    g_saveRequestNameText, "请求名称", "保存",
+                    [] {
                         g_saveRequestNameOpen = false;
                         g_saveRequestNameText.clear();
-                    }
-                })
-                .build();
-        })
-        .build();
+                    },
+                    [] {
+                        const std::string name = trim(g_saveRequestNameText);
+                        if (name.empty()) {
+                            showStatus("请求名称不能为空");
+                            return;
+                        }
+                        persistCurrentRequest(name);
+                        if (activeTab().requestId != 0) {
+                            g_saveRequestNameOpen = false;
+                            g_saveRequestNameText.clear();
+                        }
+                    });
 }
 
 // ---- 编辑器区（按 tab 分发）----
@@ -179,34 +167,62 @@ void drawGlobalCookieDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
     const auto& tokens = theme.components;
     if (g_globalCookieDrafts.empty()) g_globalCookieDrafts = g_requests.globalCookies();
     auto& cookies = g_globalCookieDrafts;
+    // 对话框尺寸 clamp 到屏幕；列表区是可滚动 viewport，footer 固定底部。
+    const float dlgW = dialogWidth(screen.width, 480.0f);
+    const float dlgH = dialogHeight(screen.height, 300.0f);
+    const float pad = 16.0f;
+    const float btnW = 74.0f;
+    const float btnH = 24.0f;
+    const float footerY = nonNegative(dlgH - btnH - 16.0f);
+    const float addY = nonNegative(footerY - 28.0f);
+    const float listY = 50.0f;
+    const float listH = nonNegative(addY - listY - 4.0f);
     components::dialog(ui, "global.cookies.dialog")
-        .open(true).screen(screen.width, screen.height).size(480.0f, 300.0f)
+        .open(true).screen(screen.width, screen.height).size(dlgW, dlgH)
         .title("全局 Cookies").theme(tokens)
         .content([&] {
-            float y = 50.0f;
-            for (auto& cookie : cookies) {
-                const std::string id = "global.cookie." + std::to_string(cookie.id);
-                components::input(ui, id + ".name").position(16.0f, y).size(120.0f, 24.0f)
-                    .value(cookie.name).placeholder("名称").theme(tokens)
-                    .onChange([&cookie](const std::string& v) { cookie.name = v; }).build();
-                components::input(ui, id + ".value").position(142.0f, y).size(250.0f, 24.0f)
-                    .value(cookie.value).placeholder("值").theme(tokens)
-                    .onChange([&cookie](const std::string& v) { cookie.value = v; }).build();
-                components::button(ui, id + ".delete").position(404.0f, y + 2.0f).size(20.0f, 20.0f)
-                    .icon(0xF1F8).text("").iconSize(8.0f).theme(tokens, false)
-                    .onClick([&cookies, id = cookie.id] {
-                        std::erase_if(cookies, [id](const db::GlobalCookie& c) { return c.id == id; });
-                        if (id > 0) (void)g_requests.deleteGlobalCookie(id);
-                    }).build();
-                y += 30.0f;
+            if (listH > 0.0f) {
+                components::scrollView(ui, "global.cookies.scroll")
+                    .position(pad, listY).size(nonNegative(dlgW - pad * 2.0f), listH)
+                    .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
+                    .theme(tokens)
+                    .content([&](eui::Ui& cu, float contentWidth, float) {
+                        const float rowW = nonNegative(contentWidth);
+                        const float nameW = std::min(120.0f, nonNegative(rowW - 32.0f) * 0.34f);
+                        const float delW = 20.0f;
+                        const float valueW = nonNegative(rowW - nameW - delW - 12.0f);
+                        for (auto& cookie : cookies) {
+                            const std::string id = "global.cookie." + std::to_string(cookie.id);
+                            cu.stack(id).size(rowW, 28.0f).content([&] {
+                                components::input(cu, id + ".name").position(0, 0)
+                                    .size(nameW, 24.0f)
+                                    .value(cookie.name).placeholder("名称").theme(tokens)
+                                    .onChange([&cookie](const std::string& v) { cookie.name = v; }).build();
+                                components::input(cu, id + ".value").position(nameW + 6.0f, 0)
+                                    .size(valueW, 24.0f)
+                                    .value(cookie.value).placeholder("值").theme(tokens)
+                                    .onChange([&cookie](const std::string& v) { cookie.value = v; }).build();
+                                components::button(cu, id + ".delete")
+                                    .position(nonNegative(rowW - delW), 2.0f).size(delW, delW)
+                                    .icon(0xF1F8).text("").iconSize(8.0f).theme(tokens, false)
+                                    .onClick([&cookies, id = cookie.id] {
+                                        std::erase_if(cookies, [id](const db::GlobalCookie& c) { return c.id == id; });
+                                        if (id > 0) (void)g_requests.deleteGlobalCookie(id);
+                                    }).build();
+                            }).build();
+                        }
+                    })
+                    .build();
             }
-            components::button(ui, "global.cookies.add").position(16.0f, y + 4.0f).size(80.0f, 24.0f)
+            components::button(ui, "global.cookies.add").position(pad, addY).size(80.0f, 24.0f)
                 .icon(0xF067).text("添加").fontSize(kFontLabel).theme(tokens, false)
                 .onClick([&cookies] { cookies.push_back({g_nextTempGlobalCookieId--, {}, {}, true}); }).build();
-            components::button(ui, "global.cookies.close").position(388.0f, 244.0f).size(74.0f, 24.0f)
+            const float saveX = nonNegative(dlgW - pad - btnW);
+            const float closeX = nonNegative(saveX - 8.0f - btnW);
+            components::button(ui, "global.cookies.close").position(closeX, footerY).size(btnW, btnH)
                 .text("关闭").fontSize(kFontLabel).theme(tokens, false)
                 .onClick([] { g_globalCookieOpen = false; }).build();
-            components::button(ui, "global.cookies.save").position(306.0f, 244.0f).size(74.0f, 24.0f)
+            components::button(ui, "global.cookies.save").position(saveX, footerY).size(btnW, btnH)
                 .text("保存").fontSize(kFontLabel).theme(tokens, true)
                 .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
                 .onClick([&cookies] {
@@ -228,9 +244,10 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
         case EditorTab::Params: {
             components::scrollView(ui, "editor.params.scroll")
                 .position(x, y).size(w, h).offset(g_editorScroll).theme(tokens)
+                .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
                 .onChange([](float v) { g_editorScroll = v; })
                 .content([&](eui::Ui& cu, float contentWidth, float) {
-                    drawParamEditor(cu, "editor.params", 0, 0, contentWidth - 4.0f,
+                    drawParamEditor(cu, "editor.params", 0, 0, nonNegative(contentWidth - 4.0f),
                                      draft.params, theme);
                 })
                 .build();
@@ -240,45 +257,52 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
             auto& items = draft.headers;
             components::scrollView(ui, "editor.headers.scroll")
                 .position(x, y).size(w, h).offset(g_editorScroll).theme(tokens)
+                .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
                 .onChange([](float v) { g_editorScroll = v; })
                 .content([&](eui::Ui& cu, float contentWidth, float) {
-                    drawKvEditor(cu, "editor.headers", 0, 0, contentWidth - 4.0f, items, theme);
+                    drawKvEditor(cu, "editor.headers", 0, 0, nonNegative(contentWidth - 4.0f), items, theme);
                 })
                 .build();
             break;
         }
         case EditorTab::Cookies: {
             auto& items = draft.cookies;
-            components::scrollView(ui, "editor.cookies.scroll")
-                .position(x, y).size(w, std::max(40.0f, h - 32.0f)).theme(tokens)
-                .content([&](eui::Ui& cu, float contentWidth, float) {
-                    drawKvEditor(cu, "editor.cookies", 0, 0, contentWidth - 4.0f, items, theme);
-                }).build();
-            components::button(ui, "editor.cookies.global")
-                .position(x, y + std::max(0.0f, h - 26.0f)).size(150.0f, 24.0f)
-                .icon(0xF013).text("管理全局 Cookies").fontSize(kFontLabel)
-                .theme(tokens, false)
-                .onClick([] { g_globalCookieOpen = true; }).build();
+            const float cookieListH = nonNegative(h - 32.0f);
+            if (cookieListH > 0.0f) {
+                components::scrollView(ui, "editor.cookies.scroll")
+                    .position(x, y).size(w, cookieListH).theme(tokens)
+                    .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
+                    .content([&](eui::Ui& cu, float contentWidth, float) {
+                        drawKvEditor(cu, "editor.cookies", 0, 0, nonNegative(contentWidth - 4.0f), items, theme);
+                    }).build();
+            }
+            if (h >= 26.0f) {
+                components::button(ui, "editor.cookies.global")
+                    .position(x, y + nonNegative(h - 26.0f)).size(150.0f, 24.0f)
+                    .icon(0xF013).text("管理全局 Cookies").fontSize(kFontLabel)
+                    .theme(tokens, false)
+                    .onClick([] { g_globalCookieOpen = true; }).build();
+            }
             break;
         }
         case EditorTab::Settings: {
             ui.text("editor.settings.title")
-                .position(x, y).size(std::max(220.0f, w), 24.0f).text("请求设置")
+                .position(x, y).size(w, 24.0f).text("请求设置")
                 .fontSize(kFontBody).color(theme.titleText).build();
             ui.stack("editor.settings.redirects.wrap")
-                .position(x, y + 34.0f).size(std::max(220.0f, w), 24.0f)
+                .position(x, y + 34.0f).size(w, 24.0f)
                 .content([&] {
                     components::checkbox(ui, "editor.settings.redirects")
-                        .size(std::max(220.0f, w), 24.0f)
+                        .size(w, 24.0f)
                         .text("自动跟随重定向").checked(draft.followRedirects)
                         .theme(tokens)
                         .onChange([](bool value) { activeDraft().followRedirects = value; }).build();
                 }).build();
             ui.stack("editor.settings.json.comments.wrap")
-                .position(x, y + 66.0f).size(std::max(220.0f, w), 24.0f)
+                .position(x, y + 66.0f).size(w, 24.0f)
                 .content([&] {
                     components::checkbox(ui, "editor.settings.json.comments")
-                        .size(std::max(220.0f, w), 24.0f)
+                        .size(w, 24.0f)
                         .text("兼容带注释的 JSON").checked(draft.allowJsonComments)
                         .theme(tokens)
                         .onChange([](bool value) { activeDraft().allowJsonComments = value; }).build();
@@ -287,13 +311,15 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
         }
         case EditorTab::Body: {
             constexpr float selectorH = 24.0f;
+            const float selectorW = std::min(430.0f, w);
             ui.stack("editor.body.kind.wrap")
-                .position(x, y).size(std::min(430.0f, std::max(250.0f, w)), selectorH)
+                .position(x, y).size(selectorW, selectorH)
                 .content([&] {
                 components::segmented(ui, "editor.body.kind")
-                        .size(std::min(430.0f, std::max(250.0f, w)), selectorH)
+                        .size(selectorW, selectorH)
                         .items({"None", "JSON", "Text", "x-www-form-urlencoded", "form-data", "XML", "GraphQL"})
                         .selected(bodyKindIndex(draft.bodyKind))
+                        .fontSize(9.0f)
                         .theme(tokens).style(segmentedStyle(theme))
                         .onChange([](int i) {
                             activeDraft().bodyKind = bodyKindFromIndex(i);
@@ -307,6 +333,9 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                     .text("None：此次请求不发送请求体")
                     .fontSize(kFontLabel).color(theme.hintText).build();
             } else {
+                const float bodyToolbarH = draft.bodyKind == api::BodyKind::Json ? 26.0f : 0.0f;
+                const float bodyH = nonNegative(h - selectorH - 6.0f - bodyToolbarH);
+                if (bodyH <= 0.0f) break;
                 const char* placeholder = draft.bodyKind == api::BodyKind::Json
                     ? "例如：{\"name\":\"apitab\"}"
                     : draft.bodyKind == api::BodyKind::FormUrlEncoded
@@ -318,12 +347,43 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                                 : draft.bodyKind == api::BodyKind::GraphQL
                                     ? "输入 GraphQL 查询或 mutation"
                                     : "输入纯文本请求体，例如：hello apitab";
+                const auto bodyIndex = static_cast<std::size_t>(draft.bodyKind);
+                api::BodyContent* bodyContent = bodyIndex < draft.bodyContents.size()
+                    ? &draft.bodyContents[bodyIndex] : nullptr;
+                std::string& bodyText = bodyContent ? bodyContent->text : draft.body;
+                const bool formBody = draft.bodyKind == api::BodyKind::FormUrlEncoded ||
+                                      draft.bodyKind == api::BodyKind::FormData;
+                if (formBody) {
+                    auto& fields = bodyContent->fields;
+                    components::scrollView(ui, "editor.body.form.scroll")
+                        .position(x, y + selectorH + 6.0f).size(w, bodyH).theme(tokens)
+                        .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
+                        .content([&](eui::Ui& cu, float contentWidth, float) {
+                            drawParamEditor(cu, "editor.body.form", 0, 0,
+                                             nonNegative(contentWidth - 4.0f), fields, theme);
+                        }).build();
+                    break;
+                }
+                if (draft.bodyKind == api::BodyKind::Json) {
+                    components::button(ui, "editor.body.format")
+                        .position(x + std::max(0.0f, w - 82.0f), y + selectorH + 6.0f)
+                        .size(82.0f, 22.0f)
+                        .icon(0xF1C9).text("格式化").fontSize(kFontLabel)
+                        .iconSize(kCardActionIconSize).theme(tokens, false)
+                        .onClick([] { formatJsonBody(); })
+                        .build();
+                }
                 components::input(ui, "editor.body")
-                    .position(x, y + selectorH + 6.0f)
-                    .size(w, std::max(40.0f, h - selectorH - 6.0f))
-                    .value(draft.body).placeholder(placeholder).multiline()
+                    .position(x, y + selectorH + 6.0f + bodyToolbarH)
+                    .size(w, bodyH)
+                    .value(bodyText).placeholder(placeholder).multiline()
                     .fontFamily("monospace").theme(tokens)
-                    .onChange([](const std::string& v) { activeDraft().body = v; })
+                    .onChange([](const std::string& v) {
+                        Draft& current = activeDraft();
+                        const auto index = static_cast<std::size_t>(current.bodyKind);
+                        if (index < current.bodyContents.size()) current.bodyContents[index].text = v;
+                        else current.body = v;
+                    })
                     .build();
             }
             break;
@@ -402,8 +462,8 @@ void drawResponse(eui::Ui& ui, float x, float y, float w, float h, const AppThem
 
     // 内容区
     const float cy = y + 28.0f;
-    const float ch = h - 28.0f;
-    if (!tab.hasResponse) return;
+    const float ch = nonNegative(h - 28.0f);
+    if (!tab.hasResponse || ch <= 0.0f) return;
 
     ui.rect("resp.panel")
         .position(x, cy)
@@ -412,18 +472,29 @@ void drawResponse(eui::Ui& ui, float x, float y, float w, float h, const AppThem
         .radius(kPanelRadius)
         .build();
 
+    const float scrollW = nonNegative(w - 8.0f);
+    const float scrollH = nonNegative(ch - 8.0f);
+    if (scrollW <= 0.0f || scrollH <= 0.0f) return;
+
     components::scrollView(ui, "resp.scroll")
         .position(x + 4.0f, cy + 4.0f)
-        .size(w - 8.0f, ch - 8.0f)
+        .size(scrollW, scrollH)
         .offset(tab.bodyScroll)
         .theme(tokens)
+        .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
         .onChange([](float v) { activeTab().bodyScroll = v; })
         .content([&](eui::Ui& cu, float contentWidth, float viewportH) {
+            const float textW = nonNegative(contentWidth - 8.0f);
             if (g_responseTab == ResponseTab::Body) {
+                // 换行后的真实高度进 scroll root，不用 viewport 高度冒充内容高。
+                const std::string& body = tab.response.body;
+                const float bodyH = std::max(viewportH,
+                    measureWrappedTextHeight(body.empty() ? "(空响应体)" : body,
+                                             textW, kFontMono, "monospace"));
                 cu.text("resp.body")
                     .position(4.0f, 4.0f)
-                    .size(contentWidth - 8.0f, viewportH)
-                    .text(tab.response.body.empty() ? "(空响应体)" : tab.response.body)
+                    .size(textW, bodyH)
+                    .text(body.empty() ? "(空响应体)" : body)
                     .fontFamily("monospace")
                     .fontSize(kFontMono)
                     .color(theme.bodyText)
@@ -434,19 +505,21 @@ void drawResponse(eui::Ui& ui, float x, float y, float w, float h, const AppThem
                 for (const auto& hv : tab.response.headers) {
                     const std::string rowId = "resp.hdr." + std::to_string(i++);
                     // 行包 stack（scroll content 是 column，直接 .position 会被重排）。
+                    // 长 header 值单行截断（不 wrap），行高恒定，scroll 测量精确。
                     cu.stack(rowId)
-                        .size(contentWidth - 8.0f, 16.0f)
+                        .size(nonNegative(contentWidth - 8.0f), 16.0f)
                         .content([&] {
+                            const float keyW = std::max(0.0f, contentWidth * 0.34f);
                             cu.text(rowId + ".k")
                                 .position(0, 0)
-                                .size(contentWidth * 0.34f, 16.0f)
+                                .size(keyW, 16.0f)
                                 .text(hv.key)
                                 .fontSize(kFontMono)
                                 .color(theme.metaText)
                                 .build();
                             cu.text(rowId + ".v")
-                                .position(contentWidth * 0.34f + 10.0f, 0)
-                                .size(contentWidth * 0.66f - 14.0f, 16.0f)
+                                .position(keyW + 10.0f, 0)
+                                .size(std::max(0.0f, contentWidth - keyW - 14.0f - 8.0f), 16.0f)
                                 .text(hv.value)
                                 .fontSize(kFontMono)
                                 .color(theme.bodyText)
@@ -457,7 +530,7 @@ void drawResponse(eui::Ui& ui, float x, float y, float w, float h, const AppThem
                 if (tab.response.headers.empty()) {
                     cu.text("resp.hdr.empty")
                         .position(4.0f, 4.0f)
-                        .size(contentWidth - 8.0f, 16.0f)
+                        .size(textW, 16.0f)
                         .text("(无响应头)")
                         .fontSize(kFontLabel)
                         .color(theme.hintText)
@@ -476,21 +549,40 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
     Draft& draft = activeDraft();
 
     // ---- 第 1 行：method + URL（弹性）+ 发送 + 保存 ----
+    // 单行最小跨度 = 96+120+64+52+3*gap = 350；低于阈值换成两行：
+    // 第一行 method + URL（占满），第二行 发送/保存。URL 不再用 min 120 硬顶。
     const float sendW = 64.0f, saveW = 52.0f, methodW = 96.0f;
-    const float urlW = std::max(120.0f, w - methodW - sendW - saveW - kGap * 3.0f);
+    const bool toolbarTwoRows = w < 350.0f;
+    const float toolbarH = toolbarTwoRows ? kInputHeight * 2.0f + kGap : kInputHeight;
+    const float urlW = toolbarTwoRows
+        ? nonNegative(w - methodW - kGap)
+        : nonNegative(w - methodW - sendW - saveW - kGap * 3.0f);
+    const float targetW = methodW + kGap + urlW;
+    drawIslandPanel(ui, "req.target.island", x, y, targetW, kInputHeight, theme,
+                    theme.dark ? 0.52f : 0.74f);
+    const float actionsY = toolbarTwoRows ? y + kInputHeight + kGap : y;
+    const float actionsX = toolbarTwoRows ? x : x + targetW + kGap;
+    drawIslandPanel(ui, "req.actions.island", actionsX, actionsY,
+                    sendW + saveW + kGap, kInputHeight, theme,
+                    theme.dark ? 0.44f : 0.66f);
 
     ui.stack("req.method.wrap")
         .position(x, y)
         .size(methodW, kInputHeight)
-        .zIndex(20)  // 弹层要压在下方编辑器/响应区之上
+        .zIndex(30)  // 弹层要压在下方编辑器/响应区之上
         .content([&] {
+            registerSelectionPopup("req.method", g_methodOpen,
+                                    [] { g_methodOpen = false; });
             components::dropdown(ui, "req.method")
                 .size(methodW, kInputHeight)
                 .items(kMethods)
                 .selected(draft.methodIndex)
                 .open(g_methodOpen)
                 .theme(tokens)
-                .onOpenChange([](bool o) { g_methodOpen = o; })
+                .onOpenChange([](bool o) {
+                    g_methodOpen = o;
+                    setSelectionPopupOpen("req.method", o);
+                })
                 .onChange([](int i) { activeDraft().methodIndex = i; })
                 .build();
         })
@@ -510,7 +602,7 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
         .build();
 
     components::button(ui, "req.send")
-        .position(urlX + urlW + kGap, y)
+        .position(actionsX, actionsY)
         .size(sendW, kButtonHeight)
         .icon(busy ? 0xF04D : 0xF1D8)  // 发送中显示停止块（点击=取消）
         .text(busy ? "取消" : "发送")
@@ -529,7 +621,7 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
         .build();
 
     components::button(ui, "req.save")
-        .position(urlX + urlW + kGap + sendW + kGap, y)
+        .position(actionsX + sendW + kGap, actionsY)
         .size(saveW, kButtonHeight)
         .icon(0xF0C7)  // fa-floppy-disk
         .text("保存")
@@ -542,7 +634,7 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
     const std::string finalUrl = composeFinalUrl(draft);
     if (finalUrl != draft.url) {
         ui.text("req.url.preview")
-            .position(x, y + kInputHeight + 2.0f)
+            .position(x, y + toolbarH + 2.0f)
             .size(w, 14.0f)
             .text("→ " + (finalUrl.empty() ? std::string("（输入相对路径）") : finalUrl))
             .fontSize(kFontLabel)
@@ -554,8 +646,8 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
     }
 
     // ---- 第 2 行：Params/Headers/Body 切换 + 元信息 ----
-    const float tabY = y + kInputHeight + 18.0f;
-    const float tabWidth = std::min(430.0f, std::max(220.0f, w));
+    const float tabY = y + toolbarH + 18.0f;
+    const float tabWidth = std::min(430.0f, w);
     ui.stack("req.tabs.wrap")
         .position(x, tabY)
         .size(tabWidth, 24.0f)
@@ -589,19 +681,25 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
             .build();
     }
 
-    // ---- 编辑器区（上 45%）----
+    // ---- 编辑器区（上 42%）/ 响应区（下方剩余）：高度全部从可用空间推导， ----
+    // 不再用 min 80 把响应区推出页面。岛屿精确覆盖，内容内缩 kPanelPad。
     const float editorY = tabY + 30.0f;
-    const float editorH = std::max(80.0f, (y + h - editorY) * 0.42f);
-    // ---- 响应区（下方剩余）----
+    const float splitH = nonNegative(y + h - editorY);
+    const float editorH = nonNegative(splitH * 0.42f);
+    drawIslandPanel(ui, "req.tabs.island", x, tabY, w, 24.0f, theme,
+                    theme.dark ? 0.50f : 0.72f);
     const float respY = editorY + editorH + kGap;
-    drawIslandPanel(ui, "req.response.island", x, respY - 4.0f, w,
-                    std::max(0.0f, y + h - respY + 4.0f), theme,
+    const float respH = nonNegative(y + h - respY);
+    drawIslandPanel(ui, "req.response.island", x, respY, w, respH, theme,
                     theme.dark ? 0.64f : 0.84f);
-    drawEditor(ui, x + 8.0f, editorY + 8.0f, std::max(0.0f, w - 16.0f),
-               std::max(0.0f, editorH - 12.0f), theme);
-
-    drawResponse(ui, x + 8.0f, respY + 8.0f, std::max(0.0f, w - 16.0f),
-                 std::max(0.0f, y + h - respY - 12.0f), theme);
+    if (editorH > 0.0f) {
+        drawEditor(ui, x + kPanelPad, editorY + kPanelPad, nonNegative(w - kPanelPad * 2.0f),
+                   nonNegative(editorH - kPanelPad), theme);
+    }
+    if (respH > 0.0f) {
+        drawResponse(ui, x + kPanelPad, respY + kPanelPad, nonNegative(w - kPanelPad * 2.0f),
+                     nonNegative(respH - kPanelPad), theme);
+    }
 }
 
 // 环境管理弹窗（需要全屏坐标系，由 app.cpp 传入 screen）。
@@ -625,8 +723,17 @@ export void drawRequestPageDialogs(eui::Ui& ui, const eui::Screen& screen,
     }
 
     constexpr float kRowH = 30.0f;
-    const float dlgW = 460.0f;
-    const float dlgH = 166.0f + static_cast<float>(std::max<int>(1, envs.size())) * kRowH;
+    // 高度有界：优先按环境行数，dialogHeight clamp 到屏幕；列表区滚动。
+    const float dlgW = dialogWidth(screen.width, 460.0f);
+    const float dlgH = dialogHeight(screen.height,
+        166.0f + static_cast<float>(std::max<int>(1, envs.size())) * kRowH);
+    const float pad = 16.0f;
+    const float btnW = 74.0f;
+    const float btnH = 24.0f;
+    const float footerY = nonNegative(dlgH - btnH - 16.0f);
+    const float addY = nonNegative(footerY - 28.0f);
+    const float listY = 52.0f;
+    const float listH = nonNegative(addY - listY - 4.0f);
 
     components::dialog(ui, "req.env.dialog")
         .open(true)
@@ -635,62 +742,75 @@ export void drawRequestPageDialogs(eui::Ui& ui, const eui::Screen& screen,
         .title("环境管理（当前项目）")
         .theme(tokens)
         .content([&] {
-            float ry = 52.0f;
-            if (envs.empty()) {
-                ui.text("req.env.dialog.empty")
-                    .position(16.0f, ry)
-                    .size(dlgW - 32.0f, 20.0f)
-                    .text("还没有环境，点下方「新建环境」")
-                    .fontSize(kFontLabel)
-                    .color(theme.hintText)
-                    .build();
-                ry += kRowH;
-            }
-            for (const auto& e : envs) {
-                const std::string base = "req.env.dialog." + std::to_string(e.id);
-                components::input(ui, base + ".name")
-                    .position(16.0f, ry)
-                    .size(110.0f, 24.0f)
-                    .value(g_envNameDrafts[e.id])
-                    .placeholder("名称")
+            if (listH > 0.0f) {
+                components::scrollView(ui, "req.env.scroll")
+                    .position(pad, listY)
+                    .size(nonNegative(dlgW - pad * 2.0f), listH)
+                    .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
                     .theme(tokens)
-                    .onChange([id = e.id](const std::string& v) {
-                        g_envNameDrafts[id] = v;
+                    .content([&](eui::Ui& cu, float contentWidth, float) {
+                        const float rowW = nonNegative(contentWidth);
+                        const float delW = 20.0f;
+                        const float nameW = std::min(110.0f, nonNegative(rowW - delW - 12.0f) * 0.32f);
+                        const float urlW = nonNegative(rowW - nameW - delW - 12.0f);
+                        if (envs.empty()) {
+                            cu.text("req.env.dialog.empty")
+                                .position(0, 0)
+                                .size(rowW, 20.0f)
+                                .text("还没有环境，点下方「新建环境」")
+                                .fontSize(kFontLabel)
+                                .color(theme.hintText)
+                                .build();
+                        }
+                        for (const auto& e : envs) {
+                            const std::string base = "req.env.dialog." + std::to_string(e.id);
+                            cu.stack(base).size(rowW, kRowH).content([&] {
+                                components::input(cu, base + ".name")
+                                    .position(0, 0)
+                                    .size(nameW, 24.0f)
+                                    .value(g_envNameDrafts[e.id])
+                                    .placeholder("名称")
+                                    .theme(tokens)
+                                    .onChange([id = e.id](const std::string& v) {
+                                        g_envNameDrafts[id] = v;
+                                    })
+                                    .build();
+                                components::input(cu, base + ".url")
+                                    .position(nameW + 6.0f, 0)
+                                    .size(urlW, 24.0f)
+                                    .value(g_envUrlDrafts[e.id])
+                                    .placeholder("http://localhost:8080/")
+                                    .fontFamily("monospace")
+                                    .fontSize(kFontMono)
+                                    .theme(tokens)
+                                    .onChange([id = e.id](const std::string& v) {
+                                        g_envUrlDrafts[id] = v;
+                                    })
+                                    .build();
+                                components::button(cu, base + ".del")
+                                    .position(nonNegative(rowW - delW), 2.0f)
+                                    .size(delW, delW)
+                                    .icon(0xF1F8)  // fa-trash
+                                    .text("")
+                                    .iconSize(9.0f)
+                                    .theme(tokens, false)
+                                    .onClick([id = e.id, name = e.name] {
+                                        askConfirm("删除环境",
+                                                   std::format("将删除环境「{}」。", name),
+                                                   [id] {
+                                                       const std::string err = g_requests.deleteEnvironment(id);
+                                                       showStatus(err.empty() ? "环境已删除"
+                                                                              : ("删除失败: " + err));
+                                                   });
+                                    })
+                                    .build();
+                            }).build();
+                        }
                     })
                     .build();
-                components::input(ui, base + ".url")
-                    .position(132.0f, ry)
-                    .size(dlgW - 132.0f - 56.0f, 24.0f)
-                    .value(g_envUrlDrafts[e.id])
-                    .placeholder("http://localhost:8080/")
-                    .fontFamily("monospace")
-                    .fontSize(kFontMono)
-                    .theme(tokens)
-                    .onChange([id = e.id](const std::string& v) {
-                        g_envUrlDrafts[id] = v;
-                    })
-                    .build();
-                components::button(ui, base + ".del")
-                    .position(dlgW - 46.0f, ry + 2.0f)
-                    .size(20.0f, 20.0f)
-                    .icon(0xF1F8)  // fa-trash
-                    .text("")
-                    .iconSize(9.0f)
-                    .theme(tokens, false)
-                    .onClick([id = e.id, name = e.name] {
-                        askConfirm("删除环境",
-                                   std::format("将删除环境「{}」。", name),
-                                   [id] {
-                                       const std::string err = g_requests.deleteEnvironment(id);
-                                       showStatus(err.empty() ? "环境已删除"
-                                                              : ("删除失败: " + err));
-                                   });
-                    })
-                    .build();
-                ry += kRowH;
             }
             components::button(ui, "req.env.dialog.add")
-                .position(16.0f, ry + 2.0f)
+                .position(pad, addY)
                 .size(90.0f, 22.0f)
                 .icon(0xF067)  // fa-plus
                 .text("新建环境")
@@ -701,9 +821,11 @@ export void drawRequestPageDialogs(eui::Ui& ui, const eui::Screen& screen,
                     (void)g_requests.createEnvironment("新环境", "http://localhost:8080/");
                 })
                 .build();
+            const float saveX = nonNegative(dlgW - pad - btnW);
+            const float cancelX = nonNegative(saveX - 8.0f - btnW);
             components::button(ui, "req.env.dialog.cancel")
-                .position(dlgW - 176.0f, ry + 36.0f)
-                .size(74.0f, 24.0f)
+                .position(cancelX, footerY)
+                .size(btnW, btnH)
                 .text("取消")
                 .fontSize(kFontLabel)
                 .theme(tokens, false)
@@ -714,8 +836,8 @@ export void drawRequestPageDialogs(eui::Ui& ui, const eui::Screen& screen,
                 })
                 .build();
             components::button(ui, "req.env.dialog.save")
-                .position(dlgW - 94.0f, ry + 36.0f)
-                .size(74.0f, 24.0f)
+                .position(saveX, footerY)
+                .size(btnW, btnH)
                 .text("保存")
                 .fontSize(kFontLabel)
                 .theme(tokens, true)

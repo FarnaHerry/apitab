@@ -75,6 +75,11 @@ public:
 };
 
 
+export struct BodyContent {
+    std::string text;
+    std::vector<KeyValue> fields;
+};
+
 export struct RequestSpec {
     std::string method = "GET";
     std::string url;
@@ -82,7 +87,8 @@ export struct RequestSpec {
     std::vector<KeyValue> headers;
     std::vector<KeyValue> cookies;
     BodyKind bodyKind = BodyKind::None;
-    std::string body;
+    std::string body;                // 当前 body 的文本兼容表示
+    std::vector<KeyValue> bodyFields; // 当前 form body 的结构化字段
     bool followRedirects = true;
     bool allowJsonComments = true;
     int timeoutSec = 30;
