@@ -28,6 +28,11 @@ export constexpr float kFontLabel = 11.0f;        // 标签字号
 export constexpr float kFontBody = 12.0f;         // 正文字号
 export constexpr float kFontMono = 11.0f;         // 等宽（响应体 / 压测输出）
 export constexpr float kRowHeight = 24.0f;        // KV 编辑行高
+export constexpr float kEditorRowHeight = 22.0f;  // 紧凑字段行高
+export constexpr float kEditorRowGap = 2.0f;
+export constexpr float kEditorDividerHeight = 1.0f;
+export constexpr float kEditorGutterWidth = 34.0f;
+export constexpr float kEditorPad = 6.0f;
 export constexpr float kPanelRadius = 8.0f;       // 内层面板圆角
 
 // TinyNext 式岛屿布局令牌：所有页面 surface 使用同一套逻辑像素，

@@ -320,7 +320,15 @@ export eui::Color methodColor(const std::string& method, const AppTheme& theme) 
     return theme.idle;
 }
 
-// ---- KV 编辑器（Params / Headers 共用）----
+export void drawEditorDivider(eui::Ui& ui, const std::string& id, float x, float y,
+                              float width, const AppTheme& theme) {
+    ui.rect(id)
+        .position(x, y)
+        .size(nonNegative(width), kEditorDividerHeight)
+        .color(components::theme::withOpacity(theme.components.border, 0.45f))
+        .build();
+}
+
 
 namespace {
 
@@ -336,8 +344,8 @@ std::unordered_map<std::string, bool> g_paramTypeOpen;
 
 export float drawKvEditor(eui::Ui& ui, const std::string& id, float x, float y, float w,
                           std::vector<api::KeyValue>& items, const AppTheme& theme) {
-    const float delW = 22.0f;
-    const float colGap = 4.0f;
+    const float delW = kIconButtonSize;
+    const float colGap = kEditorRowGap;
     // 行内可用宽先 clamp 非负：w 小于删除按钮+间距时 key/value 收缩到 0 而不是
     // 变负，删除按钮也留在行内右端。
     const float innerW = nonNegative(w - delW - colGap * 2.0f);
@@ -349,11 +357,11 @@ export float drawKvEditor(eui::Ui& ui, const std::string& id, float x, float y, 
         const std::string rowId = id + "." + std::to_string(i);
         ui.stack(rowId)
             .position(x, y)  // scroll content 里由 column 分配槽位；x/y 仅直接组合时生效
-            .size(w, kInputHeight)
+            .size(w, kEditorRowHeight)
             .content([&] {
                 components::input(ui, rowId + ".k")
                     .position(0, 0)
-                    .size(keyW, kInputHeight)
+                    .size(keyW, kEditorRowHeight)
                     .value(items[i].key)
                     .placeholder("Key")
                     .theme(theme.components)
@@ -361,7 +369,7 @@ export float drawKvEditor(eui::Ui& ui, const std::string& id, float x, float y, 
                     .build();
                 components::input(ui, rowId + ".v")
                     .position(keyW + colGap, 0)
-                    .size(valW, kInputHeight)
+                    .size(valW, kEditorRowHeight)
                     .value(items[i].value)
                     .placeholder("Value")
                     .theme(theme.components)
@@ -377,6 +385,8 @@ export float drawKvEditor(eui::Ui& ui, const std::string& id, float x, float y, 
                     .radius(kIconButtonRadius)
                     .onClick([&items, i] { items.erase(items.begin() + i); })
                     .build();
+                drawEditorDivider(ui, rowId + ".divider", 0,
+                                  kEditorRowHeight - kEditorDividerHeight, w, theme);
             })
             .build();
     }
@@ -391,13 +401,13 @@ export float drawKvEditor(eui::Ui& ui, const std::string& id, float x, float y, 
         .radius(kButtonRadius)
         .onClick([&items] { items.push_back({}); })
         .build();
-    return y + items.size() * (kRowHeight + colGap) + 22.0f;
+    return y + items.size() * (kEditorRowHeight + colGap) + 22.0f;
 }
 
 export float drawParamEditor(eui::Ui& ui, const std::string& id, float x, float y, float w,
                              std::vector<api::KeyValue>& items, const AppTheme& theme) {
-    const float delW = 22.0f;
-    const float gap = 4.0f;
+    const float delW = kIconButtonSize;
+    const float gap = kEditorRowGap;
     const float rowH = kInputHeight * 2.0f + gap;
     // 单行最小跨度 = 96+96+92+80+22+4*gap = 402；低于阈值切换到两行布局：
     // 第一行 key/value/type，第二行 remark + 删除，所有宽度随 w 收缩不为负。
@@ -421,7 +431,7 @@ export float drawParamEditor(eui::Ui& ui, const std::string& id, float x, float 
             .size(w, rowH)
             .content([&] {
                 components::input(ui, rowId + ".k")
-                    .position(0, 0).size(keyW, kInputHeight)
+                    .position(0, 0).size(keyW, kEditorRowHeight)
                     .value(items[i].key).placeholder("Key").theme(theme.components)
                     .onChange([&items, i](const std::string& v) { items[i].key = v; }).build();
                 components::input(ui, rowId + ".v")
@@ -467,6 +477,8 @@ export float drawParamEditor(eui::Ui& ui, const std::string& id, float x, float 
                     .theme(theme.components, false)
                     .radius(kIconButtonRadius)
                     .onClick([&items, i] { items.erase(items.begin() + i); }).build();
+                drawEditorDivider(ui, rowId + ".divider", 0,
+                                  rowH - kEditorDividerHeight, w, theme);
             })
             .build();
     }

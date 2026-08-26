@@ -73,7 +73,32 @@ void formatJsonBody() {
     }
 }
 
-// 最终 URL = 环境 base + Path 分组前缀 + 相对路径（由领域 store 统一拼）。
+std::size_t lineCount(std::string_view text) {
+    return 1 + static_cast<std::size_t>(std::count(text.begin(), text.end(), '\n'));
+}
+
+void drawLineNumbers(eui::Ui& ui, const std::string& id, float x, float y, float width,
+                     float height, std::size_t lines, const AppTheme& theme) {
+    ui.rect(id + ".bg")
+        .position(x, y).size(width, height)
+        .color(components::theme::withAlpha(theme.components.surface, 0.45f))
+        .build();
+    ui.rect(id + ".divider")
+        .position(x + width - kEditorDividerHeight, y)
+        .size(kEditorDividerHeight, height)
+        .color(components::theme::withOpacity(theme.components.border, 0.45f))
+        .build();
+    for (std::size_t i = 0; i < lines; ++i) {
+        ui.text(id + "." + std::to_string(i))
+            .position(x + 4.0f, y + static_cast<float>(i) * kFontMono * 1.2f)
+            .size(width - 8.0f, kFontMono * 1.2f)
+            .text(std::to_string(i + 1)).fontFamily("monospace")
+            .fontSize(kFontMono).lineHeight(kFontMono * 1.2f)
+            .color(theme.metaText).horizontalAlign(core::HorizontalAlign::Right)
+            .build();
+    }
+}
+
 std::string composeFinalUrl(const Draft& draft) {
     return g_requests.composeUrl(draft.url, draft.groupId, g_requests.currentEnvId());
 }
@@ -379,9 +404,12 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                         .onClick([] { formatJsonBody(); })
                         .build();
                 }
+                drawLineNumbers(ui, "editor.body.lines", x,
+                                y + selectorH + 6.0f + bodyToolbarH,
+                                kEditorGutterWidth, bodyH, lineCount(bodyText), theme);
                 components::input(ui, "editor.body")
-                    .position(x, y + selectorH + 6.0f + bodyToolbarH)
-                    .size(w, bodyH)
+                    .position(x + kEditorGutterWidth, y + selectorH + 6.0f + bodyToolbarH)
+                    .size(nonNegative(w - kEditorGutterWidth), bodyH)
                     .value(bodyText).placeholder(placeholder).multiline()
                     .fontFamily("monospace").theme(tokens)
                     .onChange([](const std::string& v) {
