@@ -83,7 +83,7 @@ jobs:
           file dist-src/apitab
 
       - name: Check source whitespace
-        run: git diff --check
+        run: git -C "$GITHUB_WORKSPACE" diff --check
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
