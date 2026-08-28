@@ -20,19 +20,67 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  # Linux 用容器锁 GCC 15：CMake 对 import std 的 GNU 支持要求 GCC ≥15
+  # （需要 libstdc++.modules.json，24.04 默认 GCC 13.3 不够）。
+  build-linux:
+    name: build-linux-x64
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:25.10
+    steps:
+      - name: Install container baseline
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get install -y --no-install-recommends \
+            build-essential g++-15 cmake ninja-build pkg-config file \
+            libssl-dev \
+            libgl1-mesa-dev mesa-common-dev \
+            libx11-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev \
+            libxext-dev libxfixes-dev libxrender-dev libxcb1-dev libxau-dev libxdmcp-dev
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-15 -DCMAKE_CXX_COMPILER=g++-15
+
+      - name: Build release
+        run: cmake --build build --config Release --parallel
+
+      - name: Stage executable
+        run: |
+          mkdir -p dist-src
+          cp build/apitab dist-src/apitab
+          chmod +x dist-src/apitab
+          file dist-src/apitab
+
+      - name: Check source whitespace
+        run: git diff --check
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-linux-x64
+          path: dist-src
+          if-no-files-found: error
+          retention-days: 14
+
+  build-other:
     name: build-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: linux-x64
-            os: ubuntu-24.04
-            binary: build/apitab
           - name: win64
             os: windows-latest
-            binary: build/Release/apitab.exe
+            binary: build/apitab.exe
           - name: macos-arm64
             os: macos-14
             binary: build/apitab
@@ -41,21 +89,13 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential ca-certificates curl pkg-config file ninja-build \
-            libssl-dev \
-            libgl1-mesa-dev mesa-common-dev \
-            libx11-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev \
-            libxext-dev libxfixes-dev libxrender-dev libxcb1-dev libxau-dev libxdmcp-dev
-
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
         run: |
           brew list openssl@3 &>/dev/null || brew install openssl@3
+          # AppleClang 不被 CMake 的 import std 支持，C++ 侧用 brew GCC（≥15）
+          brew install gcc
+          echo "APITAB_GXX=$(ls /opt/homebrew/bin/g++-1[5-9] | sort -V | tail -1)" >> "$GITHUB_ENV"
           cmake --version
           ninja --version
 
@@ -67,19 +107,24 @@ jobs:
           choco install openssl -y --no-progress
           Write-Host "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Configure (Unix)
-        if: runner.os != 'Windows'
+      - name: Set up MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure (macOS)
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            ${{ runner.os == 'macOS' && '-DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3' || '' }}
+            -DCMAKE_CXX_COMPILER="$APITAB_GXX" \
+            -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR"
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR"
 
       - name: Build release
         run: cmake --build build --config Release --parallel
@@ -95,7 +140,7 @@ jobs:
           Get-Item dist-src/*
 
       - name: Check source whitespace
-        if: runner.os != 'Windows'
+        if: runner.os == 'macOS'
         run: git diff --check
 
       - name: Upload build artifact
@@ -108,7 +153,7 @@ jobs:
 
   package:
     name: package-${{ matrix.name }}
-    needs: build
+    needs: [build-linux, build-other]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

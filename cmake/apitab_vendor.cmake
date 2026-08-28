@@ -17,8 +17,9 @@ function(apitab_extract name archive sha256 topdir)
         message(STATUS "apitab vendor: extracting ${archive} -> ${dest}")
         file(REMOVE_RECURSE "${dest}")
         file(MAKE_DIRECTORY "${dest}")
-        # CMake 4.4 起 ARCHIVE_EXTRACT 改为 INPUT/DESTINATION 关键字形式
-        if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.4")
+        # CMake 4.0 起 ARCHIVE_EXTRACT 改为 INPUT/DESTINATION 关键字形式，
+        # 位置参数形式在 4.0+ 直接报错；3.x 仍只认旧形式。
+        if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
             file(ARCHIVE_EXTRACT INPUT "${archive}" DESTINATION "${dest}")
         else()
             file(ARCHIVE_EXTRACT "${archive}" TO "${dest}")

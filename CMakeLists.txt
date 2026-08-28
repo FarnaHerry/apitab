@@ -117,6 +117,10 @@ target_sources(apitab PRIVATE FILE_SET apitab_modules TYPE CXX_MODULES
     FILES ${APITAB_MODULE_UNITS})
 set_target_properties(apitab PROPERTIES CXX_MODULE_STD ON)
 target_compile_features(apitab PRIVATE cxx_std_23)
+# 源码注释含中文：MSVC 必须显式 /utf-8，否则按 codepage 误读
+if(MSVC)
+    target_compile_options(apitab PRIVATE /utf-8)
+endif()
 target_include_directories(apitab PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(apitab PRIVATE
     eui::neo
