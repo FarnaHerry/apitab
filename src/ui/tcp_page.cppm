@@ -124,15 +124,15 @@ export void drawTcpPage(eui::Ui& ui, float x, float y, float w, float h,
     const float urlW = twoRows
         ? w
         : nonNegative(w - connectW - saveW - timeoutW - kGap * 3.0f);
-    drawIslandPanel(ui, id + ".toolbar.island", x, y, w, toolbarH,
-                    theme, theme.dark ? 0.56f : 0.78f);
+    drawIsland(ui, id + ".toolbar.island", x, y, w, toolbarH,
+               theme, theme.dark ? 0.56f : 0.78f, [&] {
     components::input(ui, id + ".url")
-        .position(x, y).size(urlW, kInputHeight).value(draft.url)
+        .position(0, 0).size(urlW, kInputHeight).value(draft.url)
         .placeholder(tls ? "tcps://example.com:443" : "tcp://127.0.0.1:9000")
         .fontFamily("monospace").theme(tokens)
         .onChange([](const std::string& value) { activeDraft().url = value; }).build();
-    const float row2Y = twoRows ? y + kInputHeight + kGap : y;
-    const float timeoutX = twoRows ? x : x + urlW + kGap;
+    const float row2Y = twoRows ? kInputHeight + kGap : 0;
+    const float timeoutX = twoRows ? 0 : urlW + kGap;
     const float connectX = timeoutX + timeoutW + kGap;
     const float saveX = connectX + connectW + kGap;
     components::input(ui, id + ".timeout")
@@ -162,6 +162,7 @@ export void drawTcpPage(eui::Ui& ui, float x, float y, float w, float h,
         .icon(0xF0C7).text("保存").fontSize(kFontLabel).theme(tokens, false)
         .radius(kButtonRadius)
         .onClick([] { saveTcpRequest(); }).build();
+    });
 
     // 状态行在短窗口让位（时间线/composer 优先保住）。
     const bool showState = h >= 170.0f;
@@ -178,14 +179,14 @@ export void drawTcpPage(eui::Ui& ui, float x, float y, float w, float h,
     const bool narrowComposer = w < 340.0f;
     const float composerH = narrowComposer ? 56.0f : 58.0f;
     const float timelineY = y + toolbarH + (showState ? 30.0f : 6.0f);
-    const float timelineH = nonNegative(h - (timelineY - y) - composerH - kGap);
-    drawIslandPanel(ui, id + ".timeline.island", x, timelineY, w, timelineH, theme,
-                    theme.dark ? 0.68f : 0.86f);
+    const float timelineH = nonNegative(h - (timelineY - y) - composerH - kIslandGap);
+    drawIsland(ui, id + ".timeline.island", x, timelineY, w, timelineH, theme,
+               theme.dark ? 0.68f : 0.86f, [&] {
     const float scrollW = nonNegative(w - kPanelPad * 2.0f);
     const float scrollH = nonNegative(timelineH - kPanelPad * 2.0f);
     if (scrollW > 0.0f && scrollH > 0.0f) {
         components::scrollView(ui, id + ".timeline.scroll")
-            .position(x + kPanelPad, timelineY + kPanelPad).size(scrollW, scrollH)
+            .position(kPanelPad, kPanelPad).size(scrollW, scrollH)
             .offset(tab.tcpScroll).theme(tokens)
             .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
             .onChange([](float value) { activeTab().tcpScroll = value; })
@@ -228,12 +229,13 @@ export void drawTcpPage(eui::Ui& ui, float x, float y, float w, float h,
                 }
             }).build();
     }
+    });
 
     // ---- composer：宽窗口 message 在左、控制在右；窄窗口 message 独占一行、
     // 三个控制第二行均分。右侧控件永远不越出岛屿。
-    const float composerY = timelineY + timelineH + kGap;
-    drawIslandPanel(ui, id + ".composer.island", x, composerY, w, composerH,
-                    theme, theme.dark ? 0.52f : 0.74f);
+    const float composerY = timelineY + timelineH + kIslandGap;
+    drawIsland(ui, id + ".composer.island", x, composerY, w, composerH,
+               theme, theme.dark ? 0.52f : 0.74f, [&] {
     auto sendMessage = [] {
         RequestTab& active = activeTab();
         std::vector<std::uint8_t> bytes;
@@ -244,18 +246,18 @@ export void drawTcpPage(eui::Ui& ui, float x, float y, float w, float h,
     if (narrowComposer) {
         const float thirdW = nonNegative((w - kGap * 2.0f) / 3.0f);
         components::input(ui, id + ".message")
-            .position(x, composerY).size(w, 26.0f)
+            .position(0, 0).size(w, 26.0f)
             .value(tab.tcpMessage).placeholder(tab.tcpSendFormat == api::TcpPayloadFormat::Hex ? "48 65 6C 6C 6F" : "输入要发送的数据")
             .multiline().fontFamily("monospace").theme(tokens)
             .onChange([](const std::string& value) { activeTab().tcpMessage = value; }).build();
-        ui.stack(id + ".send.mode.wrap").position(x, composerY + 30.0f).size(thirdW, 24.0f)
+        ui.stack(id + ".send.mode.wrap").position(0, 30.0f).size(thirdW, 24.0f)
             .content([&] {
                 components::segmented(ui, id + ".send.mode").size(thirdW, 24.0f)
                     .items({"文本", "Hex"}).selected(tab.tcpSendFormat == api::TcpPayloadFormat::Hex ? 1 : 0)
                     .theme(tokens).style(segmentedStyle(theme))
                     .onChange([](int index) { activeTab().tcpSendFormat = index == 1 ? api::TcpPayloadFormat::Hex : api::TcpPayloadFormat::Text; }).build();
             }).build();
-        ui.stack(id + ".receive.mode.wrap").position(x + thirdW + kGap, composerY + 30.0f).size(thirdW, 24.0f)
+        ui.stack(id + ".receive.mode.wrap").position(thirdW + kGap, 30.0f).size(thirdW, 24.0f)
             .content([&] {
                 components::segmented(ui, id + ".receive.mode").size(thirdW, 24.0f)
                     .items({"收文本", "收 Hex"}).selected(tab.tcpReceiveFormat == api::TcpPayloadFormat::Hex ? 1 : 0)
@@ -263,25 +265,25 @@ export void drawTcpPage(eui::Ui& ui, float x, float y, float w, float h,
                     .onChange([](int index) { activeTab().tcpReceiveFormat = index == 1 ? api::TcpPayloadFormat::Hex : api::TcpPayloadFormat::Text; }).build();
             }).build();
         components::button(ui, id + ".send")
-            .position(x + (thirdW + kGap) * 2.0f, composerY + 30.0f).size(thirdW, 26.0f)
+            .position((thirdW + kGap) * 2.0f, 30.0f).size(thirdW, 26.0f)
             .icon(0xF1D8).text("发送").fontSize(kFontLabel).theme(tokens, true)
             .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
             .radius(kButtonRadius)
             .onClick(sendMessage).build();
     } else {
         components::input(ui, id + ".message")
-            .position(x, composerY).size(nonNegative(w - 246.0f), composerH)
+            .position(0, 0).size(nonNegative(w - 246.0f), composerH)
             .value(tab.tcpMessage).placeholder(tab.tcpSendFormat == api::TcpPayloadFormat::Hex ? "48 65 6C 6C 6F" : "输入要发送的数据")
             .multiline().fontFamily("monospace").theme(tokens)
             .onChange([](const std::string& value) { activeTab().tcpMessage = value; }).build();
-        ui.stack(id + ".send.mode.wrap").position(x + w - 240.0f, composerY).size(112.0f, 24.0f)
+        ui.stack(id + ".send.mode.wrap").position(w - 240.0f, 0).size(112.0f, 24.0f)
             .content([&] {
                 components::segmented(ui, id + ".send.mode").size(112.0f, 24.0f)
                     .items({"文本", "Hex"}).selected(tab.tcpSendFormat == api::TcpPayloadFormat::Hex ? 1 : 0)
                     .theme(tokens).style(segmentedStyle(theme))
                     .onChange([](int index) { activeTab().tcpSendFormat = index == 1 ? api::TcpPayloadFormat::Hex : api::TcpPayloadFormat::Text; }).build();
             }).build();
-        ui.stack(id + ".receive.mode.wrap").position(x + w - 120.0f, composerY).size(120.0f, 24.0f)
+        ui.stack(id + ".receive.mode.wrap").position(w - 120.0f, 0).size(120.0f, 24.0f)
             .content([&] {
                 components::segmented(ui, id + ".receive.mode").size(120.0f, 24.0f)
                     .items({"接收文本", "接收 Hex"}).selected(tab.tcpReceiveFormat == api::TcpPayloadFormat::Hex ? 1 : 0)
@@ -289,10 +291,11 @@ export void drawTcpPage(eui::Ui& ui, float x, float y, float w, float h,
                     .onChange([](int index) { activeTab().tcpReceiveFormat = index == 1 ? api::TcpPayloadFormat::Hex : api::TcpPayloadFormat::Text; }).build();
             }).build();
         components::button(ui, id + ".send")
-            .position(x + w - 120.0f, composerY + 32.0f).size(120.0f, 26.0f)
+            .position(w - 120.0f, 32.0f).size(120.0f, 26.0f)
             .icon(0xF1D8).text("发送数据").fontSize(kFontLabel).theme(tokens, true)
             .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
             .radius(kButtonRadius)
             .onClick(sendMessage).build();
     }
+    });
 }

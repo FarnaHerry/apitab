@@ -1,94 +1,254 @@
-name: build
+name: build-and-package
 
 on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  K6_VERSION: '1.5.0'
+
 concurrency:
-  group: build-${{ github.workflow }}-${{ github.ref }}
+  group: build-and-package-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Linux x86_64 release
-    runs-on: ubuntu-24.04
+    name: build-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-24.04
+            binary: build/apitab
+          - name: win64
+            os: windows-latest
+            binary: build/Release/apitab.exe
+          - name: macos-arm64
+            os: macos-14
+            binary: build/apitab
 
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential \
-            ca-certificates \
-            curl \
-            libgl1-mesa-dev \
-            libx11-dev \
-            libxcursor-dev \
-            libxi-dev \
-            libxinerama-dev \
-            libxrandr-dev \
-            libxext-dev \
-            libxfixes-dev \
-            libxrender-dev \
-            libxcb1-dev \
-            libxau-dev \
-            libxdmcp-dev \
-            mesa-common-dev \
-            pkg-config
+            build-essential ca-certificates curl pkg-config file ninja-build \
+            libssl-dev \
+            libgl1-mesa-dev mesa-common-dev \
+            libx11-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev \
+            libxext-dev libxfixes-dev libxrender-dev libxcb1-dev libxau-dev libxdmcp-dev
 
-      - name: Restore mcpp cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.mcpp
-          key: mcpp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mcpp.toml', 'mcpp.lock') }}
-          restore-keys: |
-            mcpp-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew list openssl@3 &>/dev/null || brew install openssl@3
+          cmake --version
+          ninja --version
 
-      - name: Install mcpp
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install openssl -y --no-progress
+          Write-Host "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v "$HOME/.mcpp/bin/mcpp" >/dev/null 2>&1; then
-            curl -fsSL https://github.com/mcpp-community/mcpp/releases/latest/download/install.sh | bash
-          fi
-          echo "$HOME/.mcpp/bin" >> "$GITHUB_PATH"
-          "$HOME/.mcpp/bin/mcpp" --version
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            ${{ runner.os == 'macOS' && '-DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3' || '' }}
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR"
 
       - name: Build release
-        run: mcpp build --release
+        run: cmake --build build --config Release --parallel
+
+      - name: Stage executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidate = '${{ matrix.binary }}'
+          if (-not (Test-Path $candidate)) { throw "$candidate not found" }
+          New-Item -ItemType Directory -Force dist-src | Out-Null
+          Copy-Item $candidate dist-src/$(Split-Path -Leaf $candidate)
+          Get-Item dist-src/*
 
       - name: Check source whitespace
+        if: runner.os != 'Windows'
         run: git diff --check
 
-      - name: Stage release binary
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.name }}
+          path: dist-src
+          if-no-files-found: error
+          retention-days: 14
+
+  package:
+    name: package-${{ matrix.name }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-24.04
+            k6_asset: k6-v1.5.0-linux-amd64.tar.gz
+            k6_binary: k6
+            package_script: unix
+          - name: win64
+            os: windows-latest
+            k6_asset: k6-v1.5.0-windows-amd64.zip
+            k6_binary: k6.exe
+            package_script: windows
+          - name: macos-arm64
+            os: macos-14
+            k6_asset: k6-v1.5.0-macos-arm64.zip
+            k6_binary: k6
+            package_script: unix
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download built executable
+        uses: actions/download-artifact@v4
+        with:
+          name: build-${{ matrix.name }}
+          path: dist-src
+
+      - name: Install Unix tools
+        if: runner.os != 'Windows'
+        run: |
+          if [[ "${{ runner.os }}" == Linux ]]; then
+            sudo apt-get update
+            sudo apt-get install -y curl ca-certificates file unzip
+          fi
+
+      - name: Download k6 (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          bin_dir="$(find target/x86_64-linux-gnu -mindepth 2 -maxdepth 2 -type d -name bin -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2- | head -n1)"
-          if [[ -z "$bin_dir" || ! -x "$bin_dir/apitab" ]]; then
-            echo "apitab release binary not found" >&2
-            find target -maxdepth 5 -type f -name 'apitab*' -print >&2 || true
-            exit 1
+          mkdir -p engines k6-tmp
+          archive="${{ matrix.k6_asset }}"
+          curl -fL --retry 3 -o "k6-tmp/$archive" "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/$archive"
+          curl -fL --retry 3 -o k6-tmp/checksums.txt "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-checksums.txt"
+          expected="$(awk -v name="$archive" '$2 == name { print $1; exit }' k6-tmp/checksums.txt)"
+          [[ -n "$expected" ]] || { echo "checksum entry missing for $archive" >&2; exit 1; }
+          actual="$(sha256sum "k6-tmp/$archive" | cut -d' ' -f1)"
+          [[ "$actual" == "$expected" ]] || { echo "checksum mismatch for $archive" >&2; exit 1; }
+          if [[ "$archive" == *.zip ]]; then
+            unzip -q "k6-tmp/$archive" -d k6-tmp
+          else
+            tar -xzf "k6-tmp/$archive" -C k6-tmp
           fi
-          mkdir -p dist
-          cp "$bin_dir/apitab" dist/apitab
-          chmod +x dist/apitab
-          file dist/apitab
-          ls -lh dist/apitab
+          found="$(find k6-tmp -type f -name k6 | head -n1)"
+          [[ -n "$found" ]] || { echo 'k6 binary not found in archive' >&2; exit 1; }
+          cp "$found" engines/k6
+          chmod +x engines/k6
+          engines/k6 version
 
-      - name: Upload release binary
+      - name: Download k6 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force engines, k6-tmp | Out-Null
+          $archive = '${{ matrix.k6_asset }}'
+          $archivePath = Join-Path $env:RUNNER_TEMP $archive
+          curl.exe -fL --retry 3 -o $archivePath "https://github.com/grafana/k6/releases/download/v$env:K6_VERSION/$archive"
+          $checksumPath = Join-Path $env:RUNNER_TEMP "k6-v$env:K6_VERSION-checksums.txt"
+          curl.exe -fL --retry 3 -o $checksumPath "https://github.com/grafana/k6/releases/download/v$env:K6_VERSION/k6-v$env:K6_VERSION-checksums.txt"
+          $expected = (Get-Content $checksumPath | Where-Object { $_ -match "\s$([regex]::Escape($archive))$" } | Select-Object -First 1) -replace '^\s*([^\s]+).*', '$1'
+          if (-not $expected) { throw "checksum entry missing for $archive" }
+          $actual = (Get-FileHash $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected.ToLowerInvariant()) { throw "checksum mismatch for $archive" }
+          Expand-Archive -Path $archivePath -DestinationPath k6-tmp -Force
+          $found = Get-ChildItem k6-tmp -Filter k6.exe -File -Recurse | Select-Object -First 1
+          if (-not $found) { throw 'k6.exe not found in archive' }
+          Copy-Item $found.FullName engines\k6.exe
+          & engines\k6.exe version
+
+      - name: Package Unix archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash packaging/ci-package.sh "${{ matrix.name == 'linux-x64' && 'linux' || 'macos' }}" "${{ matrix.name == 'linux-x64' && 'x86_64' || 'arm64' }}" dist-src/apitab engines/k6
+
+      - name: Install full NSIS
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'nsis.zip'
+          curl.exe -fsSL --retry 3 --retry-delay 5 -o $zip 'https://sourceforge.net/projects/nsis/files/NSIS%203/3.10/nsis-3.10.zip/download'
+          Expand-Archive -Path $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'nsis') -Force
+          $nsis = Join-Path $env:RUNNER_TEMP 'nsis\nsis-3.10'
+          if (-not (Test-Path (Join-Path $nsis 'makensis.exe'))) { throw 'NSIS extract failed' }
+          $nsis | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Package Windows zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & packaging\ci-package.ps1 dist-src\apitab.exe engines\k6.exe
+          $line = Get-Content CMakeLists.txt | Where-Object { $_ -match '^\s*project\(apitab\s+VERSION\s+' } | Select-Object -First 1
+          $version = $line -replace '^\s*project\(apitab\s+VERSION\s+([0-9.]+).*', '$1'
+          makensis "/DAPP_VERSION=$version" "$env:GITHUB_WORKSPACE\packaging\apitab.nsi"
+          Get-ChildItem "apitab-v$version-win64*"
+
+      - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: apitab-linux-x86_64
-          path: dist/apitab
+          name: pkg-${{ matrix.name }}
+          path: |
+            apitab-v*
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: Draft GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: apitab ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          files: artifacts/*

@@ -60,11 +60,11 @@ export void drawHistoryPage(eui::Ui& ui, const eui::Screen& screen, float x, flo
     const auto& tokens = theme.components;
     if (g_historyDirty) reloadHistory();
 
-    // 岛屿精确覆盖页面 bounds，内容统一内缩 kPanelPad。
-    drawIslandPanel(ui, "history.island", x, y, w, h, theme,
-                    theme.dark ? 0.68f : 0.86f);
-    const float innerX = x + kPanelPad;
-    const float innerY = y + kPanelPad;
+    // 岛屿精确覆盖页面 bounds，作为裁剪容器，内容统一内缩 kPanelPad。
+    drawIsland(ui, "history.island", x, y, w, h, theme,
+               theme.dark ? 0.68f : 0.86f, [&] {
+    const float innerX = kPanelPad;
+    const float innerY = kPanelPad;
     const float innerW = nonNegative(w - kPanelPad * 2.0f);
     const float innerH = nonNegative(h - kPanelPad * 2.0f);
 
@@ -159,7 +159,7 @@ export void drawHistoryPage(eui::Ui& ui, const eui::Screen& screen, float x, flo
     const float pgX = innerX + nonNegative(innerW - 152.0f);
     components::button(ui, "history.prev")
         .position(pgX, pgY).size(24.0f, 24.0f)
-        .icon(0xF053).text("").iconSize(8.0f).theme(tokens, false).radius(12.0f).disabled(first)
+        .icon(0xF053).text("").iconSize(8.0f).theme(tokens, false).radius(kButtonRadius).disabled(first)
         .onClick([] { if (g_historyPage > 0) { --g_historyPage; g_historyDirty = true; } }).build();
     components::input(ui, "history.page.input")
         .position(pgX + 30.0f, pgY).size(42.0f, 24.0f)
@@ -172,6 +172,7 @@ export void drawHistoryPage(eui::Ui& ui, const eui::Screen& screen, float x, flo
         .color(theme.metaText).verticalAlign(core::VerticalAlign::Center).build();
     components::button(ui, "history.next")
         .position(pgX + 128.0f, pgY).size(24.0f, 24.0f)
-        .icon(0xF054).text("").iconSize(8.0f).theme(tokens, false).radius(12.0f).disabled(last)
+        .icon(0xF054).text("").iconSize(8.0f).theme(tokens, false).radius(kButtonRadius).disabled(last)
         .onClick([] { if (g_historyPage + 1 < pageCount()) { ++g_historyPage; g_historyDirty = true; } }).build();
+    });
 }

@@ -353,16 +353,18 @@ public:
     }
 
     std::vector<db::GlobalCookie> globalCookies() const {
-        try { return db_->listGlobalCookies(); } catch (...) { return {}; }
+        try { return db_->listGlobalCookies(currentProjectId_); } catch (...) { return {}; }
     }
     std::string saveGlobalCookie(db::GlobalCookie& cookie) {
+        if (cookie.projectId != 0 && cookie.projectId != currentProjectId_) return "项目不匹配";
+        cookie.projectId = currentProjectId_;
         try {
             cookie.id = db_->saveGlobalCookie(cookie);
             return {};
         } catch (const std::exception& e) { return e.what(); }
     }
     std::string deleteGlobalCookie(std::int64_t id) {
-        try { db_->deleteGlobalCookie(id); return {}; }
+        try { db_->deleteGlobalCookie(id, currentProjectId_); return {}; }
         catch (const std::exception& e) { return e.what(); }
     }
 

@@ -13,6 +13,7 @@ import apitab.db;
 import apitab.store.requests;  // g_requests
 import apitab.store.ui;        // activeTab / activeDraft / g_responseTab / ...
 import apitab.ui.theme;
+import apitab.ui.topbars;
 import apitab.ui.utils;
 import apitab.ui.widgets;
 
@@ -29,6 +30,7 @@ std::unordered_map<std::int64_t, std::string> g_envNameDrafts;
 std::unordered_map<std::int64_t, std::string> g_envUrlDrafts;
 std::int64_t g_envDraftProjectId = 0;
 std::vector<db::GlobalCookie> g_globalCookieDrafts;
+std::int64_t g_globalCookieDraftProjectId = 0;
 std::int64_t g_nextTempGlobalCookieId = -1;
 
 int bodyKindIndex(api::BodyKind kind) {
@@ -70,32 +72,6 @@ void formatJsonBody() {
         constexpr std::size_t maxDetail = 120;
         if (message.size() > maxDetail) message.resize(maxDetail);
         showStatus("JSON 格式错误: " + message);
-    }
-}
-
-std::size_t lineCount(std::string_view text) {
-    return 1 + static_cast<std::size_t>(std::count(text.begin(), text.end(), '\n'));
-}
-
-void drawLineNumbers(eui::Ui& ui, const std::string& id, float x, float y, float width,
-                     float height, std::size_t lines, const AppTheme& theme) {
-    ui.rect(id + ".bg")
-        .position(x, y).size(width, height)
-        .color(components::theme::withAlpha(theme.components.surface, 0.45f))
-        .build();
-    ui.rect(id + ".divider")
-        .position(x + width - kEditorDividerHeight, y)
-        .size(kEditorDividerHeight, height)
-        .color(components::theme::withOpacity(theme.components.border, 0.45f))
-        .build();
-    for (std::size_t i = 0; i < lines; ++i) {
-        ui.text(id + "." + std::to_string(i))
-            .position(x + 4.0f, y + static_cast<float>(i) * kFontMono * 1.2f)
-            .size(width - 8.0f, kFontMono * 1.2f)
-            .text(std::to_string(i + 1)).fontFamily("monospace")
-            .fontSize(kFontMono).lineHeight(kFontMono * 1.2f)
-            .color(theme.metaText).horizontalAlign(core::HorizontalAlign::Right)
-            .build();
     }
 }
 
@@ -190,7 +166,12 @@ void drawSaveRequestNameDialog(eui::Ui& ui, const eui::Screen& screen,
 void drawGlobalCookieDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     if (!g_globalCookieOpen) return;
     const auto& tokens = theme.components;
-    if (g_globalCookieDrafts.empty()) g_globalCookieDrafts = g_requests.globalCookies();
+    const std::int64_t projectId = g_requests.currentProjectId();
+    if (projectId == 0) { g_globalCookieOpen = false; return; }
+    if (g_globalCookieDraftProjectId != projectId) {
+        g_globalCookieDrafts = g_requests.globalCookies();
+        g_globalCookieDraftProjectId = projectId;
+    }
     auto& cookies = g_globalCookieDrafts;
     // 对话框尺寸 clamp 到屏幕；列表区是可滚动 viewport，footer 固定底部。
     const float dlgW = dialogWidth(screen.width, 480.0f);
@@ -230,7 +211,7 @@ void drawGlobalCookieDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                                 components::button(cu, id + ".delete")
                                     .position(nonNegative(rowW - delW), 2.0f).size(delW, delW)
                                     .icon(0xF1F8).text("").iconSize(8.0f).theme(tokens, false)
-                                    .radius(10.0f)
+                                    .radius(kButtonRadius)
                                     .onClick([&cookies, id = cookie.id] {
                                         std::erase_if(cookies, [id](const db::GlobalCookie& c) { return c.id == id; });
                                         if (id > 0) (void)g_requests.deleteGlobalCookie(id);
@@ -243,7 +224,7 @@ void drawGlobalCookieDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             components::button(ui, "global.cookies.add").position(pad, addY).size(80.0f, 24.0f)
                 .icon(0xF067).text("添加").fontSize(kFontLabel).theme(tokens, false)
                 .radius(kButtonRadius)
-                .onClick([&cookies] { cookies.push_back({g_nextTempGlobalCookieId--, {}, {}, true}); }).build();
+                .onClick([&cookies] { cookies.push_back({g_nextTempGlobalCookieId--, g_requests.currentProjectId(), {}, {}, true}); }).build();
             const float saveX = nonNegative(dlgW - pad - btnW);
             const float closeX = nonNegative(saveX - 8.0f - btnW);
             components::button(ui, "global.cookies.close").position(closeX, footerY).size(btnW, btnH)
@@ -306,14 +287,6 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                         drawFieldTable(cu, "editor.cookies.table", 0, 0,
                                            nonNegative(contentWidth - 4.0f), items, theme, false);
                     }).build();
-            }
-            if (h >= 26.0f) {
-                components::button(ui, "editor.cookies.global")
-                    .position(x, y + nonNegative(h - 26.0f)).size(150.0f, 24.0f)
-                    .icon(0xF013).text("管理全局 Cookies").fontSize(kFontLabel)
-                    .theme(tokens, false)
-                    .radius(kButtonRadius)
-                    .onClick([] { g_globalCookieOpen = true; }).build();
             }
             break;
         }
@@ -408,14 +381,12 @@ void drawEditor(eui::Ui& ui, float x, float y, float w, float h, const AppTheme&
                         .onClick([] { formatJsonBody(); })
                         .build();
                 }
-                drawLineNumbers(ui, "editor.body.lines", x,
-                                y + selectorH + 6.0f + bodyToolbarH,
-                                kEditorGutterWidth, bodyH, lineCount(bodyText), theme);
                 components::input(ui, "editor.body")
-                    .position(x + kEditorGutterWidth, y + selectorH + 6.0f + bodyToolbarH)
-                    .size(nonNegative(w - kEditorGutterWidth), bodyH)
+                    .position(x, y + selectorH + 6.0f + bodyToolbarH)
+                    .size(w, bodyH)
                     .value(bodyText).placeholder(placeholder).multiline()
-                    .fontFamily("monospace").theme(tokens)
+                    .fontFamily("monospace")
+                    .theme(tokens)
                     .onChange([](const std::string& v) {
                         Draft& current = activeDraft();
                         const auto index = static_cast<std::size_t>(current.bodyKind);
@@ -503,19 +474,13 @@ void drawResponse(eui::Ui& ui, float x, float y, float w, float h, const AppThem
     const float ch = nonNegative(h - 28.0f);
     if (!tab.hasResponse || ch <= 0.0f) return;
 
-    ui.rect("resp.panel")
-        .position(x, cy)
-        .size(w, ch)
-        .color(components::theme::withAlpha(tokens.surface, theme.dark ? 0.35f : 0.6f))
-        .radius(kPanelRadius)
-        .build();
-
-    const float scrollW = nonNegative(w - 8.0f);
-    const float scrollH = nonNegative(ch - 8.0f);
+    // 内容区直接使用响应岛的内边距，避免再叠加一层 panel 背景。
+    const float scrollW = nonNegative(w - kPanelPad * 2.0f);
+    const float scrollH = nonNegative(ch - kPanelPad * 2.0f);
     if (scrollW <= 0.0f || scrollH <= 0.0f) return;
 
     components::scrollView(ui, "resp.scroll")
-        .position(x + 4.0f, cy + 4.0f)
+        .position(x + kPanelPad, cy + kPanelPad)
         .size(scrollW, scrollH)
         .offset(tab.bodyScroll)
         .theme(tokens)
@@ -592,22 +557,40 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
     const float sendW = 64.0f, saveW = 52.0f, methodW = 96.0f;
     const bool toolbarTwoRows = w < 350.0f;
     const float toolbarH = toolbarTwoRows ? kInputHeight * 2.0f + kGap : kInputHeight;
+    // 请求标签、请求目标、操作、编辑器合并为同一个工作流岛屿；标签条也在岛内
+    // 作为第一行布局，避免页面层写死位置与内容坐标互相覆盖。
+    const float requestIslandH = nonNegative(h * 0.54f);
+    const float islandX = x;
+    const float islandY = y;
+    const float islandW = w;
+    const float islandH = requestIslandH;
+    const float innerX = kPanelPad;
+    const float innerW = nonNegative(w - kPanelPad * 2.0f);
+    const float tabsX = 4.0f;
+    const float tabsY = 4.0f;
+    const float tabsW = nonNegative(w - tabsX * 2.0f);
+    const float tabsH = kInputHeight;
+    const float toolbarY = tabsY + tabsH + kIslandGap;
+    // Method 与 URL 是同一组目标输入，紧贴排列；发送/保存仍作为操作组保留语义间距。
+    const float targetGap = 0.0f;
+    const float actionGap = kGap;
     const float urlW = toolbarTwoRows
-        ? nonNegative(w - methodW - kGap)
-        : nonNegative(w - methodW - sendW - saveW - kGap * 3.0f);
-    const float targetW = methodW + kGap + urlW;
-    drawIslandPanel(ui, "req.target.island", x, y, targetW, kInputHeight, theme,
-                    theme.dark ? 0.52f : 0.74f);
-    const float actionsY = toolbarTwoRows ? y + kInputHeight + kGap : y;
-    const float actionsX = toolbarTwoRows ? x : x + targetW + kGap;
-    drawIslandPanel(ui, "req.actions.island", actionsX, actionsY,
-                    sendW + saveW + kGap, kInputHeight, theme,
-                    theme.dark ? 0.44f : 0.66f);
+        ? nonNegative(innerW - methodW - targetGap)
+        : nonNegative(innerW - methodW - sendW - saveW - actionGap * 2.0f - targetGap);
+    drawIsland(ui, "req.request.island", islandX, islandY, islandW, islandH, theme,
+               theme.dark ? 0.56f : 0.78f, kIslandPopupZIndex, [&] {
+    // 标签栏与请求编辑内容共享同一个一级岛屿；在岛内保留一丝上下左右留白，
+    // 让标签栏与岛屿边框不要贴合。
+    drawRequestTabStrip(ui, tabsX, tabsY, tabsW, theme, false);
+    const float toolbarX = innerX;
+    const float targetW = methodW + targetGap + urlW;
+    const float actionsY = toolbarTwoRows ? toolbarY + kInputHeight + kGap : toolbarY;
+    const float actionsX = toolbarTwoRows ? toolbarX : toolbarX + targetW + actionGap;
 
     ui.stack("req.method.wrap")
-        .position(x, y)
+        .position(toolbarX, toolbarY)
         .size(methodW, kInputHeight)
-        .zIndex(30)  // 弹层要压在下方编辑器/响应区之上
+        .zIndex(kPopupZIndex)  // 弹层压过下方编辑器与响应岛屿
         .content([&] {
             registerSelectionPopup("req.method", g_methodOpen,
                                     [] { g_methodOpen = false; });
@@ -627,9 +610,9 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
         .build();
 
     const bool busy = g_requests.busy();
-    const float urlX = x + methodW + kGap;
+    const float urlX = toolbarX + methodW + targetGap;
     components::input(ui, "req.url")
-        .position(urlX, y)
+        .position(urlX, toolbarY)
         .size(urlW, kInputHeight)
         .value(draft.url)
         .placeholder("相对路径，如 users / v1/users")
@@ -674,8 +657,8 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
     const std::string finalUrl = composeFinalUrl(draft);
     if (finalUrl != draft.url) {
         ui.text("req.url.preview")
-            .position(x, y + toolbarH + 2.0f)
-            .size(w, 14.0f)
+            .position(innerX, toolbarY + toolbarH + 2.0f)
+            .size(innerW, 14.0f)
             .text("→ " + (finalUrl.empty() ? std::string("（输入相对路径）") : finalUrl))
             .fontSize(kFontLabel)
             .fontFamily("monospace")
@@ -685,59 +668,59 @@ export void drawRequestPage(eui::Ui& ui, float x, float y, float w, float h,
             .build();
     }
 
-    // ---- 第 2 行：Params/Headers/Body 切换 + 元信息 ----
-    const float tabY = y + toolbarH + 18.0f;
-    const float tabWidth = std::min(430.0f, w);
-    ui.stack("req.tabs.wrap")
-        .position(x, tabY)
-        .size(tabWidth, 24.0f)
-        .content([&] {
-            components::segmented(ui, "req.tabs")
-                .size(tabWidth, 24.0f)
-                .items({"Params", "Headers", "Body", "Cookies", "设置"})
-                .selected(static_cast<int>(draft.tab))
-                .fontSize(kFontLabel)
-                .theme(tokens)
-                .style(segmentedStyle(theme))
-                .onChange([](int i) {
-                    activeDraft().tab = static_cast<EditorTab>(std::clamp(i, 0, 4));
-                    persistSessionState();
-                })
-                .build();
-        })
-        .build();
-
-    const float metaX = x + tabWidth + kGap;
-    const float metaW = x + w - metaX;
-    if (metaW > 60.0f) {
-        ui.text("req.tab.meta")
-            .position(metaX, tabY)
-            .size(metaW, 24.0f)
-            .text(std::format("{} 个参数 · {} 个请求头 · {} 个 Cookie", draft.params.size(), draft.headers.size(), draft.cookies.size()))
-            .fontSize(kFontLabel)
-            .lineHeight(24.0f)
-            .color(theme.hintText)
-            .verticalAlign(core::VerticalAlign::Center)
+    // ---- 工作模式 + 调试编辑器标签 ----
+    const float modeY = toolbarY + toolbarH + 18.0f;
+    const float modeWidth = std::min(430.0f, innerW);
+    ui.stack("req.mode.wrap").position(innerX, modeY).size(modeWidth, 24.0f).zIndex(12).content([&] {
+        components::segmented(ui, "req.mode")
+            .size(modeWidth, 24.0f)
+            .items({"调试", "设计", "预览", "用例", "Mock"})
+            .selected(static_cast<int>(draft.mode)).fontSize(kFontLabel)
+            .theme(tokens).style(segmentedStyle(theme))
+            .onChange([](int i) { activeDraft().mode = static_cast<RequestMode>(std::clamp(i, 0, 4)); })
             .build();
+    }).build();
+
+    const float tabY = modeY + 30.0f;
+    const float tabWidth = std::min(430.0f, innerW);
+    if (draft.mode == RequestMode::Debug) {
+        ui.stack("req.tabs.wrap").position(innerX, tabY).size(tabWidth, 24.0f).content([&] {
+            components::segmented(ui, "req.tabs").size(tabWidth, 24.0f)
+                .items({"Params", "Headers", "Body", "Cookies", "设置"})
+                .selected(static_cast<int>(draft.tab)).fontSize(kFontLabel)
+                .theme(tokens).style(segmentedStyle(theme))
+                .onChange([](int i) { activeDraft().tab = static_cast<EditorTab>(std::clamp(i, 0, 4)); persistSessionState(); })
+                .build();
+        }).build();
+        const float metaX = innerX + tabWidth + kGap;
+        const float metaW = innerX + innerW - metaX;
+        if (metaW > 60.0f) ui.text("req.tab.meta").position(metaX, tabY).size(metaW, 24.0f)
+            .text(std::format("{} 个参数 · {} 个请求头 · {} 个 Cookie", draft.params.size(), draft.headers.size(), draft.cookies.size()))
+            .fontSize(kFontLabel).lineHeight(24.0f).color(theme.hintText)
+            .verticalAlign(core::VerticalAlign::Center).build();
+    } else {
+        const char* modeTitle = draft.mode == RequestMode::Design ? "设计模式" : draft.mode == RequestMode::Preview ? "预览模式" : draft.mode == RequestMode::Cases ? "用例模式" : "Mock 模式";
+        ui.text("req.mode.title").position(innerX, tabY).size(innerW, 24.0f).text(modeTitle)
+            .fontSize(kFontBody).lineHeight(24.0f).color(theme.titleText).build();
+        ui.text("req.mode.content").position(innerX, tabY + 34.0f).size(innerW, 42.0f)
+            .text(draft.mode == RequestMode::Design ? "在这里定义请求结构与字段说明。调试模式可直接发送请求。" : draft.mode == RequestMode::Preview ? "请求预览：" + composeFinalUrl(draft) : draft.mode == RequestMode::Cases ? "暂无用例。点击保存后可在此添加断言与场景。" : "Mock 响应尚未配置。可在此设置状态码、响应头与响应体。")
+            .fontSize(kFontLabel).lineHeight(20.0f).color(theme.metaText).wrap(true).build();
     }
 
-    // 编辑器与响应各自是独立功能岛，内容区不再套在外部大岛内。
-    const float editorY = tabY + 30.0f;
-    const float splitH = nonNegative(y + h - editorY);
-    const float editorH = nonNegative(splitH * 0.42f);
-    drawIslandPanel(ui, "req.editor.island", x, editorY, w, editorH, theme,
-                    theme.dark ? 0.56f : 0.78f);
-    const float respY = editorY + editorH + kGap;
+    // 请求编辑器与响应仍分层；非调试模式显示明确内容，不与编辑器重叠。
+    const float editorY = draft.mode == RequestMode::Debug ? tabY + 30.0f : tabY + 86.0f;
+    const float editorH = nonNegative(islandH - editorY - kPanelPad);
+    drawHorizontalDivider(ui, "req.request.divider.editor", innerX, editorY - 6.0f, innerW, theme);
+    if (editorH > 0.0f && draft.mode == RequestMode::Debug) drawEditor(ui, innerX, editorY, innerW, editorH, theme);
+    });
+    const float respY = y + requestIslandH + kIslandGap;
     const float respH = nonNegative(y + h - respY);
-    drawIslandPanel(ui, "req.response.island", x, respY, w, respH, theme,
-                    theme.dark ? 0.64f : 0.84f);
-    if (editorH > 0.0f) {
-        drawEditor(ui, x + kPanelPad, editorY + kPanelPad, nonNegative(w - kPanelPad * 2.0f),
-                   nonNegative(editorH - kPanelPad * 2.0f), theme);
-    }
     if (respH > 0.0f) {
-        drawResponse(ui, x + kPanelPad, respY + kPanelPad, nonNegative(w - kPanelPad * 2.0f),
-                     nonNegative(respH - kPanelPad), theme);
+        drawIsland(ui, "req.response.island", x, respY, w, respH, theme,
+                   theme.dark ? 0.64f : 0.84f, [&] {
+            drawResponse(ui, kPanelPad, kPanelPad, innerW,
+                         nonNegative(respH - kPanelPad), theme);
+        });
     }
 }
 
@@ -750,161 +733,129 @@ export void drawRequestPageDialogs(eui::Ui& ui, const eui::Screen& screen,
     if (g_globalCookieOpen || !g_envManageOpen) return;
     const auto& tokens = theme.components;
     const auto& envs = g_requests.environments();
-
     if (g_envDraftProjectId != g_requests.currentProjectId()) {
         g_envNameDrafts.clear();
         g_envUrlDrafts.clear();
+        g_envVariableDrafts.clear();
         g_envDraftProjectId = g_requests.currentProjectId();
     }
     for (const auto& e : envs) {
         g_envNameDrafts.try_emplace(e.id, e.name);
         g_envUrlDrafts.try_emplace(e.id, e.baseUrl);
     }
-
-    constexpr float kRowH = 30.0f;
-    // 高度有界：优先按环境行数，dialogHeight clamp 到屏幕；列表区滚动。
-    const float dlgW = dialogWidth(screen.width, 460.0f);
-    const float dlgH = dialogHeight(screen.height,
-        166.0f + static_cast<float>(std::max<int>(1, envs.size())) * kRowH);
+    if (g_envManageSelectedId == 0 || !g_requests.findEnvironment(g_envManageSelectedId))
+        g_envManageSelectedId = envs.empty() ? 0 : envs.front().id;
+    const db::Environment* selected = g_requests.findEnvironment(g_envManageSelectedId);
+    constexpr float rowH = 28.0f;
+    const float dlgW = dialogWidth(screen.width, 620.0f);
+    const float dlgH = dialogHeight(screen.height, 420.0f);
     const float pad = 16.0f;
-    const float btnW = 74.0f;
-    const float btnH = 24.0f;
-    const float footerY = nonNegative(dlgH - btnH - 16.0f);
-    const float addY = nonNegative(footerY - 28.0f);
-    const float listY = 52.0f;
-    const float listH = nonNegative(addY - listY - 4.0f);
-
-    components::dialog(ui, "req.env.dialog")
-        .open(true)
-        .screen(screen.width, screen.height)
-        .size(dlgW, dlgH)
-        .title("环境管理（当前项目）")
-        .theme(tokens)
-        .content([&] {
-            if (listH > 0.0f) {
-                components::scrollView(ui, "req.env.scroll")
-                    .position(pad, listY)
-                    .size(nonNegative(dlgW - pad * 2.0f), listH)
-                    .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
-                    .theme(tokens)
-                    .content([&](eui::Ui& cu, float contentWidth, float) {
-                        const float rowW = nonNegative(contentWidth);
-                        const float delW = 20.0f;
-                        const float nameW = std::min(110.0f, nonNegative(rowW - delW - 12.0f) * 0.32f);
-                        const float urlW = nonNegative(rowW - nameW - delW - 12.0f);
-                        if (envs.empty()) {
-                            cu.text("req.env.dialog.empty")
-                                .position(0, 0)
-                                .size(rowW, 20.0f)
-                                .text("还没有环境，点下方「新建环境」")
-                                .fontSize(kFontLabel)
-                                .color(theme.hintText)
-                                .build();
-                        }
-                        for (const auto& e : envs) {
-                            const std::string base = "req.env.dialog." + std::to_string(e.id);
-                            cu.stack(base).size(rowW, kRowH).content([&] {
-                                components::input(cu, base + ".name")
-                                    .position(0, 0)
-                                    .size(nameW, 24.0f)
-                                    .value(g_envNameDrafts[e.id])
-                                    .placeholder("名称")
-                                    .theme(tokens)
-                                    .onChange([id = e.id](const std::string& v) {
-                                        g_envNameDrafts[id] = v;
-                                    })
-                                    .build();
-                                components::input(cu, base + ".url")
-                                    .position(nameW + 6.0f, 0)
-                                    .size(urlW, 24.0f)
-                                    .value(g_envUrlDrafts[e.id])
-                                    .placeholder("http://localhost:8080/")
-                                    .fontFamily("monospace")
-                                    .fontSize(kFontMono)
-                                    .theme(tokens)
-                                    .onChange([id = e.id](const std::string& v) {
-                                        g_envUrlDrafts[id] = v;
-                                    })
-                                    .build();
-                                components::button(cu, base + ".del")
-                                    .position(nonNegative(rowW - delW), 2.0f)
-                                    .size(delW, delW)
-                                    .icon(0xF1F8)  // fa-trash
-                                    .text("")
-                                    .iconSize(9.0f)
-                                    .theme(tokens, false)
-                                    .radius(10.0f)
-                                    .onClick([id = e.id, name = e.name] {
-                                        askConfirm("删除环境",
-                                                   std::format("将删除环境「{}」。", name),
-                                                   [id] {
-                                                       const std::string err = g_requests.deleteEnvironment(id);
-                                                       showStatus(err.empty() ? "环境已删除"
-                                                                              : ("删除失败: " + err));
-                                                   });
-                                    })
-                                    .build();
-                            }).build();
-                        }
-                    })
-                    .build();
-            }
-            components::button(ui, "req.env.dialog.add")
-                .position(pad, addY)
-                .size(90.0f, 22.0f)
-                .icon(0xF067)  // fa-plus
-                .text("新建环境")
-                .fontSize(kFontLabel)
-                .iconSize(8.0f)
-                .theme(tokens, false)
-                .radius(kButtonRadius)
-                .onClick([] {
-                    (void)g_requests.createEnvironment("新环境", "http://localhost:8080/");
-                })
-                .build();
-            const float saveX = nonNegative(dlgW - pad - btnW);
-            const float cancelX = nonNegative(saveX - 8.0f - btnW);
-            components::button(ui, "req.env.dialog.cancel")
-                .position(cancelX, footerY)
-                .size(btnW, btnH)
-                .text("取消")
-                .fontSize(kFontLabel)
-                .theme(tokens, false)
-                .radius(kButtonRadius)
-                .onClick([] {
-                    g_envManageOpen = false;
-                    g_envNameDrafts.clear();
-                    g_envUrlDrafts.clear();
-                })
-                .build();
-            components::button(ui, "req.env.dialog.save")
-                .position(saveX, footerY)
-                .size(btnW, btnH)
-                .text("保存")
-                .fontSize(kFontLabel)
-                .theme(tokens, true)
-                .radius(kButtonRadius)
-                .textColor(onPrimaryColor(theme))
-                .iconColor(onPrimaryColor(theme))
-                .onClick([envs] {
+    const float footerY = nonNegative(dlgH - kButtonHeight - pad);
+    const float bodyY = 48.0f;
+    const float bodyH = nonNegative(footerY - bodyY - 10.0f);
+    const float leftW = std::min(190.0f, std::max(128.0f, dlgW * 0.32f));
+    const float rightX = leftW + pad * 2.0f;
+    const float rightW = nonNegative(dlgW - rightX - pad);
+    components::dialog(ui, "req.env.dialog").open(true).screen(screen.width, screen.height)
+        .size(dlgW, dlgH).title("环境管理（当前项目）").theme(tokens).content([&] {
+            ui.rect("req.env.list.panel").position(pad, bodyY).size(leftW, bodyH)
+                .color(components::theme::withAlpha(tokens.surface, theme.dark ? .42f : .72f))
+                .radius(kPanelRadius).build();
+            components::scrollView(ui, "req.env.list.scroll").position(pad + 6.0f, bodyY + 8.0f)
+                .size(nonNegative(leftW - 12.0f), nonNegative(bodyH - 16.0f))
+                .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap).theme(tokens)
+                .content([&](eui::Ui& cu, float cw, float) {
+                    if (envs.empty()) cu.text("req.env.list.empty").position(4, 4).size(cw - 8, 30)
+                        .text("暂无环境").fontSize(kFontLabel).color(theme.hintText).build();
+                    float y = 0;
                     for (const auto& e : envs) {
-                        const std::string name = trim(g_envNameDrafts[e.id]);
-                        if (name.empty()) {
-                            showStatus("环境名称不能为空");
-                            return;
-                        }
-                        if (const std::string err = g_requests.updateEnvironment(
-                                e.id, name, trim(g_envUrlDrafts[e.id]));
-                            !err.empty()) {
-                            showStatus("保存环境失败: " + err);
-                            return;
-                        }
+                        const std::string id = "req.env.item." + std::to_string(e.id);
+                        const bool active = e.id == g_envManageSelectedId;
+                        cu.stack(id).position(0, y).size(cw, rowH).content([&] {
+                            cu.rect(id + ".bg").fill().color(active
+                                ? components::theme::withAlpha(tokens.primary, .2f)
+                                : core::Color{0,0,0,0}).radius(5).build();
+                            cu.text(id + ".text").position(8, 0).size(cw - 16, rowH)
+                                .text(e.name).fontSize(kFontBody).lineHeight(rowH).color(theme.bodyText)
+                                .verticalAlign(core::VerticalAlign::Center).build();
+                            cu.rect(id + ".hit").fill().color(core::Color{0,0,0,0})
+                                .onClick([id = e.id] { g_envManageSelectedId = id; }).build();
+                        }).build();
+                        y += rowH + 4.0f;
                     }
-                    g_envManageOpen = false;
-                    g_envNameDrafts.clear();
-                    g_envUrlDrafts.clear();
-                })
-                .build();
-        })
-        .build();
+                }).build();
+            ui.rect("req.env.detail.panel").position(rightX, bodyY).size(rightW, bodyH)
+                .color(components::theme::withAlpha(tokens.surface, theme.dark ? .3f : .55f))
+                .radius(kPanelRadius).build();
+            if (selected) {
+                const auto id = selected->id;
+                const float fieldW = nonNegative(rightW - 24.0f);
+                ui.text("req.env.detail.title").position(rightX + 12, bodyY + 12).size(fieldW, 22)
+                    .text("环境详情").fontSize(kFontBody + 1).color(theme.titleText).build();
+                components::input(ui, "req.env.detail.name").position(rightX + 12, bodyY + 44)
+                    .size(fieldW, kInputHeight).value(g_envNameDrafts[id]).placeholder("环境名称")
+                    .theme(tokens).onChange([id](const std::string& v) { g_envNameDrafts[id] = v; }).build();
+                components::input(ui, "req.env.detail.url").position(rightX + 12, bodyY + 78)
+                    .size(fieldW, kInputHeight).value(g_envUrlDrafts[id]).placeholder("基础 URL，例如 http://localhost:8080/")
+                    .fontFamily("monospace").fontSize(kFontMono).theme(tokens)
+                    .onChange([id](const std::string& v) { g_envUrlDrafts[id] = v; }).build();
+                ui.text("req.env.vars.title").position(rightX + 12, bodyY + 116).size(fieldW, 22)
+                    .text("环境变量").fontSize(kFontBody).color(theme.bodyText).build();
+                ui.text("req.env.vars.hint").position(rightX + 12, bodyY + 138).size(fieldW, 30)
+                    .text("当前版本保存于本地会话；数据库模型暂不支持环境变量持久化。")
+                    .fontSize(kFontLabel).color(theme.hintText).wrap(true).build();
+                const float varsY = bodyY + 174.0f;
+                const float addY = nonNegative(bodyY + bodyH - 30.0f);
+                const float varsH = nonNegative(addY - varsY - 6.0f);
+                if (varsH > 0.0f) {
+                    components::scrollView(ui, "req.env.vars.scroll")
+                        .position(rightX + 12, varsY).size(fieldW, varsH).theme(tokens)
+                        .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
+                        .content([&](eui::Ui& cu, float contentWidth, float viewportH) {
+                            const float keyW = std::max(40.0f, contentWidth * .34f);
+                            const float valueW = std::max(40.0f, contentWidth - keyW - 6.0f);
+                            auto& vars = g_envVariableDrafts[g_envManageSelectedId];
+                            for (auto& var : vars) {
+                                const auto vid = var.id;
+                                const std::string base = "req.env.var." + std::to_string(vid);
+                                cu.stack(base + ".row").size(contentWidth, 28.0f).content([&] {
+                                    components::input(cu, base + ".key").position(0, 0).size(keyW, 24)
+                                        .value(var.key).placeholder("键").theme(tokens)
+                                        .onChange([vid, envId = g_envManageSelectedId](const std::string& v) { for (auto& x : g_envVariableDrafts[envId]) if (x.id == vid) x.key = v; }).build();
+                                    components::input(cu, base + ".value").position(keyW + 6.0f, 0).size(valueW, 24)
+                                        .value(var.value).placeholder("值").theme(tokens)
+                                        .onChange([vid, envId = g_envManageSelectedId](const std::string& v) { for (auto& x : g_envVariableDrafts[envId]) if (x.id == vid) x.value = v; }).build();
+                                }).build();
+                            }
+                            if (vars.empty()) cu.text("req.env.vars.empty").position(0, 0).size(contentWidth, 24)
+                                .text("暂无变量").fontSize(kFontLabel).color(theme.hintText).build();
+                        }).build();
+                }
+                components::button(ui, "req.env.vars.add").position(rightX + 12, addY).size(82, 24)
+                    .icon(0xF067).text("添加").fontSize(kFontLabel).iconSize(8).theme(tokens, false)
+                    .radius(kButtonRadius).onClick([] { g_envVariableDrafts[g_envManageSelectedId].push_back({g_nextEnvVariableDraftId--, {}, {}}); }).build();
+                components::button(ui, "req.env.detail.delete").position(rightX + rightW - 78, bodyY + 12).size(66, 22)
+                    .icon(0xF1F8).text("删除").fontSize(kFontLabel).iconSize(8).theme(tokens, false)
+                    .radius(kButtonRadius).onClick([id, name = selected->name] { askConfirm("删除环境", std::format("将删除环境「{}」。", name), [id] {
+                        const std::string err = g_requests.deleteEnvironment(id); if (err.empty()) { g_envManageSelectedId = 0; showStatus("环境已删除"); } else showStatus("删除失败: " + err);
+                    }); }).build();
+            }
+            const float saveX = nonNegative(dlgW - pad - 74.0f);
+            components::button(ui, "req.env.dialog.cancel").position(nonNegative(saveX - 82), footerY)
+                .size(74, kButtonHeight).text("取消").fontSize(kFontBody).theme(tokens, false)
+                .radius(kButtonRadius).onClick([] { g_envManageOpen = false; g_envManageSelectedId = 0; }).build();
+            components::button(ui, "req.env.dialog.save").position(saveX, footerY)
+                .size(74, kButtonHeight).text("保存").fontSize(kFontBody).theme(tokens, true)
+                .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme)).radius(kButtonRadius)
+                .onClick([id = g_envManageSelectedId] {
+                    if (id == 0) return; const std::string name = trim(g_envNameDrafts[id]);
+                    if (name.empty()) { showStatus("环境名称不能为空"); return; }
+                    const std::string err = g_requests.updateEnvironment(id, name, trim(g_envUrlDrafts[id]));
+                    if (err.empty()) { g_envManageOpen = false; showStatus("环境已保存"); } else showStatus("保存环境失败: " + err);
+                }).build();
+            components::button(ui, "req.env.dialog.add").position(pad, footerY).size(92, kButtonHeight)
+                .icon(0xF067).text("新建环境").fontSize(kFontBody).iconSize(8).theme(tokens, false)
+                .radius(kButtonRadius).onClick([] { const std::string err = g_requests.createEnvironment("新环境", "http://localhost:8080/");
+                    if (err.empty()) { if (!g_requests.environments().empty()) g_envManageSelectedId = g_requests.environments().back().id; showStatus("环境已创建"); } else showStatus("创建环境失败: " + err); }).build();
+        }).build();
 }

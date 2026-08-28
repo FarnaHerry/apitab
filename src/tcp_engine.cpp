@@ -1,9 +1,9 @@
 // tcp_engine.cpp — Asio 原始 TCP / TCPS 实现；回调只投递事件并唤醒 UI。
+// asio 全部经 `import asio;`（cmake/asio.cppm）；不要在全局片段里 #include asio 头
+// —— 模块 BMI 与头文件各自的内部链接静态对象会在 GCC 下重复定义。
 module;
 
 #include <openssl/ssl.h>
-#include <asio/executor_work_guard.hpp>
-#include <asio/ssl/context_base.hpp>
 
 namespace core::platform { void requestUiUpdate(); }
 

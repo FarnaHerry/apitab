@@ -88,21 +88,18 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
     const float orgListW = std::min(std::clamp(w * 0.24f, 150.0f, 220.0f),
                                     nonNegative(w - kIslandGap - 160.0f));
     const float gap = kIslandGap;
-    const float contentX = x + orgListW + gap + kPanelPad;
-    const float contentW = nonNegative(w - orgListW - gap - kPanelPad * 2.0f);
+    const float contentX = x + orgListW + gap;
+    const float contentW = nonNegative(w - orgListW - gap);
 
-    drawIslandPanel(ui, "home.orgs.island", x, y, orgListW, h, theme,
-                    theme.dark ? 0.56f : 0.78f);
-    drawIslandPanel(ui, "home.projects.island", contentX, y, contentW, h, theme,
-                    theme.dark ? 0.62f : 0.84f);
-
+    drawIsland(ui, "home.orgs.island", x, y, orgListW, h, theme,
+               theme.dark ? 0.56f : 0.78f, kIslandPopupZIndex, [&] {
     ui.text("home.orgs.title")
-        .position(x, y).size(nonNegative(orgListW - 104.0f), 24.0f).text("组织")
+        .position(0, 0).size(nonNegative(orgListW - 104.0f), 24.0f).text("组织")
         .fontSize(kFontBody + 2.0f).lineHeight(24.0f).color(theme.titleText)
         .verticalAlign(core::VerticalAlign::Center).build();
     if (orgListW >= 100.0f) {
         components::button(ui, "home.org.add")
-            .position(x + orgListW - 96.0f, y).size(96.0f, 24.0f)
+            .position(orgListW - 96.0f, 0).size(96.0f, 24.0f)
             .icon(0xF067).text("新建团队").fontSize(kFontLabel).theme(tokens, false)
             .radius(kButtonRadius)
             .onClick([] {
@@ -114,7 +111,7 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
     const float orgScrollH = nonNegative(h - 34.0f - kPanelPad);
     if (orgListW > 0.0f && orgScrollH > 0.0f) {
         components::scrollView(ui, "home.orgs.scroll")
-            .position(x + kPanelPad, y + 34.0f).size(orgListW, orgScrollH).theme(tokens)
+            .position(kPanelPad, 34.0f).size(nonNegative(orgListW - kPanelPad * 2.0f), orgScrollH).theme(tokens)
             .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
         .content([&](eui::Ui& cu, float contentWidth, float) {
             for (const auto& org : orgs) {
@@ -146,6 +143,10 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
             }
         }).build();
     }
+    });
+
+    drawIsland(ui, "home.projects.island", x + orgListW + gap, y, contentW, h, theme,
+               theme.dark ? 0.62f : 0.84f, kIslandPopupZIndex, [&] {
 
     const db::Org* org = selectedOrg();
     std::vector<db::Project> projects;
@@ -153,8 +154,13 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
         if (project.orgId == g_homeSelectedOrgId) projects.push_back(project);
     }
 
-    const float tabY = y + kPanelPad;
-    const float tabH = 28.0f;
+    const float tabY = 44.0f;
+    const float tabH = kTabHeight;
+    ui.text("home.current.org")
+        .position(kPanelPad, 8.0f).size(nonNegative(contentW - kPanelPad * 2.0f), 24.0f)
+        .text(org ? "当前组织 · " + org->name : "当前组织")
+        .fontSize(kFontBody + 2.0f).lineHeight(24.0f).color(theme.titleText)
+        .verticalAlign(core::VerticalAlign::Center).build();
     // 三个标签优先 88 宽；内容区不够时等比收缩，始终留在 contentW 内。
     const float tabW = std::min(88.0f, nonNegative(contentW - 8.0f) / 3.0f);
     const std::array<std::string, 3> tabLabels = {"项目", "成员动态", "组织设置"};
@@ -162,7 +168,7 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
         const HomeTab tab = static_cast<HomeTab>(i);
         const std::string id = "home.tab." + std::to_string(i);
         components::button(ui, id)
-            .position(contentX + static_cast<float>(i) * (tabW + 4.0f), tabY)
+            .position(static_cast<float>(i) * (tabW + 4.0f), tabY)
             .size(tabW, tabH).text(tabLabels[static_cast<std::size_t>(i)])
             .fontSize(kFontLabel).theme(tokens, g_homeTab == tab)
             .textColor(g_homeTab == tab ? onPrimaryColor(theme) : tokens.text)
@@ -177,13 +183,13 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
     if (g_homeTab == HomeTab::Projects) {
         const float createW = std::min(108.0f, contentW);
         ui.text("home.projects.title")
-            .position(contentX, y + 38.0f).size(nonNegative(contentW - createW - gap), 24.0f)
+            .position(0, 82.0f).size(nonNegative(contentW - createW - gap), 24.0f)
             .text(org ? org->name + " · 项目" : "项目")
             .fontSize(kFontBody + 2.0f).lineHeight(24.0f).color(theme.titleText)
             .verticalAlign(core::VerticalAlign::Center).build();
         if (createW > 0.0f) {
             components::button(ui, "home.project.add")
-                .position(contentX + nonNegative(contentW - createW), y + 38.0f).size(createW, 24.0f)
+                .position(nonNegative(contentW - createW), 82.0f).size(createW, 24.0f)
                 .icon(0xF067).text("新建项目").fontSize(kFontLabel).theme(tokens, false)
                 .radius(kButtonRadius)
                 .onClick([] {
@@ -197,13 +203,13 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
         const float cardGap = 12.0f;
         const float minCardW = 150.0f;
         const float cardH = 120.0f;
-        const float cardTop = y + 72.0f;
-        const float gridH = nonNegative(h - 72.0f - kPanelPad);
+        const float cardTop = 116.0f;
+        const float gridH = nonNegative(h - 116.0f - kPanelPad);
         const float menuScreenW = screen.width;
         const float menuScreenH = screen.height;
         if (contentW > 0.0f && gridH > 0.0f) {
             components::scrollView(ui, "home.projects.scroll")
-                .position(contentX, cardTop).size(contentW, gridH).theme(tokens)
+                .position(kPanelPad, 126.0f).size(nonNegative(contentW - kPanelPad * 2.0f), gridH).theme(tokens)
                 .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
                 .content([&](eui::Ui& cu, float gridW, float) {
                     const float gw = nonNegative(gridW - 4.0f);
@@ -240,9 +246,6 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
                                             .position(12.0f, 12.0f).size(nonNegative(cardW - 50.0f), 22.0f)
                                             .text(project.name).fontSize(kFontBody + 1.0f).color(theme.titleText)
                                             .verticalAlign(core::VerticalAlign::Center).build();
-                                        cu.text(cardId + ".meta")
-                                            .position(12.0f, 44.0f).size(nonNegative(cardW - 24.0f), 18.0f)
-                                            .text("点击卡片进入项目工作区").fontSize(kFontLabel).color(theme.metaText).build();
                                         const std::string menuId = cardId + ".menu";
                                         const float menuX = nonNegative(cardW - kCardActionSize - 8.0f);
                                         components::button(cu, menuId)
@@ -268,49 +271,43 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
                 }).build();
         }
     } else if (g_homeTab == HomeTab::Members) {
-        const float branchH = nonNegative(h - 34.0f);
-        drawIslandPanel(ui, "home.members.island", contentX, y + 34.0f,
-                        contentW, branchH, theme,
-                        theme.dark ? 0.56f : 0.78f);
+        const float branchH = nonNegative(h - 78.0f);
         if (branchH >= 120.0f && contentW >= 40.0f) {
             ui.text("home.members.title")
-                .position(contentX + kPanelPad, y + 42.0f).size(nonNegative(contentW - kPanelPad * 2.0f), 26.0f).text("成员动态")
+                .position(kPanelPad, 86.0f).size(contentW, 26.0f).text("成员动态")
                 .fontSize(kFontBody + 2.0f).color(theme.titleText).build();
             ui.rect("home.member.card")
-                .position(contentX + kPanelPad, y + 80.0f)
-                .size(std::min(520.0f, nonNegative(contentW - kPanelPad * 2.0f)), 74.0f)
+                .position(kPanelPad, 124.0f)
+                .size(std::min(520.0f, contentW), 74.0f)
                 .color(components::theme::withAlpha(tokens.surface, 0.6f)).radius(kPanelRadius).build();
             ui.text("home.member.current")
-                .position(contentX + kPanelPad + 16.0f, y + 94.0f)
-                .size(std::min(480.0f, nonNegative(contentW - kPanelPad * 2.0f - 32.0f)), 22.0f)
+                .position(kPanelPad + 16.0f, 138.0f)
+                .size(std::min(480.0f, nonNegative(contentW - 32.0f)), 22.0f)
                 .text("当前用户").fontSize(kFontBody).color(theme.bodyText).build();
             ui.text("home.member.hint")
-                .position(contentX + kPanelPad + 16.0f, y + 122.0f)
-                .size(std::min(480.0f, nonNegative(contentW - kPanelPad * 2.0f - 32.0f)), 20.0f)
+                .position(kPanelPad + 16.0f, 166.0f)
+                .size(std::min(480.0f, nonNegative(contentW - 32.0f)), 20.0f)
                 .text("当前仅支持单用户，成员管理功能待后续开放")
                 .fontSize(kFontLabel).color(theme.hintText).build();
         }
     } else {
         const std::int64_t selectedOrgId = org ? org->id : 0;
         const std::string selectedOrgName = org ? org->name : std::string{};
-        const float branchH = nonNegative(h - 34.0f);
-        drawIslandPanel(ui, "home.org.settings.island", contentX, y + 34.0f,
-                        contentW, branchH, theme,
-                        theme.dark ? 0.56f : 0.78f);
+        const float branchH = nonNegative(h - 78.0f);
         if (branchH >= 160.0f && contentW >= 120.0f) {
-        const float innerX = contentX + kPanelPad;
-        const float innerW = nonNegative(contentW - kPanelPad * 2.0f);
+        const float innerX = kPanelPad;
+        const float innerW = contentW;
         ui.text("home.org.settings.title")
-            .position(innerX, y + 42.0f).size(innerW, 26.0f).text("组织设置")
+            .position(innerX, 86.0f).size(innerW, 26.0f).text("组织设置")
             .fontSize(kFontBody + 2.0f).color(theme.titleText).build();
         ui.text("home.org.settings.name")
-            .position(innerX, y + 84.0f).size(90.0f, kInputHeight).text("组织名称")
+            .position(innerX, 120.0f).size(90.0f, kInputHeight).text("组织名称")
             .fontSize(kFontLabel).lineHeight(kInputHeight).color(theme.metaText).build();
         ui.text("home.org.settings.value")
-            .position(innerX + 100.0f, y + 84.0f).size(nonNegative(innerW - 100.0f), kInputHeight)
+            .position(innerX + 100.0f, 120.0f).size(nonNegative(innerW - 100.0f), kInputHeight)
             .text(selectedOrgName).fontSize(kFontBody).lineHeight(kInputHeight).color(theme.bodyText).build();
         components::button(ui, "home.org.settings.rename")
-            .position(innerX, y + 126.0f).size(96.0f, 26.0f)
+            .position(innerX, 162.0f).size(96.0f, 26.0f)
             .text("重命名").fontSize(kFontLabel).theme(tokens, false)
             .radius(kButtonRadius)
             .onClick([selectedOrgId, selectedOrgName] {
@@ -320,7 +317,7 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
             }).build();
         if (innerW >= 220.0f) {
             components::button(ui, "home.org.settings.dissolve")
-                .position(innerX + 108.0f, y + 126.0f).size(96.0f, 26.0f)
+                .position(innerX + 108.0f, 162.0f).size(96.0f, 26.0f)
                 .text("解散组织").fontSize(kFontLabel).theme(tokens, false)
                 .radius(kButtonRadius)
                 .onClick([selectedOrgId, selectedOrgName, all] {
@@ -332,6 +329,7 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
         }
         }
     }
+    });
 
     if (g_projectMenuOpen) {
         std::vector<components::ContextMenuItem> items{
@@ -340,7 +338,7 @@ export void drawHomePage(eui::Ui& ui, const eui::Screen& screen, float x, float 
         components::contextMenu(ui, "home.project.context.menu")
             .open(true).screen(screen.width, screen.height)
             .position(g_projectMenuX, g_projectMenuY).size(150.0f, 26.0f)
-            .items(std::move(items)).theme(tokens).zIndex(100)
+            .items(std::move(items)).theme(tokens).zIndex(kContextMenuZIndex)
             .onSelect([](int index) {
                 const std::int64_t projectId = g_projectMenuTargetId;
                 g_projectMenuOpen = false;

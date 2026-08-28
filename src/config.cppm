@@ -16,6 +16,8 @@ module;
 #define NOMINMAX
 #endif
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
 #else
 #include <unistd.h>  // readlink, access, X_OK
 #include <limits.h>  // PATH_MAX
@@ -35,7 +37,11 @@ export std::filesystem::path executableDir() {
     if (n == 0 || n >= MAX_PATH) return {};
     return std::filesystem::path(buf).parent_path();
 #elif defined(__APPLE__)
-    return std::filesystem::current_path();
+    std::uint32_t size = 0;
+    if (_NSGetExecutablePath(nullptr, &size) != -1 || size == 0) return {};
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0) return {};
+    return std::filesystem::weakly_canonical(buffer).parent_path();
 #else
     char buf[PATH_MAX]{};
     const ssize_t n = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);

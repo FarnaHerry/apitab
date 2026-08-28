@@ -71,6 +71,7 @@ export struct SavedRequest {
 
 export struct GlobalCookie {
     std::int64_t id = 0;
+    std::int64_t projectId = 0;
     std::string name;
     std::string value;
     bool enabled = true;
@@ -86,6 +87,25 @@ export struct HistoryEntry {
     std::int64_t sizeBytes = 0;
     std::string error;
     std::int64_t createdAt = 0;
+};
+
+export struct AutomationTest {
+    std::int64_t id = 0;
+    std::int64_t projectId = 0;
+    std::string name = "未命名自动化测试";
+    std::string method = "GET";
+    std::string url;
+    std::vector<api::KeyValue> params;
+    std::vector<api::KeyValue> headers;
+    std::vector<api::KeyValue> cookies;
+    api::BodyKind bodyKind = api::BodyKind::None;
+    std::string body;
+    std::array<api::BodyContent, 7> bodyContents{};
+    bool followRedirects = true;
+    bool allowJsonComments = true;
+    int vus = 10;
+    std::string duration = "30s";
+    std::int64_t updatedAt = 0;
 };
 
 export struct LoadRecord {
@@ -147,9 +167,9 @@ public:
     void deleteRequest(std::int64_t id);
 
     // ---- global cookies ----
-    std::vector<GlobalCookie> listGlobalCookies();
+    std::vector<GlobalCookie> listGlobalCookies(std::int64_t projectId);
     std::int64_t saveGlobalCookie(const GlobalCookie& cookie);
-    void deleteGlobalCookie(std::int64_t id);
+    void deleteGlobalCookie(std::int64_t id, std::int64_t projectId);
 
     // ---- history ----
     void addHistory(const HistoryEntry& e);
@@ -157,6 +177,11 @@ public:
     std::int64_t historyCount();
     std::vector<HistoryEntry> listHistoryPage(int limit, std::int64_t offset);
     void clearHistory();
+
+    // ---- automation_tests ----
+    std::vector<AutomationTest> listAutomationTests(std::int64_t projectId);
+    std::int64_t saveAutomationTest(const AutomationTest& t);
+    void deleteAutomationTest(std::int64_t id, std::int64_t projectId);
 
     // ---- load_tests ----
     void addLoadRecord(const LoadRecord& r);

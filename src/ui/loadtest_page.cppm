@@ -31,14 +31,11 @@ export void markLoadRecordsDirty() { g_recordsDirty = true; }
 namespace {
 
 void startLoad() {
-    RequestTab& tab = activeTab();
-    if (tab.draft.kind != api::RequestKind::Http) {
-        showStatus("只有 HTTP 请求支持 k6 压测");
-        return;
-    }
-    // 与请求页同一套拼接：环境 baseUrl + Path 分组前缀 + 相对路径。
-    api::RequestSpec spec = buildSpec(tab.draft, g_requests.composeUrl(
-        tab.draft.url, tab.draft.groupId, g_requests.currentEnvId()));
+    const db::AutomationTest* test = g_loadtest.selectedAutomation();
+    if (!test) { showStatus("请先选择自动化测试"); return; }
+    api::RequestSpec spec;
+    spec.method=test->method; spec.url=g_requests.composeUrl(test->url, 0, g_requests.currentEnvId());
+    spec.params=test->params; spec.headers=test->headers; spec.cookies=test->cookies; spec.bodyKind=test->bodyKind; spec.body=test->body; spec.followRedirects=test->followRedirects; spec.allowJsonComments=test->allowJsonComments;
     if (spec.url.empty()) {
         showStatus("URL 不能为空");
         return;
@@ -55,7 +52,7 @@ void startLoad() {
 
     api::LoadOptions opts;
     try {
-        opts.vus = std::max(1, std::stoi(trim(g_vusText)));
+    opts.vus = std::max(1, std::stoi(trim(g_vusText)));
     } catch (...) {
         showStatus("VUs 必须是正整数");
         return;
@@ -64,7 +61,9 @@ void startLoad() {
 
     g_loadOutput.clear();
     g_hasLoadSummary = false;
-    g_loadtest.start(spec, opts, tab.requestId, tab.draft.name);
+    g_vusText = std::to_string(test->vus);
+    g_durationText = test->duration;
+    g_loadtest.start(spec, opts, 0, test->name);
     showStatus(std::format("压测启动: {} VUs / {}", opts.vus, opts.duration));
 }
 
@@ -74,17 +73,23 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
                          const AppTheme& theme) {
     const auto& tokens = theme.components;
 
-    // 控制、输出、结果分别是独立功能岛，页面不再由外部项目大岛包裹。
+    // 配置与实时输出合并为一个工作流岛屿，结果区保持独立。
     const bool available = g_loadtest.available();
     // 单行最小跨度 ≈ 372（target 文本起点）；低于阈值参数行/按钮行分开，
     // 不再让固定 x+272/x+372 把控件推出岛屿。
     const bool twoRows = w < 372.0f;
+    const bool running = g_loadtest.running();
     const float controlsH = twoRows ? 90.0f : 58.0f;
-    drawIslandPanel(ui, "load.controls.island", x, y, w, controlsH, theme,
-                    theme.dark ? 0.56f : 0.78f);
+    const float innerW = nonNegative(w - kPanelPad * 2.0f);
+    const float outLocalY = controlsH + kIslandGap;
+    const float outH = nonNegative((y + h - (y + controlsH + kIslandGap)) * 0.45f);
+    const float shellH = nonNegative(32.0f + controlsH + kIslandGap + outH);
+    // 岛屿向上扩展覆盖请求标签条（app.cpp 已在 y-32 处绘制标签条），作为带裁剪容器。
+    drawIsland(ui, "load.request.island", x, y, w, shellH - 32.0f, theme,
+               theme.dark ? 0.58f : 0.80f, [&] {
     ui.text("load.engine")
-        .position(x + kPanelPad, y + 6.0f)
-        .size(nonNegative(w - kPanelPad * 2.0f), 18.0f)
+        .position(kPanelPad, 6.0f)
+        .size(innerW, 18.0f)
         .text(available ? "k6 引擎: " + g_loadtest.binaryPath()
                         : "未找到 k6 二进制（engines/ 或 PATH），压测不可用")
         .fontSize(kFontLabel)
@@ -94,9 +99,8 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         .build();
 
     // ---- 参数行：VUs / Duration / 启停 ----
-    const float cfgY = y + 28.0f;
-    const float innerX = x + kPanelPad;
-    const float innerW = nonNegative(w - kPanelPad * 2.0f);
+    const float cfgY = 28.0f;
+    const float innerX = kPanelPad;
     const float btnRowY = twoRows ? cfgY + kInputHeight + kGap : cfgY;
     drawSectionLabel(ui, "load.vus.label", innerX, cfgY + 5.0f, 34.0f, "VUs", theme);
     components::input(ui, "load.vus")
@@ -117,8 +121,7 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         .onChange([](const std::string& v) { g_durationText = v; })
         .build();
 
-    const bool supported = activeTab().draft.kind == api::RequestKind::Http;
-    const bool running = g_loadtest.running();
+    const bool supported = g_loadtest.selectedAutomation() != nullptr;
     const float toggleX = twoRows ? innerX : innerX + 246.0f;
     const float targetX = twoRows ? innerX + 96.0f : innerX + 342.0f;
     const float targetW = nonNegative(innerX + innerW - targetX);
@@ -148,10 +151,9 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         ui.text("load.target")
             .position(targetX, btnRowY)
             .size(targetW, kInputHeight)
-            .text(!supported ? "当前请求类型不支持 k6 压测" : "目标: " + [&] {
-                const std::string finalUrl = g_requests.composeUrl(
-                    activeDraft().url, activeDraft().groupId, g_requests.currentEnvId());
-                return finalUrl.empty() ? std::string("(当前标签页 URL 为空)") : finalUrl;
+            .text(!supported ? "请先选择自动化测试" : "目标: " + [&] {
+                const auto* t = g_loadtest.selectedAutomation();
+                return t ? g_requests.composeUrl(t->url, 0, g_requests.currentEnvId()) : std::string("(未选择)");
             }())
             .fontSize(kFontLabel)
             .lineHeight(kInputHeight)
@@ -161,16 +163,14 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
     }
 
     // ---- 实时输出：高度随可用空间分配，不再 min 60 把结果区推出页面 ----
-    const float outY = y + controlsH + kGap;
-    const float outH = nonNegative((y + h - outY) * 0.45f);
-    drawIslandPanel(ui, "load.output.island", x, outY, w, outH, theme,
-                    theme.dark ? 0.68f : 0.86f);
-    const float outScrollW = nonNegative(w - kPanelPad * 2.0f);
+    drawHorizontalDivider(ui, "load.request.divider.output", innerX,
+                          outLocalY - 6.0f, innerW, theme);
+    const float outScrollW = innerW;
     const float outScrollH = nonNegative(outH - kPanelPad * 2.0f);
     if (outScrollW > 0.0f && outScrollH > 0.0f) {
         // 运行中跟随尾部（超大 offset 由组件 clamp 到底）；结束后自由滚动。
         components::scrollView(ui, "load.out.scroll")
-            .position(x + kPanelPad, outY + kPanelPad)
+            .position(kPanelPad, outLocalY + kPanelPad)
             .size(outScrollW, outScrollH)
             .offset(running ? 1.0e9f : g_outputScroll)
             .theme(tokens)
@@ -209,17 +209,19 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
             })
             .build();
     }
+    });
 
     // ---- 结果区：本次汇总 / 历史记录 ----
-    const float resY = outY + outH + kGap;
+    const float outYPage = y + controlsH + kIslandGap;
+    const float resY = outYPage + outH + kIslandGap;
     const float resH = nonNegative(y + h - resY);
 
-    drawIslandPanel(ui, "load.results.island", x, resY, w, resH, theme,
-                    theme.dark ? 0.56f : 0.78f);
     if (resH < 30.0f) return;  // 太矮只留岛面，不画越界控件
+    drawIsland(ui, "load.results.island", x, resY, w, resH, theme,
+               theme.dark ? 0.56f : 0.78f, [&] {
     const float tabsW = std::min(170.0f, nonNegative(w - kPanelPad * 2.0f));
     ui.stack("load.res.tabs.wrap")
-        .position(x + kPanelPad, resY + 6.0f)
+        .position(kPanelPad, 6.0f)
         .size(tabsW, 22.0f)
         .content([&] {
             components::segmented(ui, "load.res.tabs")
@@ -237,14 +239,14 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         })
         .build();
 
-    const float tblY = resY + 32.0f;
+    const float tblY = 32.0f;
     const float tblH = nonNegative(resH - 32.0f - 6.0f);
     const float tblW = nonNegative(w - kPanelPad * 2.0f);
 
     if (!g_showLoadRecords) {
         if (!g_hasLoadSummary) {
             ui.text("load.sum.hint")
-                .position(x + kPanelPad, tblY)
+                .position(kPanelPad, tblY)
                 .size(tblW, 18.0f)
                 .text(running ? "压测进行中…" : "（尚无汇总 —— 跑一次压测）")
                 .fontSize(kFontLabel)
@@ -255,7 +257,7 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         const auto& s = g_loadSummary;
         if (!s.ok) {
             ui.text("load.sum.err")
-                .position(x + kPanelPad, tblY)
+                .position(kPanelPad, tblY)
                 .size(tblW, 18.0f)
                 .text("压测异常: " + s.error)
                 .fontSize(kFontBody)
@@ -271,7 +273,7 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         const float sumFont = tokens.metrics.typography.label;
         auto fitSum = [&](const std::string& s) { return fitTextToWidth(s, sumTextW, sumFont); };
         ui.stack("load.sum.table.wrap")
-            .position(x + kPanelPad, tblY)
+            .position(kPanelPad, tblY)
             .size(tblW, tblH)
             .content([&] {
                 components::dataTable(ui, "load.sum.table")
@@ -335,7 +337,7 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
         }
         if (tblH <= 0.0f) return;
         ui.stack("load.rec.table.wrap")
-            .position(x + kPanelPad, tblY)
+            .position(kPanelPad, tblY)
             .size(tblW, tblH)
             .content([&] {
                 components::dataTable(ui, "load.rec.table")
@@ -352,4 +354,5 @@ export void drawLoadPage(eui::Ui& ui, float x, float y, float w, float h,
             })
             .build();
     }
+    });
 }

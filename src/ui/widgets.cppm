@@ -8,6 +8,7 @@ export module apitab.ui.widgets;
 
 import std;
 import apitab.api_engine;
+import apitab.store.ui;
 import apitab.ui.theme;
 import apitab.ui.utils;
 
@@ -42,6 +43,49 @@ export void drawIslandDivider(eui::Ui& ui, const std::string& id, float x, float
         .build();
 }
 
+export void drawHorizontalDivider(eui::Ui& ui, const std::string& id, float x, float y,
+                                  float w, const AppTheme& theme) {
+    ui.rect(id)
+        .position(x, y)
+        .size(std::max(0.0f, w), 1.0f)
+        .color(components::theme::withOpacity(theme.components.border, 0.55f))
+        .build();
+}
+
+// 岛屿即容器：绘制背景并以岛内局部坐标（(0,0) 为岛左上角）组合内容。
+// 不加岛级 clip：EUI dropdown/context popup 需要跨岛绘制并参与命中。EUI 的
+// hit 测试从同层级最高 zIndex 开始；若某岛上方的相邻岛屿(如响应岛)在其后被
+// 绘制且带可交互子项，会先命中并盖住该岛的下拉弹层。因此带下拉/弹层的岛屿
+// 应传入更高的 zIndex，使其整体在相邻岛屿之上。
+export template <typename Content>
+void drawIsland(eui::Ui& ui, const std::string& id, float x, float y,
+                float w, float h, const AppTheme& theme, float opacity,
+                Content&& content) {
+    if (w <= 0.0f || h <= 0.0f) return;
+    drawIslandPanel(ui, id + ".bg", x, y, w, h, theme, opacity);
+    ui.stack(id)
+        .position(x, y)
+        .size(w, h)
+        .content(std::forward<Content>(content))
+        .build();
+}
+
+// Popup-bearing islands need a root-level sibling order above adjacent islands.
+// zIndex is applied to the island stack (not only to the dropdown child), because
+// EUI zIndex is scoped to siblings and a child cannot escape its parent's stacking context.
+export template <typename Content>
+void drawIsland(eui::Ui& ui, const std::string& id, float x, float y,
+                float w, float h, const AppTheme& theme, float opacity, int zIndex,
+                Content&& content) {
+    if (w <= 0.0f || h <= 0.0f) return;
+    drawIslandPanel(ui, id + ".bg", x, y, w, h, theme, opacity);
+    ui.stack(id)
+        .position(x, y)
+        .size(w, h)
+        .zIndex(zIndex)
+        .content(std::forward<Content>(content))
+        .build();
+}
 
 
 export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float railWidth,
@@ -113,7 +157,11 @@ export components::CheckboxStyle checkboxStyle(const AppTheme& theme) {
 // segmented 选中文字色修正（默认 selectedText 恒近白，白底主色下不可读）。
 export components::SegmentedStyle segmentedStyle(const AppTheme& theme) {
     components::SegmentedStyle style(theme.components);
-    style.selectedText = onPrimaryColor(theme);
+    style.background = core::Color{0, 0, 0, 0};
+    style.hover = core::Color{0, 0, 0, 0};
+    style.selected = core::Color{0, 0, 0, 0};
+    style.selectedText = theme.components.primary;
+    style.border = core::Color{0, 0, 0, 0};
     return style;
 }
 
@@ -177,6 +225,14 @@ export void closeSelectionPopups() {
     }
 }
 
+export bool selectionPopupOpen() {
+    return std::ranges::any_of(g_selectionPopups, [](const SelectionPopupEntry& entry) {
+        return entry.seen && entry.open;
+    });
+}
+
+// EUI popup children inherit their island's stacking context. Callers can use this
+// predicate to lift the containing island above adjacent islands while open.
 export void drawSelectionPopupDismissLayer(eui::Ui& ui, const eui::Screen& screen) {
     for (auto it = g_selectionPopups.begin(); it != g_selectionPopups.end();) {
         if (!it->seen) {
@@ -189,12 +245,16 @@ export void drawSelectionPopupDismissLayer(eui::Ui& ui, const eui::Screen& scree
     bool anyOpen = false;
     for (const auto& entry : g_selectionPopups) anyOpen = anyOpen || entry.open;
     if (!anyOpen || screen.width <= 0.0f || screen.height <= 0.0f) return;
+    // 透明 blocker 置于普通内容之下（zIndex -1）：EUI hit 测试从最高 zIndex
+    // 开始，-1 保证它最后被检查 —— 点击下拉项/弹层项时先命中它们，点击空白
+    // 处才落回该层关闭弹层。放在顶层(zIndex>0)会先吞掉所有点击，导致下拉列表
+    // 无法选中。
     ui.rect("selection.popups.dismiss")
         .size(screen.width, screen.height)
         .states({0.0f, 0.0f, 0.0f, 0.0f},
                 {0.0f, 0.0f, 0.0f, 0.0f},
                 {0.0f, 0.0f, 0.0f, 0.0f})
-        .zIndex(10)
+        .zIndex(-1)
         .onClick([] { closeSelectionPopups(); })
         .onScroll([](const core::ScrollEvent&) {})
         .build();
@@ -209,9 +269,10 @@ export void drawListPicker(eui::Ui& ui, const std::string& id, float width, floa
                            const std::vector<std::string>& items, int selected, bool opensUp,
                            std::function<void(int)> onPick,
                            float anchorScreenY = -1.0f, float screenHeight = 0.0f) {
-    constexpr float itemHeight = 22.0f;
-    constexpr float popupPad = 3.0f;
-    constexpr float popupGap = 3.0f;
+    constexpr float itemHeight = kSelectionItemHeight;
+    // Shared semantic sizing keeps selection rows aligned with compact controls.
+    const float popupPad = 3.0f;
+    const float popupGap = 3.0f;
     float popupHeight = itemHeight * static_cast<float>(items.size()) + popupPad * 2.0f;
     bool up = opensUp;
     if (anchorScreenY >= 0.0f && screenHeight > 0.0f) {
@@ -638,11 +699,25 @@ export std::string fitTextToWidth(const std::string& text, float maxWidth,
 
 export void drawStatusBar(eui::Ui& ui, float width, float height,
                           const std::string& message, const AppTheme& theme) {
-    (void)ui;
-    (void)width;
-    (void)height;
-    (void)message;
-    (void)theme;
+    if (width <= 0.0f || height <= 0.0f) return;
+    const float y = std::max(0.0f, height - kStatusBarHeight);
+    const auto& tokens = theme.components;
+    if (!message.empty()) {
+        ui.text("statusbar.text")
+            .position(kRailWidth + kMargin, y)
+            .size(nonNegative(width - kRailWidth - kMargin * 3.0f), kStatusBarHeight)
+            .text(message).fontSize(kFontLabel).lineHeight(kStatusBarHeight)
+            .color(theme.statusText).verticalAlign(core::VerticalAlign::Center)
+            .build();
+    }
+    components::button(ui, "statusbar.cookies")
+        .position(nonNegative(width - kMargin - 150.0f), y + 1.0f)
+        .size(142.0f, 18.0f)
+        .text("全局 Cookies").fontSize(kFontLabel)
+        .theme(tokens, false)
+        .border(1.0f, core::Color{0, 0, 0, 0})
+        .onClick([] { g_globalCookieOpen = true; })
+        .build();
 }
 
 // 确认对话框（删除环境/清空历史等）：EUI dialog 设了 content 就不画标题，且其内置

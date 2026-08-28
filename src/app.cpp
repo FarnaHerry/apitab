@@ -264,7 +264,6 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
     if (isProjectPage(g_page) && g_activeProjectTabId == 0) g_page = Page::Home;
     const AppTheme& theme = currentTheme();
     beginSelectionPopupFrame();
-    constexpr float workspaceH = 42.0f;
 
     ui.stack("root")
         .size(screen.width, screen.height)
@@ -296,7 +295,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             ui.stack("workspace.bar.wrap")
                 .position(kMargin + 32.0f, kMargin)
                 .size(nonNegative(screen.width - kMargin * 2.0f - 32.0f), kInputHeight)
-                .zIndex(40)
+                .zIndex(kPopupHostZIndex)
                 .content([&] {
                     drawProjectWorkspaceBar(ui, 0, 0,
                                             nonNegative(screen.width - kMargin * 2.0f - 32.0f), theme);
@@ -306,15 +305,18 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             const bool overlayPage = isOverlayPage(g_page);
             const bool projectContext = isProjectPage(g_page) && g_activeProjectTabId != 0;
             const bool showCollectionSidebar = projectContext &&
-                                               (g_page == Page::Request || g_page == Page::Load);
-            const bool requestTabs = showCollectionSidebar;
-            const float bodyTop = workspaceH;
-            const float bodyBottom = std::max(bodyTop, screen.height - kMargin -
-                                                       (projectContext ? kIslandVInset : 0.0f));
-            // 侧栏宽优先 kSidebarWidth；shell 太窄时收缩侧栏（至少给内容区留 96），
-            // 不再固定 190 把内容区压成负宽。上下边与 shell 岛对齐。
+                                               (g_page == Page::Request ||
+                                                g_page == Page::RequestEmpty);
+            const bool showAutomationSidebar = projectContext && g_page == Page::Load;
+            const float bodyTop = kMargin + kInputHeight;
+            const float bodyBottom = std::max(bodyTop, screen.height - kStatusBarHeight);
+            // 顶部标签栏与所有页面一级岛共享同一条细间隙；底部同样保留间隙。
+            const float frameTop = std::min(bodyBottom, bodyTop + kIslandVInset);
+            const float frameBottom = std::max(frameTop, bodyBottom - kIslandVInset);
+            // 侧栏宽优先 kSidebarWidth；窄窗口时收缩侧栏并保留内容区。
+            // 页面和侧栏统一使用 frameTop/frameBottom，保证左右岛屿等高。
             const float shellW = std::max(0.0f, screen.width - kRailWidth - kRightMargin);
-            const float sidebarW = showCollectionSidebar
+            const float sidebarW = (showCollectionSidebar || showAutomationSidebar)
                 ? std::min(kSidebarWidth, nonNegative(shellW - 96.0f)) : 0.0f;
 
             // 侧栏与页面各自负责自己的内容岛；不再绘制覆盖整个项目区的外部壳岛。
@@ -322,8 +324,8 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             // Home 与全局设置覆盖最高级 rail 和项目侧栏。
             if (!overlayPage) {
                 ui.stack("rail")
-                    .position(0, bodyTop)
-                    .size(kRailWidth, std::max(0.0f, bodyBottom - bodyTop + kMargin))
+                    .position(0, frameTop)
+                    .size(kRailWidth, std::max(0.0f, frameBottom - frameTop))
                     .zIndex(5)
                     .content([&] {
                         float railY = 10.0f;
@@ -359,24 +361,22 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             if (showCollectionSidebar) {
                 // 侧栏宽优先 kSidebarWidth；shell 太窄时收缩侧栏（至少给内容区留 96），
                 // 不再固定 190 把内容区压成负宽。上下边与 shell 岛对齐。
-                drawSidebar(ui, screen, bodyTop + kIslandVInset, bodyBottom, sidebarW, theme);
-                contentX = kRailWidth + sidebarW + kMargin;
+                drawSidebar(ui, screen, frameTop, frameBottom, sidebarW, theme);
+                // 侧栏与内容岛保持统一的细间距，不再复用页面外边距。
+                contentX = kRailWidth + sidebarW + kIslandGap;
+            } else if (showAutomationSidebar) {
+                drawAutomationSidebar(ui, screen, frameTop, frameBottom, sidebarW, theme);
+                contentX = kRailWidth + sidebarW + kIslandGap;
             }
-            const float contentW = std::max(0.0f, screen.width - contentX - kMargin);
-            float pageY = bodyTop + kMargin;
-            if (showCollectionSidebar && requestTabs) {
-                drawRequestTabStrip(ui, contentX, pageY, contentW, theme);
-                pageY += 32.0f;
+            const float contentW = std::max(0.0f, screen.width - contentX - kIslandGap);
+            float pageY = frameTop;
+            // 空标签页没有内容岛，只保留标签栏作为创建入口；请求/压测页的标签栏
+            // 由各自工作流岛屿在内部绘制。
+            if (showCollectionSidebar && g_page == Page::RequestEmpty) {
+                drawRequestTabStrip(ui, contentX, pageY, contentW, theme, false);
+                pageY += kInputHeight + kIslandGap;
             }
-            const bool compactShell = screen.width < 860.0f;
-            if (compactShell && showCollectionSidebar) {
-                ui.text("shell.compact.notice")
-                    .position(contentX, pageY).size(contentW, 24.0f)
-                    .text("窄窗口下请求集合保持显示，右侧内容区收窄")
-                    .fontSize(kFontLabel).color(theme.hintText).build();
-                pageY += 30.0f;
-            }
-            const float pageH = std::max(0.0f, bodyBottom - pageY);
+            const float pageH = std::max(0.0f, frameBottom - pageY);
 
             // 页面区域被压没（极窄/极矮窗口）时跳过分页绘制，避免负几何控件。
             if (contentW > 0.0f && pageH > 0.0f) switch (g_page) {
@@ -388,7 +388,8 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     break;
                 case Page::Request:
                     if (projectContext) {
-                        switch (activeTab().draft.kind) {
+                        if (RequestTab* active = findTab(g_activeTabUid)) {
+                        switch (active->draft.kind) {
                             case api::RequestKind::Http:
                                 drawRequestPage(ui, contentX, pageY, contentW, pageH, theme);
                                 break;
@@ -399,6 +400,21 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                 drawTcpPage(ui, contentX, pageY, contentW, pageH, theme);
                                 break;
                         }
+                    }
+                    }
+                    break;
+                case Page::RequestEmpty:
+                    if (projectContext) {
+                        ui.text("request.empty.title")
+                            .position(contentX, pageY + 48.0f).size(contentW, 28.0f)
+                            .text("暂无打开的请求标签页")
+                            .fontSize(kFontBody + 2.0f).color(theme.titleText)
+                            .horizontalAlign(core::HorizontalAlign::Center).build();
+                        ui.text("request.empty.hint")
+                            .position(contentX, pageY + 84.0f).size(contentW, 22.0f)
+                            .text("请从请求集合打开请求，或点击上方 + 新建请求")
+                            .fontSize(kFontLabel).color(theme.hintText)
+                            .horizontalAlign(core::HorizontalAlign::Center).build();
                     }
                     break;
                 case Page::Load:
@@ -412,7 +428,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     break;
             }
 
-            if (showCollectionSidebar) {
+            if (showCollectionSidebar || showAutomationSidebar) {
                 drawSidebarDialogs(ui, screen, theme);
             }
             if (projectContext) {
@@ -433,6 +449,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                   });
             }
             drawSelectionPopupDismissLayer(ui, screen);
+            drawStatusBar(ui, screen.width, screen.height, g_statusMessage, theme);
         })
         .build();
 }

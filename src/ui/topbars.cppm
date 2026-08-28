@@ -12,6 +12,7 @@ import apitab.i18n;
 import apitab.store.requests;
 import apitab.store.tcp;
 import apitab.store.websocket;
+import apitab.store.loadtest;
 import apitab.store.ui;
 import apitab.ui.theme;
 import apitab.ui.utils;
@@ -83,6 +84,7 @@ export void openProjectWorkspace(std::int64_t orgId, std::int64_t projectId) {
     }
     if (!std::ranges::contains(g_openProjectIds, projectId)) g_openProjectIds.push_back(projectId);
     g_activeProjectTabId = projectId;
+    g_loadtest.setProject(projectId);
     restoreTabs(projectId);
     g_page = Page::Request;
     saveSessionPreference("active_project", std::to_string(projectId));
@@ -136,16 +138,13 @@ export void forgetProjectWorkspace(std::int64_t projectId) {
 export void drawProjectWorkspaceBar(eui::Ui& ui, float x, float y, float w,
                                     const AppTheme& theme) {
     const auto& tokens = theme.components;
-    // 顶部工作区导航是轻量岛卡：不参与项目内容的滚动，只提供稳定的
-    // Home / 项目切换 / 全局设置层级。岛屿精确覆盖内容 bounds，不外扩。
-    drawIslandPanel(ui, "workspace.island", x, y, w, kInputHeight,
-                    theme, theme.dark ? 0.58f : 0.78f);
+    // 顶部全局标签栏直接放置在顶端，不再绘制岛屿背景。
     const float homeW = 76.0f;
     const float settingsW = 26.0f;
     const float tabsRight = x + w - settingsW;
 
     ui.rect("workspace.home.hit")
-        .position(x, y)
+        .position(0, 0)
         .size(homeW, kInputHeight)
         .states(g_page == Page::Home ? components::theme::withAlpha(tokens.primary, 0.20f)
                                      : components::theme::withAlpha(tokens.surface, 0.5f),
@@ -154,7 +153,7 @@ export void drawProjectWorkspaceBar(eui::Ui& ui, float x, float y, float w,
         .onClick([] { g_page = Page::Home; })
         .build();
     ui.text("workspace.home.label")
-        .position(x, y)
+        .position(0, 0)
         .size(homeW, kInputHeight)
         .icon(0xF015)
         .fontSize(10.0f)
@@ -166,7 +165,7 @@ export void drawProjectWorkspaceBar(eui::Ui& ui, float x, float y, float w,
 
     const std::vector<db::Project> all = g_requests.allProjects();
     const int count = static_cast<int>(g_openProjectIds.size());
-    const float viewportX = x + homeW + kGap;
+    const float viewportX = homeW + kGap;
     const float viewportW = std::max(0.0f, tabsRight - viewportX);
     const float tabW = count > 0 ? std::clamp(viewportW / count, 108.0f, 190.0f) : 108.0f;
     const float totalW = std::max(0.0f, tabW * static_cast<float>(count));
@@ -175,10 +174,10 @@ export void drawProjectWorkspaceBar(eui::Ui& ui, float x, float y, float w,
     scroll.offset = std::clamp(scroll.offset, 0.0f, scroll.maxOffset);
 
     ui.stack("workspace.projects.viewport")
-        .position(viewportX, y).size(viewportW, kInputHeight).clip().zIndex(20)
+        .position(viewportX, 0).size(viewportW, kInputHeight).clip().zIndex(20)
         .content([&] {
             components::mouseArea(ui, "workspace.projects.wheel")
-                .size(viewportW, kInputHeight).scrollStep(36.0f).maxScrollStep(4.0f)
+                .size(viewportW, kTabHeight).scrollStep(36.0f).maxScrollStep(4.0f)
                 .onScroll([](const components::MouseScrollEvent& event) {
                     auto& state = g_workspaceScroll;
                     const float delta = std::abs(event.deltaX) > 0.01f ? event.deltaX : -event.deltaY;
@@ -207,34 +206,38 @@ export void drawProjectWorkspaceBar(eui::Ui& ui, float x, float y, float w,
                                 .verticalAlign(core::VerticalAlign::Center).build();
                             components::button(ui, tabId + ".close").position(tabWidth - 22.0f, 3.0f)
                                 .size(18.0f, 18.0f).icon(0xF00D).text("").iconSize(8.0f)
-                                .theme(tokens, false).radius(9.0f).onClick([id] { closeProjectWorkspace(id); }).build();
+                                .theme(tokens, false).radius(kButtonRadius).onClick([id] { closeProjectWorkspace(id); }).build();
                         }).build();
                         tx += tabW;
                     }
                 }).build();
         }).build();
 
-    const float settingsX = x + w - settingsW;
-    drawIconBtn(ui, "workspace.settings", settingsX, y + 2.0f, 0xF013,
+    drawIconBtn(ui, "workspace.settings", x + w - settingsW, y + 2.0f, 0xF013,
                 theme, [] { g_page = Page::GlobalSettings; });
 }
 
 // 项目内部请求标签条。
 export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
-                                const AppTheme& theme) {
+                                const AppTheme& theme, bool drawSurface) {
     const auto& tokens = theme.components;
     // 请求标签、加号和环境控件属于同一条紧凑工具岛；内部 viewport
     // 继续独立裁剪，避免 surface 影响横向滚动和 dropdown 命中。
     // 岛屿精确覆盖 26px 高的内容行，不再 y-2/28 外扩。
-    drawIslandPanel(ui, "reqtabs.island", x, y, w, kInputHeight,
-                    theme, theme.dark ? 0.56f : 0.76f);
+    if (drawSurface) {
+        drawIslandPanel(ui, "reqtabs.island", x, y, w, kInputHeight, theme,
+                        theme.dark ? 0.56f : 0.76f);
+    }
     const float gearW = 26.0f;
     const float addW = 26.0f;
     // 环境下拉优先 170 宽；标签 viewport 至少保留 60，剩余不足时收缩 env
     // 而不是把 envX 推到容器左侧外面。
-    const float envW = std::clamp(w - addW - gearW - kGap * 3.0f - 60.0f, 0.0f, 170.0f);
-    const float envControlsW = envW + kGap + gearW;
-    const float avail = nonNegative(w - envControlsW - kGap - addW);
+    const float envW = std::clamp(w - addW - gearW - kGap * 2.0f - 60.0f, 0.0f, 170.0f);
+    const float envControlsW = envW + gearW;
+    const float envX = x + std::max(0.0f, w - envControlsW);
+    const float addX = std::max(x, envX - addW);
+    const float tabsW = nonNegative(addX - x);
+    const float avail = tabsW;
     const int count = static_cast<int>(g_tabs.size());
     const float tabW = count > 0 ? std::clamp(avail / count, 110.0f, 200.0f) : 200.0f;
     const float totalW = std::max(0.0f, tabW * static_cast<float>(count));
@@ -279,7 +282,7 @@ export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
                                 .verticalAlign(core::VerticalAlign::Center).build();
                             components::button(ui, tabId + ".close").position(tabWidth - 22.0f, 3.0f)
                                 .size(18.0f, 18.0f).icon(0xF00D).text("").iconSize(8.0f)
-                                .theme(tokens, false).radius(9.0f).onClick([uid = tab.uid] {
+                                .theme(tokens, false).radius(kButtonRadius).onClick([uid = tab.uid] {
                                     g_websocket.release(uid);
                                     g_tcp.release(uid);
                                     closeTab(uid);
@@ -289,12 +292,16 @@ export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
                     }
                 }).build();
         }).build();
-    const float envX = std::max(x, x + w - envControlsW);
-    drawIslandPanel(ui, "reqtabs.env.island", envX, y,
-                    envControlsW, kInputHeight, theme,
-                    theme.dark ? 0.50f : 0.72f);
-    drawIconBtn(ui, "reqtabs.add", std::max(x, envX - addW - kGap), y + 1.0f,
-                0xF067, theme, [] { (void)newDraftTab(); });
+    if (drawSurface) {
+        drawIslandPanel(ui, "reqtabs.env.island", envX, y,
+                        envControlsW, kInputHeight, theme,
+                        theme.dark ? 0.50f : 0.72f);
+    }
+    drawIconBtn(ui, "reqtabs.add", std::max(x, envX - addW), y + 1.0f,
+                0xF067, theme, [] {
+                    (void)newDraftTab();
+                    g_page = Page::Request;
+                });
 
     const auto& envs = g_requests.environments();
     std::vector<std::string> envNames;
@@ -306,10 +313,10 @@ export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
     envNames.insert(envNames.begin(), "未选择环境");
     // 极窄条里 env 下拉收缩到不可用时只留管理齿轮，不画零宽控件。
     if (envW >= 48.0f) {
-        ui.stack("reqtabs.env.wrap")
+    ui.stack("reqtabs.env.wrap")
             .position(envX, y)
             .size(envW, kInputHeight)
-            .zIndex(30)
+            .zIndex(kIslandPopupZIndex)
             .content([&] {
                 registerSelectionPopup("reqtabs.env", g_topbarEnvOpen,
                                         [] { g_topbarEnvOpen = false; });
@@ -331,6 +338,6 @@ export void drawRequestTabStrip(eui::Ui& ui, float x, float y, float w,
             })
             .build();
     }
-    drawIconBtn(ui, "reqtabs.env.manage", envX + envW + kGap, y + 1.0f,
+    drawIconBtn(ui, "reqtabs.env.manage", envX + envW, y + 1.0f,
                 0xF0C9, theme, [] { g_envManageOpen = true; });
 }

@@ -18,6 +18,16 @@ public:
     LoadStore(const LoadStore&) = delete;
     LoadStore& operator=(const LoadStore&) = delete;
 
+    void setProject(std::int64_t projectId) { currentProjectId_ = projectId; reloadAutomation(); }
+    const std::vector<db::AutomationTest>& automationTests() { reloadAutomation(); return automationTests_; }
+    const db::AutomationTest* selectedAutomation() { reloadAutomation(); for (auto& t : automationTests_) if (t.id == selectedAutomationId_) return &t; return nullptr; }
+    std::int64_t selectedAutomationId() const { return selectedAutomationId_; }
+    void selectAutomation(std::int64_t id) { selectedAutomationId_ = id; }
+    std::string saveAutomation(db::AutomationTest& t) { try { t.projectId=currentProjectId_; t.updatedAt=nowUnix(); t.id=db_->saveAutomationTest(t); selectedAutomationId_=t.id; reloadAutomation(); return {}; } catch(const std::exception& e){ return e.what(); } }
+    std::string removeAutomation(std::int64_t id) { try { db_->deleteAutomationTest(id,currentProjectId_); if(selectedAutomationId_==id) selectedAutomationId_=0; reloadAutomation(); return {}; } catch(const std::exception& e){ return e.what(); } }
+    void reloadAutomation() { if (currentProjectId_ == cachedProjectId_) return; cachedProjectId_=currentProjectId_; try { automationTests_=db_->listAutomationTests(currentProjectId_); } catch (...) { automationTests_.clear(); } if (!std::ranges::any_of(automationTests_, [&](const auto& t){return t.id==selectedAutomationId_;})) selectedAutomationId_=automationTests_.empty()?0:automationTests_.front().id; }
+    db::AutomationTest automationFromRequest(const db::SavedRequest& r, int vus, std::string duration) const { return {.projectId=currentProjectId_, .name=r.name, .method=r.method, .url=r.url, .params=r.params, .headers=r.headers, .cookies=r.cookies, .bodyKind=r.bodyKind, .body=r.body, .bodyContents=r.bodyContents, .followRedirects=r.followRedirects, .allowJsonComments=r.allowJsonComments, .vus=vus, .duration=std::move(duration)}; }
+
     // ---- 引擎状态 ----
 
     bool available() const { return engine_->available(); }
@@ -79,6 +89,10 @@ public:
 private:
     std::unique_ptr<api::LoadEngine> engine_;
     std::unique_ptr<db::Db> db_;
+    std::int64_t currentProjectId_ = 0;
+    std::int64_t cachedProjectId_ = -1;
+    std::int64_t selectedAutomationId_ = 0;
+    std::vector<db::AutomationTest> automationTests_;
 
     // 在途压测的落库上下文。
     std::int64_t pendingRequestId_ = 0;

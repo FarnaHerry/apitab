@@ -43,8 +43,8 @@ export void drawGlobalSettingsPage(eui::Ui& ui, float x, float y, float w, float
     const auto& tokens = theme.components;
     // 岛屿精确铺满页面，内容统一内缩 kPanelPad 并进 scroll root：
     // 矮窗口滚动到达，不再把固定 y 的控件画出岛外。
-    drawIslandPanel(ui, "settings.island", x, y, w, h, theme,
-                    theme.dark ? 0.66f : 0.84f);
+    drawIsland(ui, "settings.island", x, y, w, h, theme,
+               theme.dark ? 0.66f : 0.84f, kIslandPopupZIndex, [&] {
     const float innerW = nonNegative(w - 2.0f * kPanelPad);
     const float innerH = nonNegative(h - 2.0f * kPanelPad);
     if (innerW <= 0.0f || innerH <= 0.0f) return;
@@ -59,7 +59,7 @@ export void drawGlobalSettingsPage(eui::Ui& ui, float x, float y, float w, float
     const float hintY = compact ? 194.0f : 142.0f;
     const float bodyH = hintY + 34.0f + 12.0f;
     components::scrollView(ui, "settings.scroll")
-        .position(x + kPanelPad, y + kPanelPad).size(innerW, innerH).zIndex(20).theme(tokens)
+        .position(kPanelPad, kPanelPad).size(innerW, innerH).zIndex(20).theme(tokens)
         .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
         .content([&](eui::Ui& cu, float contentWidth, float viewportH) {
             const float bodyW = nonNegative(contentWidth);
@@ -131,6 +131,7 @@ export void drawGlobalSettingsPage(eui::Ui& ui, float x, float y, float w, float
                     .text(tr(UiText::ThemeHint)).fontSize(kFontLabel).color(theme.hintText).wrap(true).build();
             }).build();
         }).build();
+    });
 }
 
 export void drawProjectSettingsPage(eui::Ui& ui, float x, float y, float w, float h,

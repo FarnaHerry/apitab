@@ -12,7 +12,7 @@ import apitab.utils;
 
 // ---- 页面 ----
 
-export enum class Page { Home, GlobalSettings, Request, Load, History, ProjectSettings };
+export enum class Page { Home, GlobalSettings, Request, RequestEmpty, Load, History, ProjectSettings };
 export Page g_page = Page::Home;  // 默认打开主页面
 
 export enum class HomeTab { Projects, Members, Settings };
@@ -23,7 +23,7 @@ export bool isOverlayPage(Page page) {
 }
 
 export bool isProjectPage(Page page) {
-    return page == Page::Request || page == Page::Load || page == Page::ProjectSettings;
+    return page == Page::Request || page == Page::RequestEmpty || page == Page::Load || page == Page::ProjectSettings;
 }
 
 // ---- HTTP 方法 ----
@@ -38,6 +38,9 @@ export std::int64_t g_homeSelectedOrgId = 0;
 
 export enum class EditorTab { Params, Headers, Body, Cookies, Settings };
 
+// 请求工作模式：调试保留完整编辑器，其余模式提供独立的设计/预览/用例/Mock 内容区。
+export enum class RequestMode { Debug, Design, Preview, Cases, Mock };
+
 export struct Draft {
     api::RequestKind kind = api::RequestKind::Http;
     std::string name = "未命名请求";
@@ -51,6 +54,7 @@ export struct Draft {
     std::string body;
     std::array<api::BodyContent, 7> bodyContents{};
     EditorTab tab = EditorTab::Params;
+    RequestMode mode = RequestMode::Debug;
     bool followRedirects = true;
     bool allowJsonComments = true;
     std::string wsProtocol;
@@ -197,11 +201,12 @@ export std::string tabBadge(const RequestTab& tab) {
 
 export std::string tabTitle(const RequestTab& tab) { return tab.draft.name; }
 
-// 关闭 tab；保证至少剩一个（空了就补草稿 tab）。
+// 关闭 tab；允许列表为空，空列表由请求空白页承载。
 export void closeTab(std::int64_t uid) {
     std::erase_if(g_tabs, [uid](const RequestTab& t) { return t.uid == uid; });
     if (g_tabs.empty()) {
-        newDraftTab();
+        g_activeTabUid = 0;
+        g_page = Page::RequestEmpty;
         return;
     }
     if (g_activeTabUid == uid) g_activeTabUid = g_tabs.front().uid;
@@ -228,7 +233,7 @@ export void restoreTabs(std::int64_t projectId) {
         g_activeTabUid = it->second.activeUid;
         g_tabStash.erase(it);
     }
-    (void)activeTab();  // 空表兜底一个草稿 tab
+    // 空项目工作区保持无标签，由请求空白页显示创建入口。
 }
 
 // 丢弃某项目的暂存（项目被删除时调用）。
@@ -237,7 +242,7 @@ export void discardStash(std::int64_t projectId) { g_tabStash.erase(projectId); 
 // 清空当前 tab（当前项目被删除时调用；自动补一个草稿 tab）。
 export void clearTabs() {
     g_tabs.clear();
-    newDraftTab();
+    g_activeTabUid = 0;
 }
 
 export std::string serializeIdList(const std::vector<std::int64_t>& ids) {
@@ -311,8 +316,13 @@ export void persistSessionState() {
     saveSessionPreference("home_tab", std::to_string(static_cast<int>(g_homeTab)));
     saveSessionPreference("active_project", std::to_string(g_activeProjectTabId));
     saveSessionPreference("open_projects", serializeIdList(g_openProjectIds));
-    saveSessionPreference("active_request", std::to_string(activeTab().requestId));
-    saveSessionPreference("editor_tab", std::to_string(static_cast<int>(activeDraft().tab)));
+    if (const RequestTab* tab = findTab(g_activeTabUid)) {
+        saveSessionPreference("active_request", std::to_string(tab->requestId));
+        saveSessionPreference("editor_tab", std::to_string(static_cast<int>(tab->draft.tab)));
+    } else {
+        saveSessionPreference("active_request", "0");
+        saveSessionPreference("editor_tab", "0");
+    }
     saveSessionPreference("response_tab", std::to_string(static_cast<int>(g_responseTab)));
 }
 
@@ -360,9 +370,28 @@ export bool g_renameRequestOpen = false;
 export std::int64_t g_renameRequestId = 0;
 export std::string g_requestRenameText;
 
+export bool g_automationMenuOpen = false;
+export float g_automationMenuX = 0.0f;
+export float g_automationMenuY = 0.0f;
+export std::int64_t g_automationMenuTargetId = 0;
+
+export bool g_renameAutomationOpen = false;
+export std::int64_t g_renameAutomationId = 0;
+export std::int64_t g_automationRenameId = 0;
+export std::string g_automationRenameText;
+
 // ---- 环境管理弹窗 ----
 
 export bool g_envManageOpen = false;
+export std::int64_t g_envManageSelectedId = 0;
+export struct EnvironmentVariableDraft {
+    std::int64_t id = 0;
+    std::string key;
+    std::string value;
+};
+// 环境变量草稿按环境 id 隔离（切换环境/项目不串）。
+export std::unordered_map<std::int64_t, std::vector<EnvironmentVariableDraft>> g_envVariableDrafts;
+export std::int64_t g_nextEnvVariableDraftId = -1;
 export bool g_globalCookieOpen = false;
 
 // ---- 确认弹窗（删除项目/组织等破坏性操作）----

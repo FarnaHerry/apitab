@@ -141,6 +141,17 @@ CREATE TABLE IF NOT EXISTS history (
     error       TEXT NOT NULL DEFAULT '',
     created_at  INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS automation_tests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL DEFAULT 0,
+    name TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL DEFAULT 'GET',
+    url TEXT NOT NULL DEFAULT '',
+    params TEXT NOT NULL DEFAULT '[]', headers TEXT NOT NULL DEFAULT '[]', cookies TEXT NOT NULL DEFAULT '[]',
+    body_kind INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL DEFAULT '', body_contents TEXT NOT NULL DEFAULT '{}',
+    follow_redirects INTEGER NOT NULL DEFAULT 1, allow_json_comments INTEGER NOT NULL DEFAULT 1,
+    vus INTEGER NOT NULL DEFAULT 10, duration TEXT NOT NULL DEFAULT '30s', updated_at INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS load_tests (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     request_id INTEGER NOT NULL DEFAULT 0,
@@ -169,7 +180,16 @@ CREATE TABLE IF NOT EXISTS load_tests (
             bool hasFollowRedirects = false;
             bool hasAllowJsonComments = false;
             bool hasBodyContents = false;
+            bool hasGlobalCookieProjectId = false;
             bool hasParentId = false;
+            SQLite::Statement cookieInfo(db, "PRAGMA table_info(global_cookies)");
+            while (cookieInfo.executeStep()) {
+                if (cookieInfo.getColumn(1).getString() == "project_id") hasGlobalCookieProjectId = true;
+            }
+            if (!hasGlobalCookieProjectId) {
+                db.exec("ALTER TABLE global_cookies ADD COLUMN project_id INTEGER NOT NULL DEFAULT 0");
+            }
+
             SQLite::Statement q(db, "PRAGMA table_info(requests)");
             while (q.executeStep()) {
                 const std::string col = q.getColumn(1).getString();
@@ -577,37 +597,41 @@ void Db::deleteRequest(std::int64_t id) {
 
 // ---- global cookies ----
 
-std::vector<GlobalCookie> Db::listGlobalCookies() {
-    SQLite::Statement q(impl_->db, "SELECT id,name,value,enabled FROM global_cookies ORDER BY id ASC");
+std::vector<GlobalCookie> Db::listGlobalCookies(std::int64_t projectId) {
+    SQLite::Statement q(impl_->db, "SELECT id,project_id,name,value,enabled FROM global_cookies WHERE project_id=? ORDER BY id ASC");
+    q.bind(1, projectId);
     std::vector<GlobalCookie> out;
     while (q.executeStep()) {
-        out.push_back({q.getColumn(0).getInt64(), q.getColumn(1).getString(),
-                       q.getColumn(2).getString(), q.getColumn(3).getInt() != 0});
+        out.push_back({q.getColumn(0).getInt64(), q.getColumn(1).getInt64(), q.getColumn(2).getString(),
+                       q.getColumn(3).getString(), q.getColumn(4).getInt() != 0});
     }
     return out;
 }
 
 std::int64_t Db::saveGlobalCookie(const GlobalCookie& cookie) {
     if (cookie.id == 0) {
-        SQLite::Statement q(impl_->db, "INSERT INTO global_cookies(name,value,enabled) VALUES(?,?,?)");
-        q.bind(1, cookie.name);
-        q.bind(2, cookie.value);
-        q.bind(3, cookie.enabled ? 1 : 0);
+        SQLite::Statement q(impl_->db, "INSERT INTO global_cookies(project_id,name,value,enabled) VALUES(?,?,?,?)");
+        q.bind(1, cookie.projectId);
+        q.bind(2, cookie.name);
+        q.bind(3, cookie.value);
+        q.bind(4, cookie.enabled ? 1 : 0);
         q.exec();
         return impl_->db.getLastInsertRowid();
     }
-    SQLite::Statement q(impl_->db, "UPDATE global_cookies SET name=?,value=?,enabled=? WHERE id=?");
+    SQLite::Statement q(impl_->db, "UPDATE global_cookies SET name=?,value=?,enabled=? WHERE id=? AND project_id=?");
     q.bind(1, cookie.name);
     q.bind(2, cookie.value);
     q.bind(3, cookie.enabled ? 1 : 0);
     q.bind(4, cookie.id);
+    q.bind(5, cookie.projectId);
     q.exec();
     return cookie.id;
 }
 
-void Db::deleteGlobalCookie(std::int64_t id) {
-    SQLite::Statement q(impl_->db, "DELETE FROM global_cookies WHERE id=?");
+void Db::deleteGlobalCookie(std::int64_t id, std::int64_t projectId) {
+    SQLite::Statement q(impl_->db, "DELETE FROM global_cookies WHERE id=? AND project_id=?");
     q.bind(1, id);
+    q.bind(2, projectId);
     q.exec();
 }
 
@@ -665,6 +689,19 @@ std::vector<HistoryEntry> Db::listHistoryPage(int limit, std::int64_t offset) {
 void Db::clearHistory() {
     impl_->db.exec("DELETE FROM history");
 }
+
+// ---- automation_tests ----
+std::vector<AutomationTest> Db::listAutomationTests(std::int64_t projectId) {
+    SQLite::Statement q(impl_->db, "SELECT id,project_id,name,method,url,params,headers,cookies,body_kind,body,body_contents,follow_redirects,allow_json_comments,vus,duration,updated_at FROM automation_tests WHERE project_id=? ORDER BY id ASC");
+    q.bind(1, projectId); std::vector<AutomationTest> out;
+    while (q.executeStep()) { AutomationTest t; t.id=q.getColumn(0).getInt64(); t.projectId=q.getColumn(1).getInt64(); t.name=q.getColumn(2).getString(); t.method=q.getColumn(3).getString(); t.url=q.getColumn(4).getString(); t.params=kvFromJson(q.getColumn(5).getString()); t.headers=kvFromJson(q.getColumn(6).getString()); t.cookies=kvFromJson(q.getColumn(7).getString()); t.bodyKind=static_cast<api::BodyKind>(q.getColumn(8).getInt()); t.body=q.getColumn(9).getString(); t.bodyContents=bodyContentsFromJson(q.getColumn(10).getString()); t.followRedirects=q.getColumn(11).getInt()!=0; t.allowJsonComments=q.getColumn(12).getInt()!=0; t.vus=q.getColumn(13).getInt(); t.duration=q.getColumn(14).getString(); t.updatedAt=q.getColumn(15).getInt64(); out.push_back(std::move(t)); }
+    return out;
+}
+std::int64_t Db::saveAutomationTest(const AutomationTest& t) {
+    if (t.id == 0) { SQLite::Statement q(impl_->db, "INSERT INTO automation_tests(project_id,name,method,url,params,headers,cookies,body_kind,body,body_contents,follow_redirects,allow_json_comments,vus,duration,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"); q.bind(1,t.projectId); q.bind(2,t.name); q.bind(3,t.method); q.bind(4,t.url); q.bind(5,kvToJson(t.params)); q.bind(6,kvToJson(t.headers)); q.bind(7,kvToJson(t.cookies)); q.bind(8,static_cast<int>(t.bodyKind)); q.bind(9,t.body); q.bind(10,bodyContentsToJson(t.bodyContents)); q.bind(11,t.followRedirects?1:0); q.bind(12,t.allowJsonComments?1:0); q.bind(13,t.vus); q.bind(14,t.duration); q.bind(15,t.updatedAt); q.exec(); return impl_->db.getLastInsertRowid(); }
+    SQLite::Statement q(impl_->db, "UPDATE automation_tests SET name=?,method=?,url=?,params=?,headers=?,cookies=?,body_kind=?,body=?,body_contents=?,follow_redirects=?,allow_json_comments=?,vus=?,duration=?,updated_at=? WHERE id=? AND project_id=?"); q.bind(1,t.name); q.bind(2,t.method); q.bind(3,t.url); q.bind(4,kvToJson(t.params)); q.bind(5,kvToJson(t.headers)); q.bind(6,kvToJson(t.cookies)); q.bind(7,static_cast<int>(t.bodyKind)); q.bind(8,t.body); q.bind(9,bodyContentsToJson(t.bodyContents)); q.bind(10,t.followRedirects?1:0); q.bind(11,t.allowJsonComments?1:0); q.bind(12,t.vus); q.bind(13,t.duration); q.bind(14,t.updatedAt); q.bind(15,t.id); q.bind(16,t.projectId); q.exec(); return t.id;
+}
+void Db::deleteAutomationTest(std::int64_t id, std::int64_t projectId) { SQLite::Statement q(impl_->db,"DELETE FROM automation_tests WHERE id=? AND project_id=?"); q.bind(1,id); q.bind(2,projectId); q.exec(); }
 
 // ---- load_tests ----
 

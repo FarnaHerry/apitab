@@ -74,26 +74,26 @@ export void drawWebSocketPage(eui::Ui& ui, float x, float y, float w, float h,
     const bool twoRows = w < 444.0f;
     const float toolbarH = twoRows ? kInputHeight * 2.0f + kGap : kInputHeight;
     const std::string id = "ws." + std::to_string(tab.uid);
-    drawIslandPanel(ui, id + ".toolbar.island", x, y, w, toolbarH,
-                    theme, theme.dark ? 0.56f : 0.78f);
+    drawIsland(ui, id + ".toolbar.island", x, y, w, toolbarH,
+               theme, theme.dark ? 0.56f : 0.78f, [&] {
 
     const float urlW = twoRows
         ? w
         : nonNegative(w - connectW - saveW - protocolW - kGap * 3.0f);
     components::input(ui, id + ".url")
-        .position(x, y).size(urlW, kInputHeight).value(draft.url)
+        .position(0, 0).size(urlW, kInputHeight).value(draft.url)
         .placeholder("ws://localhost:8080/socket").fontFamily("monospace").theme(tokens)
         .onChange([](const std::string& value) { activeDraft().url = value; }).build();
 
-    const float row2Y = twoRows ? y + kInputHeight + kGap : y;
+    const float row2Y = twoRows ? kInputHeight + kGap : 0;
     const float protoW = twoRows
         ? std::min(protocolW, nonNegative(w - connectW - saveW - kGap * 2.0f))
         : protocolW;
-    const float protoX = twoRows ? x : x + urlW + kGap;
-    const float connectX = twoRows ? x + protoW + kGap
-                                   : x + urlW + protocolW + kGap * 2.0f;
-    const float saveX = twoRows ? x + protoW + connectW + kGap * 2.0f
-                                : x + urlW + protocolW + connectW + kGap * 3.0f;
+    const float protoX = twoRows ? 0 : urlW + kGap;
+    const float connectX = twoRows ? protoW + kGap
+                                   : urlW + protocolW + kGap * 2.0f;
+    const float saveX = twoRows ? protoW + connectW + kGap * 2.0f
+                                : urlW + protocolW + connectW + kGap * 3.0f;
     components::input(ui, id + ".protocol")
         .position(protoX, row2Y).size(protoW, kInputHeight).value(draft.wsProtocol)
         .placeholder("子协议（可选）").theme(tokens)
@@ -122,6 +122,7 @@ export void drawWebSocketPage(eui::Ui& ui, float x, float y, float w, float h,
         .icon(0xF0C7).text("保存").fontSize(kFontLabel).theme(tokens, false)
         .radius(kButtonRadius)
         .onClick([] { saveWebSocketRequest(); }).build();
+    });
 
     // 状态行在短窗口让位（时间线/composer 优先保住）。
     const bool showState = h >= 170.0f;
@@ -138,14 +139,14 @@ export void drawWebSocketPage(eui::Ui& ui, float x, float y, float w, float h,
     const bool narrowComposer = w < 252.0f;
     const float composerH = narrowComposer ? 56.0f : 58.0f;
     const float timelineY = y + toolbarH + (showState ? 30.0f : 6.0f);
-    const float timelineH = nonNegative(h - (timelineY - y) - composerH - kGap);
-    drawIslandPanel(ui, id + ".timeline.island", x, timelineY, w, timelineH, theme,
-                    theme.dark ? 0.68f : 0.86f);
+    const float timelineH = nonNegative(h - (timelineY - y) - composerH - kIslandGap);
+    drawIsland(ui, id + ".timeline.island", x, timelineY, w, timelineH, theme,
+               theme.dark ? 0.68f : 0.86f, [&] {
     const float scrollW = nonNegative(w - kPanelPad * 2.0f);
     const float scrollH = nonNegative(timelineH - kPanelPad * 2.0f);
     if (scrollW > 0.0f && scrollH > 0.0f) {
         components::scrollView(ui, id + ".timeline.scroll")
-            .position(x + kPanelPad, timelineY + kPanelPad).size(scrollW, scrollH)
+            .position(kPanelPad, kPanelPad).size(scrollW, scrollH)
             .offset(tab.wsScroll).theme(tokens)
             .scrollbarWidth(kScrollbarWidth).scrollbarGap(kScrollbarGap)
             .onChange([](float value) { activeTab().wsScroll = value; })
@@ -185,27 +186,28 @@ export void drawWebSocketPage(eui::Ui& ui, float x, float y, float w, float h,
                 }
             }).build();
     }
+    });
 
     // ---- composer：宽窗口 message 在左、控制在右；窄窗口 message 独占一行、
     // mode/send 第二行均分。右侧控件永远不越出岛屿。
-    const float composerY = timelineY + timelineH + kGap;
-    drawIslandPanel(ui, id + ".composer.island", x, composerY, w, composerH,
-                    theme, theme.dark ? 0.52f : 0.74f);
+    const float composerY = timelineY + timelineH + kIslandGap;
+    drawIsland(ui, id + ".composer.island", x, composerY, w, composerH,
+               theme, theme.dark ? 0.52f : 0.74f, [&] {
     if (narrowComposer) {
         const float halfW = nonNegative((w - kGap) * 0.5f);
         components::input(ui, id + ".message")
-            .position(x, composerY).size(w, 26.0f)
+            .position(0, 0).size(w, 26.0f)
             .value(tab.wsMessage).placeholder("输入要发送的消息").multiline()
             .fontFamily("monospace").theme(tokens)
             .onChange([](const std::string& value) { activeTab().wsMessage = value; }).build();
-        ui.stack(id + ".mode.wrap").position(x, composerY + 30.0f).size(halfW, 24.0f)
+        ui.stack(id + ".mode.wrap").position(0, 30.0f).size(halfW, 24.0f)
             .content([&] {
                 components::segmented(ui, id + ".mode").size(halfW, 24.0f)
                     .items({"文本", "二进制"}).selected(tab.wsBinary ? 1 : 0).theme(tokens)
                     .style(segmentedStyle(theme)).onChange([](int index) { activeTab().wsBinary = index == 1; }).build();
             }).build();
         components::button(ui, id + ".send")
-            .position(x + halfW + kGap, composerY + 30.0f).size(halfW, 26.0f)
+            .position(halfW + kGap, 30.0f).size(halfW, 26.0f)
             .icon(0xF1D8).text("发送消息").fontSize(kFontLabel).theme(tokens, true)
             .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
             .radius(kButtonRadius)
@@ -221,18 +223,18 @@ export void drawWebSocketPage(eui::Ui& ui, float x, float y, float w, float h,
             }).build();
     } else {
         components::input(ui, id + ".message")
-            .position(x, composerY).size(nonNegative(w - 126.0f), composerH)
+            .position(0, 0).size(nonNegative(w - 126.0f), composerH)
             .value(tab.wsMessage).placeholder("输入要发送的消息").multiline()
             .fontFamily("monospace").theme(tokens)
             .onChange([](const std::string& value) { activeTab().wsMessage = value; }).build();
-        ui.stack(id + ".mode.wrap").position(x + w - 120.0f, composerY).size(120.0f, 24.0f)
+        ui.stack(id + ".mode.wrap").position(w - 120.0f, 0).size(120.0f, 24.0f)
             .content([&] {
                 components::segmented(ui, id + ".mode").size(120.0f, 24.0f)
                     .items({"文本", "二进制"}).selected(tab.wsBinary ? 1 : 0).theme(tokens)
                     .style(segmentedStyle(theme)).onChange([](int index) { activeTab().wsBinary = index == 1; }).build();
             }).build();
         components::button(ui, id + ".send")
-            .position(x + w - 120.0f, composerY + 32.0f).size(120.0f, 26.0f)
+            .position(w - 120.0f, 32.0f).size(120.0f, 26.0f)
             .icon(0xF1D8).text("发送消息").fontSize(kFontLabel).theme(tokens, true)
             .textColor(onPrimaryColor(theme)).iconColor(onPrimaryColor(theme))
             .radius(kButtonRadius)
@@ -247,4 +249,5 @@ export void drawWebSocketPage(eui::Ui& ui, float x, float y, float w, float h,
                 active.wsMessage.clear();
             }).build();
     }
+    });
 }

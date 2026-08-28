@@ -12,6 +12,7 @@ import apitab.db;
 import apitab.store.requests;
 import apitab.store.tcp;
 import apitab.store.websocket;
+import apitab.store.loadtest;
 import apitab.store.ui;
 import apitab.ui.theme;
 import apitab.ui.utils;
@@ -21,8 +22,8 @@ float g_sidebarScroll = 0.0f;
 
 namespace {
 
-constexpr float kGroupRowH = 22.0f;
-constexpr float kReqRowH = 26.0f;
+constexpr float kGroupRowH = kSelectionItemHeight;
+constexpr float kReqRowH = kInputHeight;
 constexpr int kModeName = 0;
 constexpr int kModePath = 1;
 
@@ -98,6 +99,15 @@ void deleteRequest(std::int64_t requestId) {
     }
     const std::string err = g_requests.remove(requestId);
     showStatus(err.empty() ? "已删除" : ("删除失败: " + err));
+}
+
+void drawAutomationRenameDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
+    if (!g_renameAutomationOpen) return;
+    drawInputDialog(ui, screen, theme, "automation.rename", "重命名自动化测试", g_automationRenameText,
+                    "测试名称", "确定", [] { g_renameAutomationOpen=false; g_automationRenameId=0; }, [] {
+        const std::string name=trim(g_automationRenameText); if(name.empty()){showStatus("名称不能为空");return;}
+        for(auto t : g_loadtest.automationTests()) if(t.id==g_renameAutomationId){ t.name=name; const auto err=g_loadtest.saveAutomation(t); if(err.empty()){g_loadtest.selectAutomation(t.id);g_renameAutomationOpen=false;g_automationRenameId=0;} else showStatus("重命名失败: "+err); break; }
+    });
 }
 
 void drawRenameRequestDialog(eui::Ui& ui, const eui::Screen& screen,
@@ -248,7 +258,7 @@ void drawGroupRow(eui::Ui& ui, const std::string& rowId, float width, float inde
         components::button(ui, rowId + ".menu")
             .position(menuX, 2.0f).size(18.0f, 18.0f).icon(0xF141).text("")
             .iconSize(8.0f).theme(theme.components, false)
-            .radius(9.0f)
+            .radius(kButtonRadius)
             .build();
         components::mouseArea(ui, rowId + ".menu.hit")
             .position(menuX, 2.0f).size(18.0f, 18.0f).zIndex(1)
@@ -267,7 +277,8 @@ void drawGroupRow(eui::Ui& ui, const std::string& rowId, float width, float inde
 void drawRequestRow(eui::Ui& ui, const std::string& rowId, float width, float indent,
                     const db::SavedRequest& request, const AppTheme& theme) {
     const std::int64_t requestId = request.id;
-    const bool selected = activeTab().requestId == requestId;
+    RequestTab* active = findTab(g_activeTabUid);
+    const bool selected = active != nullptr && active->requestId == requestId;
     const float rowW = std::max(0.0f, width);
     const float nameX = indent + 46.0f;
     const float nameW = std::max(0.0f, rowW - nameX - 6.0f);
@@ -292,20 +303,39 @@ void drawRequestRow(eui::Ui& ui, const std::string& rowId, float width, float in
                 g_requestMenuY = static_cast<float>(event.y);
                 g_requestMenuOpen = true;
             }).build();
-        ui.text(rowId + ".method")
-            .text(savedBadge(request))
-            .fontSize(9.0f).lineHeight(kReqRowH)
+        const float badgeW = request.kind == api::RequestKind::Http ? 34.0f : 38.0f;
+        ui.rect(rowId + ".badge.bg").position(indent + 4.0f, 5.0f).size(badgeW, 16.0f)
+            .color(components::theme::withAlpha(request.kind == api::RequestKind::Http ? methodColor(request.method, theme) : theme.components.primary, .16f))
+            .radius(4.0f).build();
+        ui.text(rowId + ".method").position(indent + 4.0f, 5.0f).size(badgeW, 16.0f)
+            .text(savedBadge(request)).fontSize(8.0f).lineHeight(16.0f)
             .color(request.kind == api::RequestKind::Http ? methodColor(request.method, theme)
                    : request.kind == api::RequestKind::WebSocket ? theme.redirect : theme.clientErr)
-            .verticalAlign(core::VerticalAlign::Center).build();
+            .horizontalAlign(core::HorizontalAlign::Center).verticalAlign(core::VerticalAlign::Center).build();
         ui.text(rowId + ".name")
-            .position(nameX, 0).size(nameW, kReqRowH)
-            .text(truncateLabel(request.name, nameW, kFontBody)).fontSize(kFontBody).lineHeight(kReqRowH).color(theme.bodyText)
+            .position(indent + badgeW + 10.0f, 0).size(std::max(0.0f, rowW - indent - badgeW - 16.0f), kReqRowH)
+            .text(truncateLabel(request.name, std::max(0.0f, rowW - indent - badgeW - 16.0f), kFontLabel)).fontSize(kFontLabel).lineHeight(kReqRowH).color(theme.bodyText)
             .verticalAlign(core::VerticalAlign::Center).build();
     }).build();
 }
 
 } // namespace
+
+export void drawAutomationSidebar(eui::Ui& ui, const eui::Screen& screen, float top, float bottom,
+                                  float width, const AppTheme& theme) {
+    const float w = nonNegative(width); const float h = nonNegative(bottom-top);
+    const bool sidebarPopupOpen = g_collectionMenuOpen || g_groupMenuOpen ||
+                                  g_requestTypeMenuOpen || g_requestMenuOpen ||
+                                  g_automationMenuOpen;
+    drawIsland(ui, "automation.sidebar", kRailWidth, top, w, h, theme,
+               theme.dark ? 0.48f : 0.72f,
+               sidebarPopupOpen ? kPopupHostZIndex : kIslandPopupZIndex, [&] {
+        ui.text("automation.sidebar.title").position(kPanelPad, 8).size(nonNegative(w-56),22).text("自动化测试").fontSize(kFontBody+1).color(theme.titleText).build();
+        components::button(ui,"automation.sidebar.add").position(w-kPanelPad-28,8).size(24,22).icon(0xF067).text("").iconSize(10).theme(theme.components,false).radius(kButtonRadius).onClick([] { db::AutomationTest t; t.name="未命名自动化测试"; t.projectId=g_requests.currentProjectId(); if (const auto* r=g_requests.find(activeTab().requestId)) t=g_loadtest.automationFromRequest(*r,10,"30s"); const std::string err=g_loadtest.saveAutomation(t); if(!err.empty()) showStatus("创建失败: "+err); else { g_loadtest.selectAutomation(t.id); showStatus("已创建自动化测试"); } }).build();
+        const auto& tests=g_loadtest.automationTests(); const float listY=40, listH=nonNegative(h-listY-kPanelPad);
+        apitab_components::contextScrollView(ui,"automation.sidebar.list").position(kPanelPad,listY).size(nonNegative(w-kPanelPad*2),listH).theme(theme.components).content([&](eui::Ui& c,float cw,float){ for(const auto& t:tests){ const bool selected=t.id==g_loadtest.selectedAutomationId(); const std::string id="automation.item."+std::to_string(t.id); const std::string name=t.name; c.stack(id).size(cw,30).content([&, id, name, selected]{ c.rect(id+".bg").size(cw,30).color(selected?components::theme::withAlpha(theme.components.primary,.18f):core::Color{0,0,0,0}).radius(5).build(); c.text(id+".name").position(8,0).size(nonNegative(cw-16),30).text(name).fontSize(kFontBody).lineHeight(30).color(theme.bodyText).verticalAlign(core::VerticalAlign::Center).zIndex(1).build(); c.rect(id+".hit").size(cw,30).color(core::Color{0,0,0,0}).zIndex(2).onContextMenu([id=t.id](const eui::PointerEvent& e,const eui::Rect&){g_automationMenuTargetId=id;g_automationMenuX=e.x;g_automationMenuY=e.y;g_automationMenuOpen=true;}).onClick([id=t.id]{g_loadtest.selectAutomation(id);}).build(); }).build(); } if(tests.empty()) c.text("automation.empty").position(4,4).size(cw-8,30).text("点击 + 新建自动化测试").fontSize(kFontLabel).color(theme.hintText).build(); }).build();
+    });
+}
 
 // 侧栏几何由 app 壳层决定：top/bottom 对齐项目 shell 岛的上下边，
 // width 在窄窗口被壳层收缩（不再固定 190 把右侧内容压成负宽）。
@@ -316,8 +346,12 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top, float
     const float w = nonNegative(width);
     const float bgH = nonNegative(bottom - top);
 
-    ui.rect("sidebar.bg").position(x0, top).size(w, bgH)
-        .color(components::theme::withAlpha(tokens.surface, theme.dark ? 0.35f : 0.6f)).build();
+    const bool sidebarPopupOpen = g_collectionMenuOpen || g_groupMenuOpen ||
+                                  g_requestTypeMenuOpen || g_requestMenuOpen ||
+                                  g_automationMenuOpen;
+    drawIsland(ui, "sidebar.island", x0, top, w, bgH, theme,
+               theme.dark ? 0.48f : 0.72f,
+               sidebarPopupOpen ? kPopupHostZIndex : kIslandPopupZIndex, [&] {
 
     auto openCollectionMenu = [](const eui::PointerEvent& event, const eui::Rect&) {
         g_requestMenuOpen = false;
@@ -327,32 +361,35 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top, float
         g_collectionMenuY = static_cast<float>(event.y);
     };
 
-    ui.rect("sidebar.title.context").position(x0, top).size(w, 36.0f)
-        .color(core::Color{0, 0, 0, 0}).onContextMenu(openCollectionMenu).build();
-    ui.text("sidebar.title").position(x0 + kMargin, top + 8.0f)
+    ui.rect("sidebar.title.context").position(kPanelPad, kPanelPad)
+        .size(nonNegative(w - kPanelPad * 2.0f - 34.0f), 30.0f)
+        .color(core::Color{0, 0, 0, 0}).onContextMenu(openCollectionMenu).zIndex(1).build();
+    ui.text("sidebar.title").position(kMargin + kPanelPad, 8.0f)
         .size(nonNegative(w - kMargin * 2.0f - 30.0f), 22.0f).text("请求集合")
         .fontSize(kFontBody + 1.0f).lineHeight(22.0f).color(theme.titleText)
         .verticalAlign(core::VerticalAlign::Center).build();
-    const float newX = x0 + nonNegative(w - kMargin - 24.0f);
+    const float newX = w - kPanelPad - 24.0f;
     if (w >= 56.0f) {
-        components::button(ui, "sidebar.new")
-            .position(newX, top + 8.0f).size(24.0f, 22.0f)
-            .icon(0xF067).text("").iconSize(10.0f).theme(tokens, false)
-                .radius(11.0f)
-            .build();
-        components::mouseArea(ui, "sidebar.new.hit")
-            .position(newX, top + 8.0f).size(24.0f, 22.0f).zIndex(1)
-            .onTap([](const components::MouseEvent& event) {
-                openRequestTypeMenu(event.bounds.x, event.bounds.y + event.bounds.height);
+        ui.stack("sidebar.new.wrap")
+            .position(newX, 8.0f).size(24.0f, 22.0f).zIndex(3)
+            .content([&] {
+                components::button(ui, "sidebar.new")
+                    .size(24.0f, 22.0f)
+                    .icon(0xF067).text("").iconSize(10.0f).theme(tokens, false)
+                    .radius(kButtonRadius)
+                    .onClick([x = newX, y = top + 8.0f + 22.0f] {
+                        openRequestTypeMenu(kRailWidth + x, y);
+                    })
+                    .build();
             }).build();
     }
 
     const auto& items = g_requests.list();
     const auto& groups = g_requests.groups();
-    const float listY = top + 36.0f;
-    const float listH = nonNegative(bottom - listY - 4.0f);
+    const float listY = 36.0f + kPanelPad;
+    const float listH = nonNegative(bgH - listY - kPanelPad);
     apitab_components::contextScrollView(ui, "sidebar.list")
-        .position(x0, listY).size(std::max(0.0f, w), std::max(0.0f, listH)).offset(g_sidebarScroll).step(40.0f).theme(tokens)
+        .position(kPanelPad, listY).size(std::max(0.0f, w - kPanelPad * 2.0f), std::max(0.0f, listH)).offset(g_sidebarScroll).step(40.0f).theme(tokens)
         .onChange([](float value) { g_sidebarScroll = value; })
         .onContextMenu(openCollectionMenu)
         .content([&](eui::Ui& content, float contentWidth, float) {
@@ -393,7 +430,7 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top, float
     components::contextMenu(ui, "sidebar.collection.menu")
         .open(g_collectionMenuOpen).screen(screen.width, screen.height)
         .position(g_collectionMenuX, g_collectionMenuY).size(150.0f, 26.0f)
-        .items({"新建请求", "新建目录"}).theme(tokens).zIndex(100)
+        .items({"新建请求", "新建目录"}).theme(tokens).zIndex(kContextMenuZIndex)
         .onSelect([](int index) {
             g_collectionMenuOpen = false;
             if (index == 0) openRequestTypeMenu(g_collectionMenuX, g_collectionMenuY);
@@ -414,7 +451,7 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top, float
             {"重命名"},
             {"删除"},
         })
-        .theme(tokens).zIndex(102)
+        .theme(tokens).zIndex(kContextMenuZIndex + 2)
         .onSelectPath([](const std::vector<int>& path) {
             const std::int64_t groupId = g_groupMenuTargetId;
             const db::Group* group = g_requests.findGroup(groupId);
@@ -459,7 +496,7 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top, float
             {"HTTP 请求"},
             {"其他请求类型", {{"WebSocket"}, {"TCP"}}},
         })
-        .theme(tokens).zIndex(103)
+        .theme(tokens).zIndex(kContextMenuZIndex + 3)
         .onSelectPath([](const std::vector<int>& path) {
             const std::int64_t groupId = g_requestTypeGroupId;
             if (path == std::vector<int>{0}) createHttpDraft(groupId);
@@ -473,7 +510,7 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top, float
     components::contextMenu(ui, "sidebar.request.menu")
         .open(g_requestMenuOpen).screen(screen.width, screen.height)
         .position(g_requestMenuX, g_requestMenuY).size(150.0f, 26.0f)
-        .items({"重命名", "删除"}).theme(tokens).zIndex(101)
+        .items({"重命名", "删除"}).theme(tokens).zIndex(kContextMenuZIndex + 1)
         .onSelect([](int index) {
             const std::int64_t requestId = g_requestMenuTargetId;
             g_requestMenuOpen = false;
@@ -493,9 +530,12 @@ export void drawSidebar(eui::Ui& ui, const eui::Screen& screen, float top, float
             g_requestMenuOpen = open;
             if (!open) g_requestMenuTargetId = 0;
         }).build();
+        components::contextMenu(ui,"automation.menu").open(g_automationMenuOpen).screen(screen.width,screen.height).position(g_automationMenuX,g_automationMenuY).size(120,26).items({"重命名","删除"}).theme(theme.components).onSelect([&](int i){ const auto id=g_automationMenuTargetId; g_automationMenuOpen=false; for(const auto& t:g_loadtest.automationTests()) if(t.id==id){ if(i==0){g_automationRenameText=t.name;g_renameAutomationId=id;g_renameAutomationOpen=true;} else askConfirm("删除自动化测试",std::format("将删除「{}」",t.name),[id]{showStatus(g_loadtest.removeAutomation(id).empty()?"已删除":"删除失败");}); break; } }).onOpenChange([](bool o){g_automationMenuOpen=o;}).build();
+    });
 }
 
 export void drawSidebarDialogs(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
+    drawAutomationRenameDialog(ui, screen, theme);
     drawNewGroupDialog(ui, screen, theme);
     drawRenameRequestDialog(ui, screen, theme);
 }

@@ -85,8 +85,20 @@ export const AppTheme kDarkTheme = {
         // 近纯黑底 + 纯白主色（对齐 tinynext 简洁极客风）。
         tokens.background = {0.04f, 0.04f, 0.05f, 1.0f};
         tokens.primary = {1.0f, 1.0f, 1.0f, 1.0f};
-        // eui input 默认字号 17 未按设计值书写，在 uiScale 下放得过大；覆写为 13。
-        tokens.metrics.typography.input = 13.0f;
+        tokens.metrics.typography.micro = 9.0f;
+        tokens.metrics.typography.caption = 10.0f;
+        tokens.metrics.typography.hint = 10.0f;
+        tokens.metrics.typography.label = 10.0f;
+        tokens.metrics.typography.option = 10.0f;
+        tokens.metrics.typography.body = 11.0f;
+        tokens.metrics.typography.input = 11.0f;
+        tokens.metrics.typography.control = 11.0f;
+        tokens.metrics.typography.cardTitle = 12.0f;
+        tokens.metrics.typography.subtitle = 12.0f;
+        tokens.metrics.typography.title = 14.0f;
+        tokens.metrics.typography.heading = 16.0f;
+        tokens.metrics.radius.card = 8.0f;
+        tokens.metrics.radius.overlay = 8.0f;
         return tokens;
     }(),
 };
@@ -107,7 +119,21 @@ export const AppTheme kLightTheme = {
         auto tokens = components::theme::light();
         tokens.primary = {0.0f, 0.0f, 0.0f, 1.0f};
         tokens.background = {0.96f, 0.96f, 0.96f, 1.0f};
-        tokens.metrics.typography.input = 13.0f;
+        tokens.metrics.typography.micro = 9.0f;
+        tokens.metrics.typography.caption = 10.0f;
+        tokens.metrics.typography.hint = 10.0f;
+        tokens.metrics.typography.label = 10.0f;
+        tokens.metrics.typography.option = 10.0f;
+        tokens.metrics.typography.body = 11.0f;
+        tokens.metrics.typography.input = 11.0f;
+        tokens.metrics.typography.control = 11.0f;
+        tokens.metrics.typography.cardTitle = 12.0f;
+        tokens.metrics.typography.subtitle = 12.0f;
+        tokens.metrics.typography.title = 14.0f;
+        tokens.metrics.typography.heading = 16.0f;
+        tokens.metrics.radius.card = 8.0f;
+        tokens.metrics.radius.popup = 8.0f;
+        tokens.metrics.radius.overlay = 8.0f;
         return tokens;
     }(),
 };
