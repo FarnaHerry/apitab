@@ -18,6 +18,7 @@ module;
 #include <windows.h>
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
+#include <unistd.h>  // access, X_OK（executableExists；__APPLE__ 也走 access 分支）
 #else
 #include <unistd.h>  // readlink, access, X_OK
 #include <limits.h>  // PATH_MAX

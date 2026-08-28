@@ -166,6 +166,10 @@ set(EUI_ENABLE_MARKDOWN OFF CACHE BOOL "" FORCE)
 set(EUI_WINDOW_BACKEND "glfw" CACHE STRING "" FORCE)
 set(EUI_RENDER_BACKEND "opengl" CACHE STRING "" FORCE)
 set(EUI_DEPS_MODE "bundled" CACHE STRING "" FORCE)
+# glfw 保持 X11-only（与原 compat.glfw 形状一致）：Wayland 后端需要 wayland-scanner
+# 等额外依赖，旧构建的打包/运行路径（XWayland）也是这么走的。
+set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_X11 ON CACHE BOOL "" FORCE)
 # X11 兜底前缀只对 eui 子树生效（本文件里它是最后一个 add_subdirectory）
 if(APITAB_X11_FALLBACK_PREFIX)
     set(CMAKE_PREFIX_PATH "${APITAB_X11_FALLBACK_PREFIX}")
