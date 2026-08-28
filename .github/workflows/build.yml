@@ -225,7 +225,12 @@ jobs:
           curl -fL --retry 3 -o k6-tmp/checksums.txt "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-checksums.txt"
           expected="$(awk -v name="$archive" '$2 == name { print $1; exit }' k6-tmp/checksums.txt)"
           [[ -n "$expected" ]] || { echo "checksum entry missing for $archive" >&2; exit 1; }
-          actual="$(sha256sum "k6-tmp/$archive" | cut -d' ' -f1)"
+          # macOS 没有 sha256sum，用自带的 shasum
+          if command -v sha256sum >/dev/null; then
+            actual="$(sha256sum "k6-tmp/$archive" | cut -d' ' -f1)"
+          else
+            actual="$(shasum -a 256 "k6-tmp/$archive" | awk '{print $1}')"
+          fi
           [[ "$actual" == "$expected" ]] || { echo "checksum mismatch for $archive" >&2; exit 1; }
           if [[ "$archive" == *.zip ]]; then
             unzip -q "k6-tmp/$archive" -d k6-tmp
@@ -269,11 +274,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $zip = Join-Path $env:RUNNER_TEMP 'nsis.zip'
-          curl.exe -fsSL --retry 3 --retry-delay 5 -o $zip 'https://sourceforge.net/projects/nsis/files/NSIS%203/3.10/nsis-3.10.zip/download'
-          Expand-Archive -Path $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'nsis') -Force
-          $nsis = Join-Path $env:RUNNER_TEMP 'nsis\nsis-3.10'
-          if (-not (Test-Path (Join-Path $nsis 'makensis.exe'))) { throw 'NSIS extract failed' }
+          choco install nsis -y --no-progress
+          $nsis = 'C:\Program Files (x86)\NSIS'
+          if (-not (Test-Path (Join-Path $nsis 'makensis.exe'))) { throw 'NSIS install failed' }
           $nsis | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Package Windows zip

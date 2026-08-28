@@ -8,8 +8,10 @@ exe="${3:?usage: ci-package.sh <os> <arch> <exe> <k6>}"
 k6="${4:?usage: ci-package.sh <os> <arch> <exe> <k6>}"
 version="$(grep -m1 -E '^project\(apitab +VERSION ' "$root/CMakeLists.txt" | sed -E 's/.*VERSION +([0-9.]+).*/\1/')"
 [[ "$os" == linux || "$os" == macos ]] || { echo "unsupported OS: $os" >&2; exit 1; }
-test -x "$exe"
-test -x "$k6"
+# upload-artifact 不保留可执行位：这里只要求文件存在，打包时统一 chmod
+chmod +x "$exe" "$k6" 2>/dev/null || true
+test -f "$exe"
+test -f "$k6"
 test -d "$root/assets"
 
 dist="$root/dist"
