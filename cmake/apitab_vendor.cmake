@@ -17,13 +17,10 @@ function(apitab_extract name archive sha256 topdir)
         message(STATUS "apitab vendor: extracting ${archive} -> ${dest}")
         file(REMOVE_RECURSE "${dest}")
         file(MAKE_DIRECTORY "${dest}")
-        # CMake 4.0 起 ARCHIVE_EXTRACT 改为 INPUT/DESTINATION 关键字形式，
-        # 位置参数形式在 4.0+ 直接报错；3.x 仍只认旧形式。
-        if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
-            file(ARCHIVE_EXTRACT INPUT "${archive}" DESTINATION "${dest}")
-        else()
-            file(ARCHIVE_EXTRACT "${archive}" TO "${dest}")
-        endif()
+        # INPUT/DESTINATION 是 file(ARCHIVE_EXTRACT) 的正式签名（3.30+ 均一致；
+        # 不要写成位置参数 + TO —— 那个形式任何版本都不存在，会报
+        # "Unrecognized argument: <archive>"）
+        file(ARCHIVE_EXTRACT INPUT "${archive}" DESTINATION "${dest}")
         if(NOT EXISTS "${dest}/${topdir}")
             message(FATAL_ERROR "apitab vendor: ${archive} 里找不到 ${topdir}")
         endif()
