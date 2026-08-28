@@ -82,9 +82,6 @@ jobs:
           chmod +x dist-src/apitab
           file dist-src/apitab
 
-      - name: Check source whitespace
-        run: git -C "$GITHUB_WORKSPACE" diff --check
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -162,6 +159,8 @@ jobs:
           Get-Item dist-src/*
 
       - name: Check source whitespace
+        # 只在非容器 job（macos）上做：容器 job 里 checkout 在宿主机跑、run 在
+        # 容器里跑，容器内的 git 看不到宿主机建立的仓库。
         if: runner.os == 'macOS'
         run: git diff --check
 
