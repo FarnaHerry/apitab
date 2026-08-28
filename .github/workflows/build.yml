@@ -20,13 +20,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Linux 用容器锁 GCC 15：CMake 对 import std 的 GNU 支持要求 GCC ≥15
-  # （需要 libstdc++.modules.json，24.04 默认 GCC 13.3 不够）。
+  # Linux 用 ubuntu:26.04 容器 + clang-21/libc++：
+  #  - CMake 的 GNU import-std 发现是 4.0+ 才有的，且需要 GCC ≥15 的
+  #    libstdc++.modules.json；25.10 的 3.31 不带（装 pip cmake 4.4.2 可解），
+  #    但 GCC 15 对 vendored asio/json 模块包装器报 "exposes TU-local entity"
+  #    （GCC 16 放宽了这条规则，26.04 的 g++-16 是 trunk 快照会 ICE）。
+  #  - clang+libc++ 是本仓库的原始工具链形状（mcpp 时代也是 clang），26.04 的
+  #    libc++-21-dev 自带 std 模块与 modules.json（Debian 打包的相对路径是坏的，
+  #    需按 llvm-21 前缀改写为绝对路径，见下方步骤）。
   build-linux:
     name: build-linux-x64
     runs-on: ubuntu-24.04
     container:
-      image: ubuntu:25.10
+      image: ubuntu:26.04
     steps:
       - name: Install container baseline
         run: |
@@ -39,16 +45,32 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get install -y --no-install-recommends \
-            build-essential g++-15 cmake ninja-build pkg-config file \
+            clang-21 libc++-21-dev ninja-build pkg-config file python3 python3-pip \
             libssl-dev \
             libgl1-mesa-dev mesa-common-dev \
             libx11-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev \
             libxext-dev libxfixes-dev libxrender-dev libxcb1-dev libxau-dev libxdmcp-dev
+          # 26.04 的 apt cmake 是 3.31（无 GNU 发现模块且全局 token 不匹配），固定 pip 4.4.2
+          python3 -m pip install --break-system-packages -q cmake==4.4.2
+          cmake --version | head -1
+          # Debian 打包的 libc++.modules.json 相对路径坏指 /lib/share/...，
+          # 按 /usr/lib/llvm-21 的真实布局改写为绝对路径
+          python3 -c "
+          import json
+          p = '/usr/lib/x86_64-linux-gnu/libc++.modules.json'
+          d = json.load(open(p))
+          for m in d['modules']:
+              m['source-path'] = '/usr/lib/llvm-21/share/libc++/v1/' + m['source-path'].split('/')[-1]
+              m['local-arguments']['system-include-directories'] = ['/usr/lib/llvm-21/share/libc++/v1']
+          json.dump(d, open(p, 'w'), indent=1)"
 
       - name: Configure
         run: |
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=gcc-15 -DCMAKE_CXX_COMPILER=g++-15
+            -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+            -DCMAKE_CXX_FLAGS='-stdlib=libc++' \
+            -DCMAKE_EXE_LINKER_FLAGS='-stdlib=libc++' \
+            -DCMAKE_SHARED_LINKER_FLAGS='-stdlib=libc++'
 
       - name: Build release
         run: cmake --build build --config Release --parallel

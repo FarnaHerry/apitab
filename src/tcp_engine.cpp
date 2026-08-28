@@ -1,9 +1,15 @@
 // tcp_engine.cpp — Asio 原始 TCP / TCPS 实现；回调只投递事件并唤醒 UI。
-// asio 全部经 `import asio;`（cmake/asio.cppm）；不要在全局片段里 #include asio 头
+// asio 走 `import asio;`（cmake/asio.cppm）；不要在全局片段里无条件 #include asio 头
 // —— 模块 BMI 与头文件各自的内部链接静态对象会在 GCC 下重复定义。
+// MSVC 例外：BMI 全局片段里的模板定义对实现单元的实例化不可达，需直接包含
+// 完整头（ASIO_SEPARATE_COMPILATION 下只有声明，与 asio 库一致，无重复实现）。
 module;
 
 #include <openssl/ssl.h>
+#ifdef _MSC_VER
+#include <asio.hpp>
+#include <asio/ssl.hpp>
+#endif
 
 namespace core::platform { void requestUiUpdate(); }
 
