@@ -11,8 +11,9 @@ InstallDir "$LOCALAPPDATA\Programs\apitab"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 !define MUI_ABORTWARNING
-!define MUI_ICON "assets\icon.ico"
-!define MUI_UNICON "assets\icon.ico"
+; NSIS 的相对路径以脚本所在目录（packaging/）为基准
+!define MUI_ICON "..\assets\icon.ico"
+!define MUI_UNICON "..\assets\icon.ico"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\apitab.exe"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -24,7 +25,7 @@ SetCompressor /SOLID lzma
 
 Section "apitab" SecMain
     SetOutPath "$INSTDIR"
-    File /r "dist\*"
+    File /r "..\dist\*"
     CreateDirectory "$SMPROGRAMS\apitab"
     CreateShortCut "$SMPROGRAMS\apitab\apitab.lnk" "$INSTDIR\apitab.exe" "" "$INSTDIR\assets\icon.ico"
     CreateShortCut "$SMPROGRAMS\apitab\Uninstall apitab.lnk" "$INSTDIR\Uninstall.exe"
