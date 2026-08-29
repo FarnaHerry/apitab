@@ -12,10 +12,12 @@ huxerui::View PageHeader(std::string title, std::string subtitle);
 huxerui::View MigrationPlaceholder(std::string pageName);
 
 // home_page.cpp
-huxerui::View HomePage(huxerui::State<std::size_t> selected, huxerui::State<std::int64_t> opened);
+huxerui::View HomePage(huxerui::State<std::size_t> navPage,
+                       huxerui::State<std::vector<std::int64_t>> tabs,
+                       huxerui::State<std::int64_t> activeProject);
 
 // request_page.cpp
-huxerui::View RequestPage(huxerui::State<std::int64_t> opened);
+huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject);
 
 // loadtest_page.cpp
 huxerui::View LoadTestPage();
