@@ -67,8 +67,9 @@ enum PageIndex : std::size_t {
 
 namespace {
 
-// 标题栏内容统一高度：Logo / 主页标签 / 项目标签 / 齿轮全部 24pt，垂直居中。
-constexpr float kTitleBarContentHeight = 24.0F;
+// 标题栏内容统一高度：Logo / 主页标签 / 项目标签 / 齿轮全部 20pt，垂直居中。
+// 20pt 低于系统窗口按钮条的最小高度，不再由我们的内容把整条标题栏顶高。
+constexpr float kTitleBarContentHeight = 20.0F;
 
 // 极简 AI 黑白风主题（对齐 tinynext 的 heibu geekBlack/geekWhite 配色）：
 // 深色 = 近纯黑底 + 纯白主色（主色控件白底黑字）；浅色 = 近白底 + 纯黑主色。
@@ -195,7 +196,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                                               .Style(huxerui::TextStyle{
                                                   .font = badgeFont,
                                                   .foreground = tabForeground})}}
-            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 4.0F)),
+            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
                   huxerui::Spacing(4.0F), huxerui::Frame{.max_width = 140.0F},
                   huxerui::ClipChildren(),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
@@ -217,8 +218,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
               huxerui::Foreground(tabForeground),
               huxerui::CornerRadius(theme.shapes.medium),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-              huxerui::Padding(iconOnly ? huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)
-                                        : huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
+              huxerui::Padding(iconOnly ? huxerui::EdgeInsets::Symmetric(4.0F, 1.0F)
+                                        : huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
               iconOnly ? huxerui::Frame{.width = 32.0F, .height = kTitleBarContentHeight}
                        : huxerui::Frame{.height = kTitleBarContentHeight});
 }
@@ -407,7 +408,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
 
     huxerui::View content = huxerui::Column {
         // 自定义标题栏岛：Logo + 项目标签条 + 齿轮（框架在其右侧渲染窗口按钮）。
-        // 全部内容统一 24pt 高（kTitleBarContentHeight）；WindowTitleBar 构造即带
+        // 全部内容统一 20pt 高（kTitleBarContentHeight）；WindowTitleBar 构造即带
         // 交叉轴居中，这里给中间标签条包装 Row 也补上居中，任何一侧偏高都不漂移。
         huxerui::WindowTitleBar {
             LogoBadge(),
