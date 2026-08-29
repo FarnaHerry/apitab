@@ -1,8 +1,9 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 托盘）：
-//   标题栏岛：Logo(AT) + 顶级项目标签条（Grow，超长项目名裁剪）+ 齿轮(全局设置)
-//     + 框架窗口按钮；底色随全局主题（surface_container_low），深色主题为
+//   标题栏岛：Logo(AT) + 顶级项目标签条（主页钉在最左，项目标签横向滚动）+ 齿轮
+//     (全局设置) + 框架窗口按钮；底色随全局主题（surface_container_low），深色主题为
 //     「AI 极客风」近黑配色（GeekDarkThemeSpec）。
-//   下方：左侧图标侧边栏岛（Tooltip 悬停提示）｜内容岛。
+//   下方：左侧图标侧边栏（无岛屿包裹，直接落在窗口背景上）｜内容岛（surface 大圆角）。
+//   响应式：UseViewportClass() Compact 时收窄侧栏宽度与各处间距。
 // 托盘：托盘图标/菜单（显示主窗口/退出）；关闭行为三选（每次询问/直接关闭/
 //   最小化到托盘），未配置时第一次关闭弹窗询问并把选择写入配置。
 #include <huxerui/huxerui.h>
@@ -52,10 +53,7 @@ enum PageIndex : std::size_t {
                        : MigrationPlaceholder("请求（在项目标签页内使用；先在主页打开项目）");
         case kLoad:
             return LoadTestPage();
-        case kWebSocket:
-            return WebSocketPage();
-        case kTcp:
-            return TcpPage();
+        // kWebSocket/kTcp 不再可达：已并入请求页内部标签（PageIndex 枚举值保留）。
         case kHistory:
             return HistoryPage();
         case kProjectSettings:
@@ -156,7 +154,7 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
     const auto badgeFont =
         huxerui::Font::System(12.0F).WithWeight(huxerui::FontWeight::SemiBold);
     // 主页标签只放图标：省略文字、收窄边距并固定窄宽，避免挤占项目标签空间；
-    // 项目标签限宽 180 并裁剪子内容，超长项目名截断显示。
+    // 限宽与裁剪只压内部「切换区」（图标+文字），长项目名截断而行尾 ✕ 永远完整显示。
     const bool iconOnly = name.empty();
     return huxerui::Row {
         // 切换区：点击 = 激活本标签。
@@ -168,7 +166,8 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
                                                   .font = badgeFont,
                                                   .foreground = tabForeground})}}
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 4.0F)),
-                  huxerui::Spacing(4.0F))
+                  huxerui::Spacing(4.0F), huxerui::Frame{.max_width = 140.0F},
+                  huxerui::ClipChildren())
             .OnClick([activateProject, id] { activateProject(id); }),
         // 关闭区（仅项目标签）：独立兄弟，点击关闭标签页。
         id != 0
@@ -186,65 +185,74 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
         .With(huxerui::Spacing(0.0F), huxerui::Background(tabFill),
               huxerui::Foreground(tabForeground),
               huxerui::CornerRadius(theme.shapes.medium),
-              huxerui::ClipChildren(),
               huxerui::Padding(iconOnly ? huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)
                                         : huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
               iconOnly ? huxerui::Frame{.width = 32.0F, .height = 28.0F}
-                       : huxerui::Frame{.height = 28.0F, .max_width = 180.0F});
+                       : huxerui::Frame{.height = 28.0F});
 }
 
-// 顶级标签条：第一个为主页（固定不可关，房子图标），其后每个项目一个可关标签。
+// 顶级标签条：主页标签（房子图标，固定不可关）钉在最左不参与滚动；
+// 其余每个打开的项目一个可关标签，放进横向 ScrollView，溢出时滚动而不是挤变形。
 [[huxerui::composable]] huxerui::View ProjectTabStrip(
     huxerui::State<std::size_t> navPage, huxerui::State<std::vector<std::int64_t>> tabs,
     huxerui::State<std::int64_t> activeProject) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
 
-    std::vector<std::pair<std::int64_t, std::string>> items;
-    items.emplace_back(0, ""); // 主页标签：图标 only，无文字
+    // 主页标签：图标 only，无文字。
+    huxerui::View homeTab =
+        ProjectTab(navPage, tabs, activeProject, 0,
+                   huxerui::View{huxerui::Image(app::images::home)
+                                     .With(huxerui::Frame{.width = 16.0F, .height = 16.0F})},
+                   "")
+            .Key(std::int64_t{0});
+
+    std::vector<huxerui::View> chips;
     for (const db::Project& p : g_requests.allProjects()) {
         for (std::int64_t id : tabs.Get()) {
-            if (id == p.id) items.emplace_back(p.id, p.name);
+            if (id != p.id) continue;
+            chips.push_back(
+                ProjectTab(navPage, tabs, activeProject, p.id,
+                           huxerui::View{huxerui::Spacer().With(huxerui::Frame{.width = 0.0F})},
+                           p.name)
+                    .Key(p.id));
         }
     }
 
-    std::vector<huxerui::View> chips;
-    for (const auto& [id, name] : items) {
-        // 主页标签只放房子图标（无文字），项目标签用项目名。
-        const huxerui::View leading =
-            id == 0 ? huxerui::View{huxerui::Image(app::images::home)
-                                        .With(huxerui::Frame{.width = 16.0F, .height = 16.0F})}
-                    : huxerui::View{huxerui::Spacer().With(huxerui::Frame{.width = 0.0F})};
-        chips.push_back(ProjectTab(navPage, tabs, activeProject, id, std::move(leading), name)
-                            .Key(id == 0 ? 0LL : id));
+    return huxerui::Row {
+        std::move(homeTab),
+        huxerui::ScrollView(huxerui::Row(std::move(chips))
+                                .With(huxerui::Spacing(theme.spacing.small),
+                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)))
+            .ScrollAxis(huxerui::Axis::Horizontal)
+            .With(huxerui::ScrollBar{}, huxerui::Grow(1.0F)),
     }
-
-    return huxerui::Row(std::move(chips))
         .With(huxerui::Spacing(theme.spacing.small),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
-// 左列岛：图标侧边栏（选中态用实心图标变体，悬停显示文字提示）。
+// 左列：图标侧边栏（选中态用实心图标变体，悬停显示文字提示）。
+// 去岛屿包裹：图标按钮直接落在窗口背景上；WebSocket/TCP 已并入请求页标签，不再单列。
 [[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
+    const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     struct Item {
         huxerui::ImageResource icon;
         huxerui::ImageResource icon_selected;
         const char* tooltip;
+        std::size_t page; // 目标页码（PageIndex），不再用下标推算
     };
-    const std::array<Item, 6> items{
-        Item{app::images::request, app::images::request_selected, "请求"},
-        Item{app::images::loadtest, app::images::loadtest_selected, "压测"},
-        Item{app::images::websocket, app::images::websocket_selected, "WebSocket"},
-        Item{app::images::tcp, app::images::tcp_selected, "TCP"},
-        Item{app::images::history, app::images::history_selected, "历史记录"},
-        Item{app::images::project_settings, app::images::project_settings_selected, "项目设置"},
+    const std::array<Item, 4> items{
+        Item{app::images::request, app::images::request_selected, "请求", pages::kRequest},
+        Item{app::images::loadtest, app::images::loadtest_selected, "压测", pages::kLoad},
+        Item{app::images::history, app::images::history_selected, "历史记录", pages::kHistory},
+        Item{app::images::project_settings, app::images::project_settings_selected, "项目设置",
+             pages::kProjectSettings},
     };
 
     std::vector<huxerui::View> buttons;
-    for (std::size_t i = 0; i < items.size(); ++i) {
-        const Item& item = items[i];
-        const std::size_t page = i + 1; // 侧栏项从 kRequest 开始
+    for (const Item& item : items) {
+        const std::size_t page = item.page;
         const huxerui::ImageResource& icon = navPage.Get() == page ? item.icon_selected : item.icon;
         buttons.push_back(
             huxerui::IconButton(icon, item.tooltip)
@@ -258,9 +266,9 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
                 .With(huxerui::Tooltip(item.tooltip)));
     }
     return huxerui::Column(std::move(buttons))
-        .With(huxerui::Padding(theme.spacing.medium), huxerui::Spacing(theme.spacing.small),
-              huxerui::Background(theme.colors.surface_container_low),
-              huxerui::CornerRadius(theme.shapes.large), huxerui::Frame{.width = 64.0F},
+        .With(huxerui::Padding(compact ? theme.spacing.small : theme.spacing.medium),
+              huxerui::Spacing(theme.spacing.small),
+              huxerui::Frame{.width = compact ? 44.0F : 56.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
@@ -295,6 +303,9 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
     auto closeBehavior = huxerui::UseState<int>(std::move(initialCloseBehavior));
     auto closeDialogOpen = huxerui::UseState(false);
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    // 响应式：Compact(<600) 收窄间距，Medium/Expanded 保持现状。
+    const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
+    const float gap = compact ? theme.spacing.extra_small : theme.spacing.medium;
 
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
@@ -371,19 +382,25 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
                 })
                 .With(huxerui::Tooltip("全局设置"), huxerui::Frame{.height = 28.0F}),
         }
-            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(theme.spacing.medium,
-                                                                  theme.spacing.extra_small)),
-                  huxerui::Spacing(theme.spacing.medium),
+            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
+                      compact ? theme.spacing.small : theme.spacing.medium,
+                      theme.spacing.extra_small)),
+                  huxerui::Spacing(gap),
                   huxerui::Background(theme.colors.surface_container_low)),
+        // 主行：侧栏（无岛屿包裹）+ 内容岛；Grow 吃满标题栏之外的剩余高度。
         huxerui::Row {
             SideShell(navPage),
+            // 内容岛：surface 底色 + 大圆角 + 裁剪，与页内 surface_container_low 小岛拉开层级。
             pages::PageFor(navPage.Get(), navPage, tabs, activeProject, themeMode, closeBehavior)
-                .Key(navPage.Get() * 100000 + activeProject.Get()),
+                .Key(navPage.Get() * 100000 + activeProject.Get())
+                .With(huxerui::Grow(1.0F), huxerui::Background(theme.colors.surface),
+                      huxerui::CornerRadius(theme.shapes.large), huxerui::ClipChildren()),
         }
-            .With(huxerui::Spacing(theme.spacing.medium),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+            .With(huxerui::Spacing(gap),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                  huxerui::Grow(1.0F)),
     }
-                               .With(huxerui::Spacing(theme.spacing.medium));
+                               .With(huxerui::Spacing(gap));
 
     // 深色分支用极客风自定义 spec（MaterialDarkTheme 无自定义 spec 构造，走
     // MaterialTheme(spec, content)）；浅色分支保持内置 Material 浅色。
