@@ -19,8 +19,10 @@ const huxerui::Application application{
             .title = "apitab — API 测试与压测",
             .initial_size = {1180.0F, 760.0F},
             .chrome_mode = huxerui::WindowChromeMode::Custom,
-            // 自定义标题栏的期望逻辑高度（SDK 会保留更大的系统控件最小值）。
-            // 内容高 24pt： tabs/齿轮均 Frame height=24。
-            .title_bar_height = 24.0F,
+            // 框架渲染的窗口按钮（─▢✕）有系统最小高度（约 32pt），小于它的期望值
+            // 会被保留下限——按钮条 32pt 而我们的内容条 24pt，两者中心线错开。
+            // 期望高度与系统下限对齐到同一条 32pt 带，内容（24pt）经
+            // WindowTitleBar 交叉轴居中与按钮共享同一中心线。
+            .title_bar_height = 32.0F,
         }},
 };
