@@ -127,12 +127,17 @@ namespace {
 
     const auto badgeFont =
         huxerui::Font::System(12.0F).WithWeight(huxerui::FontWeight::SemiBold);
+    // 主页标签只放图标：省略文字、收窄边距并固定窄宽，避免挤占项目标签空间。
+    const bool iconOnly = name.empty();
     return huxerui::Row {
         // 切换区：点击 = 激活本标签。
         huxerui::Row {std::move(leading),
-                      huxerui::Text(name, huxerui::TextRole::Label).Style(huxerui::TextStyle{
-                          .font = badgeFont,
-                          .foreground = tabForeground})}
+                      iconOnly
+                          ? huxerui::View{huxerui::Spacer().With(huxerui::Frame{.width = 0.0F})}
+                          : huxerui::View{huxerui::Text(name, huxerui::TextRole::Label)
+                                              .Style(huxerui::TextStyle{
+                                                  .font = badgeFont,
+                                                  .foreground = tabForeground})}}
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 4.0F)),
                   huxerui::Spacing(4.0F))
             .OnClick([activateProject, id] { activateProject(id); }),
@@ -152,8 +157,10 @@ namespace {
         .With(huxerui::Spacing(0.0F), huxerui::Background(tabFill),
               huxerui::Foreground(tabForeground),
               huxerui::CornerRadius(theme.shapes.medium),
-              huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
-              huxerui::Frame{.height = 28.0F});
+              huxerui::Padding(iconOnly ? huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)
+                                        : huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
+              iconOnly ? huxerui::Frame{.width = 32.0F, .height = 28.0F}
+                       : huxerui::Frame{.height = 28.0F});
 }
 
 // 顶级标签条：第一个为主页（固定不可关，房子图标），其后每个项目一个可关标签。
@@ -163,7 +170,7 @@ namespace {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
 
     std::vector<std::pair<std::int64_t, std::string>> items;
-    items.emplace_back(0, "主页");
+    items.emplace_back(0, ""); // 主页标签：图标 only，无文字
     for (const db::Project& p : g_requests.allProjects()) {
         for (std::int64_t id : tabs.Get()) {
             if (id == p.id) items.emplace_back(p.id, p.name);
@@ -172,7 +179,7 @@ namespace {
 
     std::vector<huxerui::View> chips;
     for (const auto& [id, name] : items) {
-        // 主页标签只放房子图标（去掉文字），项目标签用项目名。
+        // 主页标签只放房子图标（无文字），项目标签用项目名。
         const huxerui::View leading =
             id == 0 ? huxerui::View{huxerui::Image(app::images::home)
                                         .With(huxerui::Frame{.width = 16.0F, .height = 16.0F})}
