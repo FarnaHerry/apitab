@@ -67,6 +67,9 @@ enum PageIndex : std::size_t {
 
 namespace {
 
+// 标题栏内容统一高度：Logo / 主页标签 / 项目标签 / 齿轮全部 24pt，垂直居中。
+constexpr float kTitleBarContentHeight = 24.0F;
+
 // 极简 AI 黑白风主题（对齐 tinynext 的 heibu geekBlack/geekWhite 配色）：
 // 深色 = 近纯黑底 + 纯白主色（主色控件白底黑字）；浅色 = 近白底 + 纯黑主色。
 // 文本/描边只用地道中灰，状态色仅 error 保留柔和红。
@@ -116,11 +119,11 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     return spec;
 }
 
-// 软件徽标：字母 AT 合成的圆角块。
+// 软件徽标：字母 AT 合成的圆角块。与标题栏所有控件统一 24pt 高（kTitleBarHeight）。
 [[huxerui::composable]] huxerui::View LogoBadge() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Text("AT", huxerui::TextRole::Title)
-        .With(huxerui::Frame{.width = 32.0F, .height = 24.0F},
+        .With(huxerui::Frame{.width = 32.0F, .height = kTitleBarContentHeight},
               huxerui::Background(theme.colors.primary),
               huxerui::CornerRadius(theme.shapes.medium),
               huxerui::Foreground(theme.colors.on_primary),
@@ -180,6 +183,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
         huxerui::Font::System(12.0F).WithWeight(huxerui::FontWeight::SemiBold);
     // 主页标签只放图标：省略文字、收窄边距并固定窄宽，避免挤占项目标签空间；
     // 限宽与裁剪只压内部「切换区」（图标+文字），长项目名截断而行尾 ✕ 永远完整显示。
+    // 所有标签统一 kTitleBarContentHeight 高；内外两层 Row 都交叉轴居中，
+    // 图标/文字/✕ 不会在 24pt 条里各自顶格漂移。
     const bool iconOnly = name.empty();
     return huxerui::Row {
         // 切换区：点击 = 激活本标签。
@@ -192,7 +197,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                                                   .foreground = tabForeground})}}
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 4.0F)),
                   huxerui::Spacing(4.0F), huxerui::Frame{.max_width = 140.0F},
-                  huxerui::ClipChildren())
+                  huxerui::ClipChildren(),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
             .OnClick([activateProject, id] { activateProject(id); }),
         // 关闭区（仅项目标签）：独立兄弟，点击关闭标签页。
         id != 0
@@ -210,10 +216,11 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
         .With(huxerui::Spacing(0.0F), huxerui::Background(tabFill),
               huxerui::Foreground(tabForeground),
               huxerui::CornerRadius(theme.shapes.medium),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
               huxerui::Padding(iconOnly ? huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)
                                         : huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
-              iconOnly ? huxerui::Frame{.width = 32.0F, .height = 24.0F}
-                       : huxerui::Frame{.height = 24.0F});
+              iconOnly ? huxerui::Frame{.width = 32.0F, .height = kTitleBarContentHeight}
+                       : huxerui::Frame{.height = kTitleBarContentHeight});
 }
 
 // 顶级标签条：主页标签（房子图标，固定不可关）钉在最左不参与滚动；
@@ -400,9 +407,13 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
 
     huxerui::View content = huxerui::Column {
         // 自定义标题栏岛：Logo + 项目标签条 + 齿轮（框架在其右侧渲染窗口按钮）。
+        // 全部内容统一 24pt 高（kTitleBarContentHeight）；WindowTitleBar 构造即带
+        // 交叉轴居中，这里给中间标签条包装 Row 也补上居中，任何一侧偏高都不漂移。
         huxerui::WindowTitleBar {
             LogoBadge(),
-            huxerui::Row {ProjectTabStrip(navPage, tabs, activeProject)}.With(huxerui::Grow(1.0F)),
+            huxerui::Row {ProjectTabStrip(navPage, tabs, activeProject)}
+                .With(huxerui::Grow(1.0F),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             huxerui::IconButton(app::images::gear, "全局设置")
                 .OnClick([tasks, navPage] {
                     // 切页会卸载内容子树：推迟出指针事件路径
@@ -411,7 +422,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                         navPage = pages::kAppSettings;
                     });
                 })
-                .With(huxerui::Tooltip("全局设置"), huxerui::Frame{.height = 24.0F}),
+                .With(huxerui::Tooltip("全局设置"),
+                      huxerui::Frame{.width = 32.0F, .height = kTitleBarContentHeight}),
         }
             // 标签栏收窄 + 去背景：直接融入窗口底色，不再垫 surface_container_low。
             // 垂直零内边距：内容本身 24pt 高，与 title_bar_height 对齐，避免
