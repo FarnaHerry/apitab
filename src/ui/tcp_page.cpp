@@ -51,6 +51,7 @@ std::string StateName(api::TcpState s) {
 } // namespace
 
 // 事件流：独立重组作用域 —— 每 150ms 的 events 更新只重绘事件区。
+// 不定高：由调用方用 Grow 分配剩余高度，本区内部滚动。
 [[huxerui::composable]] huxerui::View TcpEventStream(huxerui::State<std::vector<std::string>> events,
                                                   const huxerui::ThemeSpec& theme) {
     return huxerui::ScrollView{huxerui::Column {
@@ -59,7 +60,8 @@ std::string StateName(api::TcpState s) {
                 .With(huxerui::Foreground(theme.colors.on_surface_variant));
         }),
     }
-                               .With(huxerui::Frame{.height = 300.0F})}.With(huxerui::ScrollBar());
+                               .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
+        .With(huxerui::ScrollBar());
 }
 
 [[huxerui::composable]] huxerui::View TcpPage() {
@@ -111,7 +113,10 @@ std::string StateName(api::TcpState s) {
         },
         0);
 
-    return huxerui::ScrollView{huxerui::Column {
+    // 本页嵌在请求页右岛里（右岛已有 Padding/Background）：根 Column 占满右岛
+    // 剩余区块（Grow + Stretch），操作区在顶部，事件流 Grow 吃满剩余高度并内部
+    // 滚动——不再整页套 ScrollView 自包含收缩。
+    return huxerui::Column {
         PageHeader("TCP", "状态: " + status.Get()),
         huxerui::TextField(address)
             .Label("tcp:// 或 tcps:// 地址")
@@ -136,7 +141,8 @@ std::string StateName(api::TcpState s) {
             huxerui::TextField(message)
                 .Label(hex.Get() ? "Hex 字节（如 68 65 6C 6C 6F）" : "文本消息")
                 .Variant(huxerui::TextFieldVariant::Outlined)
-                .OnChanged([message](const huxerui::TextEditingValue& value) { message = value; }),
+                .OnChanged([message](const huxerui::TextEditingValue& value) { message = value; })
+                .With(huxerui::Grow(1.0F)),
             huxerui::Button("发送").OnClick([=] {
                 const std::vector<std::uint8_t> bytes =
                     hex.Get() ? FromHex(message.Get().text)
@@ -152,10 +158,10 @@ std::string StateName(api::TcpState s) {
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
         huxerui::Text("事件", huxerui::TextRole::Title),
-        TcpEventStream(events, theme),
+        TcpEventStream(events, theme).With(huxerui::Grow(1.0F)),
     }
-                               .With(huxerui::Padding(theme.spacing.large),
-                                     huxerui::Spacing(theme.spacing.medium))}.With(huxerui::ScrollBar());
+        .With(huxerui::Spacing(theme.spacing.medium), huxerui::Grow(1.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 } // namespace apitab::ui

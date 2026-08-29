@@ -433,7 +433,11 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                                .With(huxerui::Spacing(gap),
                                      // 窗口整体背景：主题背景色刷满根节点，
                                      // 否则深色模式下岛间缝隙透出窗口默认白底。
-                                     huxerui::Background(rootSpec.colors.background));
+                                     huxerui::Background(rootSpec.colors.background),
+                                     // 交叉轴必须 Stretch：否则主行（侧栏+页面区）按内容
+                                     // 收缩成内容宽，页面里所有 Grow 失去上界、岛屿无法
+                                     // 占满逻辑区块（首页整体漂移/右对齐的根因）。
+                                     huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
     // 两个分支都走 MaterialTheme(spec, content) 自定义 spec：极简黑白双主题。
     return dark ? huxerui::View{huxerui::MaterialTheme(MinimalDarkThemeSpec(), content)}
