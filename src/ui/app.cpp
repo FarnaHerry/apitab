@@ -3,7 +3,8 @@
 //     (全局设置) + 框架窗口按钮；底色随全局主题（surface_container_low），深色主题为
 //     「AI 极客风」近黑配色（GeekDarkThemeSpec）。
 //   下方：左侧图标侧边栏（无岛屿包裹，直接落在窗口背景上）｜内容区（页面自己的
-//   一级岛屿划分区域，外壳不再套岛）。根节点刷 theme.colors.background 整窗底色。
+//   一级岛屿划分区域，外壳不再套岛）。根节点刷整窗底色（rootSpec.colors.background——
+//   AppRoot 在主题 provider 之上，UseTheme 只能拿到默认浅色 spec，须按 dark 自选）。
 //   响应式：UseViewportClass() Compact 时收窄侧栏宽度与各处间距。
 // 托盘：托盘图标/菜单（显示主窗口/退出）；关闭行为三选（每次询问/直接关闭/
 //   最小化到托盘），未配置时第一次关闭弹窗询问并把选择写入配置。
@@ -303,13 +304,17 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
     auto activeProject = huxerui::UseState<std::int64_t>(0);
     auto closeBehavior = huxerui::UseState<int>(std::move(initialCloseBehavior));
     auto closeDialogOpen = huxerui::UseState(false);
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    // 响应式：Compact(<600) 收窄间距，Medium/Expanded 保持现状。
-    const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
-    const float gap = compact ? theme.spacing.extra_small : theme.spacing.medium;
 
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
+    // 注意：AppRoot 里的 UseTheme() 拿到的是 MaterialTheme provider 之上（应用外）
+    // 的默认浅色 spec——主题由本函数返回时包进子树，自身读不到。所以根节点自身的
+    // 配色（整窗背景、标题栏底、间距）必须直接按 dark 选 spec；子组件在 provider
+    // 之下，它们的 UseTheme() 是正常的。
+    const huxerui::ThemeSpec rootSpec = dark ? GeekDarkThemeSpec() : huxerui::ThemeSpec{};
+    // 响应式：Compact(<600) 收窄间距，Medium/Expanded 保持现状。
+    const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
+    const float gap = compact ? rootSpec.spacing.extra_small : rootSpec.spacing.medium;
 
     // 托盘：图标 + 菜单；点击托盘图标激活主窗口。仅在可用时注册；
     // 首次组合时宿主未就绪则跳过，待可用性触发重组后再注册。
@@ -384,10 +389,10 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
                 .With(huxerui::Tooltip("全局设置"), huxerui::Frame{.height = 28.0F}),
         }
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
-                      compact ? theme.spacing.small : theme.spacing.medium,
-                      theme.spacing.extra_small)),
+                      compact ? rootSpec.spacing.small : rootSpec.spacing.medium,
+                      rootSpec.spacing.extra_small)),
                   huxerui::Spacing(gap),
-                  huxerui::Background(theme.colors.surface_container_low)),
+                  huxerui::Background(rootSpec.colors.surface_container_low)),
         // 主行：侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
         huxerui::Row {
@@ -403,7 +408,7 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
                                .With(huxerui::Spacing(gap),
                                      // 窗口整体背景：主题背景色刷满根节点，
                                      // 否则深色模式下岛间缝隙透出窗口默认白底。
-                                     huxerui::Background(theme.colors.background));
+                                     huxerui::Background(rootSpec.colors.background));
 
     // 深色分支用极客风自定义 spec（MaterialDarkTheme 无自定义 spec 构造，走
     // MaterialTheme(spec, content)）；浅色分支保持内置 Material 浅色。
