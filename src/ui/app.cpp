@@ -1,32 +1,30 @@
-// app.cppm — HuxerUI 前端根：侧栏导航 + 页面切换 + 会话恢复。
-module;
-
+// app.cpp — HuxerUI 前端根：侧栏导航 + 页面切换 + 会话恢复。
 #include <huxerui/huxerui.h>
 
-export module apitab.ui.app;
+#include <cstdint>
+#include <string>
+#include <vector>
 
-import std;
-import apitab.i18n;
+#include "ui.h"
+#include "app.h"
+
+import apitab.preferences;
 import apitab.db;
 import apitab.store.requests;
 import apitab.store.loadtest;
-import apitab.store.ui;
-import apitab.ui.common;
-import apitab.ui.home_page;
-import apitab.ui.request_page;
 
-export namespace apitab::ui {
+namespace apitab::ui {
 
 namespace pages {
 
 enum PageIndex : std::size_t { kHome = 0, kRequest = 1, kLoad = 2, kHistory = 3, kSettings = 4 };
 
-[[huxerui::composable]] inline huxerui::View PageFor(std::size_t index) {
+[[huxerui::composable]] huxerui::View PageFor(std::size_t index) {
     switch (index) {
         case pages::kHome:
             return HomePage();
         case pages::kRequest:
-            return g_activeProjectTabId != 0 ? RequestPage()
+            return !sessionPreference("active_project").empty() ? RequestPage()
                                              : MigrationPlaceholder("请求（先在主页打开项目）");
         case pages::kLoad:
             return MigrationPlaceholder("压测");
@@ -39,7 +37,7 @@ enum PageIndex : std::size_t { kHome = 0, kRequest = 1, kLoad = 2, kHistory = 3,
 } // namespace pages
 
 // 应用根：左侧导航 + 内容区。
-[[huxerui::composable]] inline huxerui::View AppRoot() {
+[[huxerui::composable]] huxerui::View AppRoot() {
     auto selected = huxerui::UseState<std::size_t>(pages::kHome);
 
     // 会话恢复：进入首个组合时恢复上次打开的项目。
@@ -54,7 +52,7 @@ enum PageIndex : std::size_t { kHome = 0, kRequest = 1, kLoad = 2, kHistory = 3,
                         if (const std::string err =
                                 g_requests.selectProjectInOrg(project.orgId, project.id);
                             err.empty()) {
-                            g_activeProjectTabId = project.id;
+                            saveSessionPreference("active_project", std::to_string(project.id));
                             g_loadtest.setProject(project.id);
                         }
                         break;

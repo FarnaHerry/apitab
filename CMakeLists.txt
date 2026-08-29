@@ -1,8 +1,8 @@
 # CMakeLists.txt — apitab 顶层构建（自 mcpp 迁移，功能等价：见 docs/ 下迁移说明）。
 #
-# 形状：src/ 是全模块化 C++23（import std + apitab.* 命名模块），主入口
-# main() 来自 EUI-NEO 的 glfw_app_main.cpp（旧 mcpp 的 app-main feature），
-# 这里作为普通源文件编进 apitab 目标。依赖全部 vendor 在 third_party/。
+# 形状：UI 层是普通 C++ 源（huxerui.h + [[huxerui::composable]]，经 huxerui_add_app
+# 的 codegen 处理）；领域层（store/引擎/db/config/preferences）是 apitab.* C++ 模块
+# （FILE_SET 追加到同一目标）。依赖 vendor 在 third_party/，SDK 经 find_package 消费。
 #
 # 常用命令：
 #   cmake -B build -G Ninja          # 配置（可用 -DCMAKE_BUILD_TYPE=Release）
@@ -63,10 +63,31 @@ endif()
 add_subdirectory(third_party)
 
 # ---- apitab ------------------------------------------------------------------
-# 模块单元清单（显式列出，不用 GLOB）。
-# *.cppm 是接口单元，进 CXX_MODULES 文件集；四个 engine 的 .cpp 与 db.cpp 是
-# 实现单元（`module apitab.X;` 声明在文件内），CMake 要求它们放在普通源列表，
-# 扫描器会自动接上主接口的 BMI 依赖。
+# 官方 HuxerUI 消费方式：huxerui_add_app 生成 app 目标（C++20 + codegen + 资源集成），
+# 领域层仍以 C++ 模块（FILE_SET）追加，普通 TU 通过 import 使用。
+# SDK 解包必须在 find_package 之前（HuxerUI_DIR 指向解包产物的 CMake 包）。
+include(cmake/apitab_vendor.cmake)
+if(APPLE)
+    apitab_extract(huxerui
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/huxerui-sdk-0.1.0-macos-arm64.tar.gz"
+        "f1f3d115f0647d43e8149c82be1e628605fbef4414bf75bd1d7b9de7b1df0852"
+        "huxerui-sdk-0.1.0-macos-arm64")
+elseif(WIN32)
+    apitab_extract(huxerui
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/huxerui-sdk-0.1.0-windows-x86_64.zip"
+        "8d8863878a56b38ad1e669ba666297cc0526e896f3d5e32aabf8aeaaf0b68539"
+        "huxerui-sdk-0.1.0-windows-x86_64")
+else()
+    apitab_extract(huxerui
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/huxerui-sdk-0.1.0-linux-x86_64.tar.gz"
+        "147833204b7a08bdae28a2d66019679ac0814af2d3d7238c7a6ea6e39fb1c5a3"
+        "huxerui-sdk-0.1.0-linux-x86_64")
+endif()
+set(HUXERUI_SDK_DIR "${huxerui_SOURCE_DIR}" CACHE INTERNAL "HuxerUI SDK root")
+set(HuxerUI_DIR "${HUXERUI_SDK_DIR}/lib/cmake/HuxerUI" CACHE PATH "HuxerUI package" FORCE)
+set(HUXERUI_RESOURCES_BIN "${HUXERUI_SDK_DIR}/share/huxerui/resources/huxerui/resources.bin" CACHE INTERNAL "")
+find_package(HuxerUI CONFIG REQUIRED COMPONENTS shared)
+
 set(APITAB_MODULE_UNITS
     # 引擎抽象与接口
     src/api_engine.cppm
@@ -78,29 +99,30 @@ set(APITAB_MODULE_UNITS
     src/config.cppm
     src/db.cppm
     src/utils.cppm
-    src/i18n.cppm
+    src/preferences.cppm
     # 领域 store（UI 无关）
     src/store/requests.cppm
     src/store/loadtest.cppm
     src/store/tcp.cppm
     src/store/websocket.cppm
-    # HuxerUI 前端
-    src/store/ui.cppm
-    src/ui/common.cppm
-    src/ui/home_page.cppm
-    src/ui/request_page.cppm
-    src/ui/app.cppm
 )
 
-add_executable(apitab
-    src/app_main.cpp
-    # 模块实现单元（module apitab.X;）
-    src/curl_engine.cpp
-    src/k6_engine.cpp
-    src/websocket_engine.cpp
-    src/tcp_engine.cpp
-    src/db.cpp
+huxerui_add_app(apitab
+    SOURCES
+        src/app_main.cpp
+        src/ui/app.cpp
+        src/ui/home_page.cpp
+        src/ui/request_page.cpp
+        src/ui/common.cpp
+        # 模块实现单元（module apitab.X;）—— codegen 无 composable 标记时原样放行
+        src/curl_engine.cpp
+        src/k6_engine.cpp
+        src/websocket_engine.cpp
+        src/tcp_engine.cpp
+        src/db.cpp
 )
+
+# 领域层 C++23 模块（.cppm 接口 + .cpp 实现单元；codegen 扫描会按扩展名跳过它们）
 target_sources(apitab PRIVATE FILE_SET apitab_modules TYPE CXX_MODULES
     BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
     FILES ${APITAB_MODULE_UNITS})
@@ -112,7 +134,6 @@ if(MSVC)
 endif()
 target_include_directories(apitab PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(apitab PRIVATE
-    huxerui
     asio
     ixwebsocket
     CURL::libcurl

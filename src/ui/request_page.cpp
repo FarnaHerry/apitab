@@ -1,21 +1,20 @@
-// request_page.cppm — 请求工作区骨架：方法 / URL / 发送 / 响应查看。
+// request_page.cpp — 请求工作区骨架：方法 / URL / 发送 / 响应查看。
 // 发送走领域 store（g_requests.send），TaskScope 里轮询结果并直接写 State。
-module;
-
 #include <huxerui/huxerui.h>
 
-export module apitab.ui.request_page;
+#include <cstdint>
+#include <string>
+#include <vector>
 
-import std;
+#include "ui.h"
+
 import apitab.api_engine;
 import apitab.store.requests;
-import apitab.store.ui;
-import apitab.ui.common;
 
-export namespace apitab::ui {
+namespace apitab::ui {
 
 
-[[huxerui::composable]] inline huxerui::View RequestPage() {
+[[huxerui::composable]] huxerui::View RequestPage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     constexpr std::array<std::string_view, 7> kMethodNames{

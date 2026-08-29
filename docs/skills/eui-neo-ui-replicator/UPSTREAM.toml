@@ -1,7 +1,0 @@
-source_url = "https://github.com/sudoevolve/EUI-NEO/tree/main/docs/skills/eui-neo-ui-replicator"
-repository = "sudoevolve/EUI-NEO"
-commit = "6933fdc428058531d89e323650b436c901f4e6b7"
-skill_blob = "3bd6bb8302c52defb80a07b0a4508a48cd91fde7"
-retrieved_at = "2026-08-24"
-eui_neo_version = "0.5.7"
-snapshot = "exact upstream skill and agent metadata"

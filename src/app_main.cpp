@@ -1,8 +1,8 @@
 // app_main.cpp — apitab 入口：HuxerUI Application + RunApplication。
-// UI 内容在 apitab.ui.app 模块（src/ui/app.cppm）。
+// UI 内容在 src/ui/*.cpp（composable 普通源，经 huxerui_add_app 的 codegen 处理）。
 #include <huxerui/huxerui.h>
 
-import apitab.ui.app;
+#include "ui/app.h"
 
 // EUI 时代由框架提供的 UI 唤醒钩子。HuxerUI 是 State 驱动失效模型，
 // 引擎结果由 TaskScope 的轮询任务在 UI 线程取回并写 State，这里降级为 no-op。

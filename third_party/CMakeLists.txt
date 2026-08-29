@@ -6,7 +6,7 @@
 # 构建完全离线、可复现，版本与旧 mcpp.lock 锁定的一致。
 #
 # 产物 target：
-#   eui::neo      EUI-NEO 0.5.7（bundled 3rd/，glfw + opengl，无 tray/markdown）
+#   HuxerUI::huxerui  HuxerUI 0.1.0 官方 SDK（shared；见文件尾 find_package）
 #   asio          Asio 1.38.1（standalone，separate compilation，SSL）+ `import asio` 模块
 #   ixwebsocket   IXWebSocket 12.0.1（client-only，无 TLS/无 zlib，与 compat.websocket 一致）
 #   CURL::libcurl curl 8.21.0（OpenSSL 后端，静态库，不编 curl.exe）
@@ -31,9 +31,6 @@ set_target_properties(apitab_json PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIR
 target_include_directories(apitab_json PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/json")
 
 # ---- curl 8.21.0（静态库，OpenSSL 后端，仅 lib）------------------------------
-# 必须在 eui 之前：eui 的 bundled 依赖脚本对非 Windows find_package(CURL REQUIRED)，
-# 并以 TARGET CURL::libcurl 判定是否给 eui_neo 定义 EUI_HAS_CURL=1（旧 mcpp 构建带
-# 网络支持，保持一致）。
 apitab_extract(curl
     "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/curl-8.21.0.tar.gz"
     "ec753aa6f408a3ca9f0d6d5f7a77417aecd1544db13c03ae5d443612bf367364"
@@ -51,11 +48,7 @@ set(CURL_ZSTD OFF CACHE BOOL "" FORCE)
 set(CURL_DISABLE_LDAP ON CACHE BOOL "" FORCE)
 set(CURL_DISABLE_LDAPS ON CACHE BOOL "" FORCE)
 add_subdirectory("${curl_SOURCE_DIR}" "curl-build")
-if(NOT WIN32)
-    # 给 eui 子树里的 find_package(CURL) 直接播种结果，绕开系统搜索
-    set(CURL_INCLUDE_DIR "${curl_SOURCE_DIR}/include" CACHE PATH "vendored curl" FORCE)
-    set(CURL_LIBRARY "${CMAKE_BINARY_DIR}/curl-build/libcurl.a" CACHE FILEPATH "vendored curl" FORCE)
-endif()
+
 
 # ---- Asio 1.38.1：standalone + separate compilation + `import asio` 模块 -----
 # cmake/asio.cppm 承接原 mcpp chriskohlhoff.asio 包生成的模块接口（SSL 宏改名为
@@ -107,81 +100,10 @@ set(SQLITECPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(SQLITECPP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory("${sqlitecpp_SOURCE_DIR}" "SQLiteCpp-build")
 
-# ---- Linux 本地兜底：系统缺 X11/GL 开发头时借用 mcpp subos 的预编译视图 ------
-# CI（ubuntu/macos）有系统包，不会进这个分支；只服务本机无 sudo 装包的场景。
-# glfw 的 X11 后端硬性要求 Xrandr/Xinerama/Xcursor/Xi 头，缺了直接 FATAL。
-set(APITAB_X11_FALLBACK_PREFIX "")
-if(UNIX AND NOT APPLE)
-    find_path(APITAB_SYSTEM_XRANDR_HEADER X11/extensions/Xrandr.h)
-    if(NOT APITAB_SYSTEM_XRANDR_HEADER)
-        set(_mcpp_subos "$ENV{HOME}/.mcpp/registry/subos/default")
-        if(EXISTS "${_mcpp_subos}/usr/include/X11/extensions/Xrandr.h")
-            # 只挑选 X11/GL 相关的头和库，绝不整个 include/lib 链接进来：
-            # subos 视图里还有私有 glibc / 旧 libstdc++，全量借用会劫持系统链接。
-            set(_stage "${APITAB_VENDOR_DIR}/x11-stage")
-            file(MAKE_DIRECTORY "${_stage}/include" "${_stage}/lib")
-            if(NOT EXISTS "${_stage}/include/X11")
-                file(CREATE_LINK "${_mcpp_subos}/usr/include/X11" "${_stage}/include/X11" SYMBOLIC)
-            endif()
-            foreach(_xlib X11 X11-xcb xcb Xau Xdmcp Xcursor Xext Xfixes Xinerama Xi
-                          Xrandr Xrender Xxf86vm GL GLX OpenGL EGL GLESv2 GLdispatch
-                          glvnd wayland-client wayland-cursor wayland-egl xkbcommon
-                          xkbcommon-x11)
-                file(GLOB _xlib_links "${_mcpp_subos}/lib/lib${_xlib}.so*")
-                foreach(_xl ${_xlib_links})
-                    get_filename_component(_xname "${_xl}" NAME)
-                    if(NOT EXISTS "${_stage}/lib/${_xname}")
-                        file(CREATE_LINK "${_xl}" "${_stage}/lib/${_xname}" SYMBOLIC)
-                    endif()
-                endforeach()
-            endforeach()
-            unset(_xlib)
-            unset(_xlib_links)
-            unset(_xname)
-            set(APITAB_X11_FALLBACK_PREFIX "${_stage}")
-            message(STATUS "apitab: 系统 X11 开发头缺失，借用 mcpp subos 的 X11/GL 子集")
-        else()
-            message(FATAL_ERROR
-                "缺 X11 开发头（libxrandr-devel 等）。请 `sudo dnf install libXrandr-devel "
-                "libXcursor-devel libXinerama-devel libXi-devel`，或保留 mcpp 的 "
-                "~/.mcpp/registry/subos/default 供本构建借用。")
-        endif()
-    endif()
-endif()
-
 # ---- HuxerUI 0.1.0（官方预编译 SDK，shared 库）--------------------------------
 # 替换 EUI-NEO：组件式声明 UI（composable View + UseState + TaskScope）。
 # Linux 后端为 GTK4/Cairo，运行时需要系统 libgtk-4-1/libsoup-3.0-0（本机已具备，
 # 无需 dev 头文件 —— 直接链接 SDK 的 libhuxerui.so）。
-if(APPLE)
-    apitab_extract(huxerui
-        "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/huxerui-sdk-0.1.0-macos-arm64.tar.gz"
-        "f1f3d115f0647d43e8149c82be1e628605fbef4414bf75bd1d7b9de7b1df0852"
-        "huxerui-sdk-0.1.0-macos-arm64")
-elseif(WIN32)
-    apitab_extract(huxerui
-        "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/huxerui-sdk-0.1.0-windows-x86_64.zip"
-        "8d8863878a56b38ad1e669ba666297cc0526e896f3d5e32aabf8aeaaf0b68539"
-        "huxerui-sdk-0.1.0-windows-x86_64")
-else()
-    apitab_extract(huxerui
-        "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/huxerui-sdk-0.1.0-linux-x86_64.tar.gz"
-        "147833204b7a08bdae28a2d66019679ac0814af2d3d7238c7a6ea6e39fb1c5a3"
-        "huxerui-sdk-0.1.0-linux-x86_64")
-endif()
-set(HUXERUI_SDK_DIR "${huxerui_SOURCE_DIR}" CACHE INTERNAL "HuxerUI SDK root")
-
-add_library(huxerui SHARED IMPORTED GLOBAL)
-set_target_properties(huxerui PROPERTIES IMPORTED_GLOBAL TRUE
-    INTERFACE_INCLUDE_DIRECTORIES "${HUXERUI_SDK_DIR}/include")
-if(WIN32)
-    set_target_properties(huxerui PROPERTIES
-        IMPORTED_IMPLIB "${HUXERUI_SDK_DIR}/lib/huxerui.lib"
-        IMPORTED_LOCATION "${HUXERUI_SDK_DIR}/bin/huxerui.dll")
-else()
-    set_target_properties(huxerui PROPERTIES
-        IMPORTED_LOCATION "${HUXERUI_SDK_DIR}/lib/libhuxerui.so")
-endif()
 # SDK 自带的资源包（运行时按 HUXERUI_RESOURCES_DIR 或 <exe>.resources/ 查找）
 set(HUXERUI_RESOURCES_BIN "${HUXERUI_SDK_DIR}/share/huxerui/resources/huxerui/resources.bin" CACHE INTERNAL "")
 

@@ -1,28 +1,28 @@
-// home_page.cppm — 主页面：组织 / 项目列表 + 打开项目工作区。
-// 数据来自领域 store（g_requests），打开项目 = selectProjectInOrg + g_activeProjectTabId。
-module;
-
+// home_page.cpp — 主页面：组织 / 项目列表 + 打开项目工作区。
+// 数据来自领域 store（g_requests），打开项目 = selectProjectInOrg。
 #include <huxerui/huxerui.h>
 
-export module apitab.ui.home_page;
+#include <cstdint>
+#include <string>
+#include <vector>
 
-import std;
+#include "ui.h"
+
 import apitab.db;
+import apitab.preferences;
 import apitab.store.loadtest;
 import apitab.store.requests;
-import apitab.store.ui;
-import apitab.ui.common;
 
-export namespace apitab::ui {
+namespace apitab::ui {
 
-[[huxerui::composable]] inline huxerui::View ProjectRow(const db::Project& project) {
+[[huxerui::composable]] huxerui::View ProjectRow(const db::Project& project) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Button("打开 — " + project.name)
         .OnClick([project] {
             if (const std::string err = g_requests.selectProjectInOrg(
                     g_requests.currentOrgId(), project.id);
                 err.empty()) {
-                g_activeProjectTabId = project.id;
+                saveSessionPreference("active_project", std::to_string(project.id));
                 g_loadtest.setProject(project.id);
             }
         })
@@ -30,7 +30,7 @@ export namespace apitab::ui {
     (void)theme;
 }
 
-[[huxerui::composable]] inline huxerui::View HomePage() {
+[[huxerui::composable]] huxerui::View HomePage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto refresh = huxerui::UseState(0);
 

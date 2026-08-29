@@ -18,3 +18,6 @@ engines/
 
 # 会话目录
 .claude/
+
+# huxerui_add_app 生成物
+.agents/
