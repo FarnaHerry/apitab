@@ -185,7 +185,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
         // 切换区：点击 = 激活本标签。
         huxerui::Row {std::move(leading),
                       iconOnly
-                          ? huxerui::View{huxerui::Spacer().With(huxerui::Frame{.width = 0.0F})}
+                          ? huxerui::View{huxerui::Row{}}
                           : huxerui::View{huxerui::Text(name, huxerui::TextRole::Label)
                                               .Style(huxerui::TextStyle{
                                                   .font = badgeFont,
@@ -205,7 +205,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                                 .OnClick([closeTab, id] { closeTab(id); })
                                 .On<huxerui::ViewEvents::PointerMove>(
                                     [](const huxerui::PointerEvent&) {})}
-            : huxerui::View{huxerui::Spacer().With(huxerui::Frame{.width = 0.0F})},
+            : huxerui::View{huxerui::Row{}},
     }
         .With(huxerui::Spacing(0.0F), huxerui::Background(tabFill),
               huxerui::Foreground(tabForeground),
@@ -237,7 +237,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
             if (id != p.id) continue;
             chips.push_back(
                 ProjectTab(navPage, tabs, activeProject, p.id,
-                           huxerui::View{huxerui::Spacer().With(huxerui::Frame{.width = 0.0F})},
+                           huxerui::View{huxerui::Row{}},
                            p.name)
                     .Key(p.id));
         }
@@ -417,10 +417,11 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                   huxerui::Spacing(gap)),
         // 主行：侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
-        // 主页时内容整宽覆盖侧栏：未打开项目就点不到任何项目相关入口。
+        // 主页与全局设置（都与项目无关）内容整宽覆盖侧栏：未打开项目就点不到任何
+        // 项目相关入口。占位必须用空 Row——Spacer 自带 Grow(1)，会分走一半宽度。
         huxerui::Row {
-            navPage.Get() == pages::kHome
-                ? huxerui::View{huxerui::Spacer().With(huxerui::Frame{.width = 0.0F})}
+            navPage.Get() == pages::kHome || navPage.Get() == pages::kAppSettings
+                ? huxerui::View{huxerui::Row{}}
                 : SideShell(navPage),
             pages::PageFor(navPage.Get(), navPage, tabs, activeProject, themeMode, closeBehavior)
                 .Key(navPage.Get() * 100000 + activeProject.Get())
