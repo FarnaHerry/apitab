@@ -62,12 +62,16 @@ KvRow FromKeyValue(const api::KeyValue& kv) {
         const bool phantom = i == rows.size();
         const KvRow row = phantom ? KvRow{} : rows[i];
         // 行写入：i 越界（虚拟行）时物化新行，否则改写原行。
+        // 虚拟行只在真正输入了文本时才物化——聚焦/移动光标触发的 OnChanged
+        // （text 为空、仅选区变化）不追加新行。
         auto applyRow = [rows, onChanged](std::size_t i, KvRow updated) {
             std::vector<KvRow> copy = rows;
-            if (i < copy.size())
+            if (i < copy.size()) {
                 copy[i] = std::move(updated);
-            else
+            } else {
+                if (updated.key.text.empty() && updated.value.text.empty()) return;
                 copy.push_back(std::move(updated));
+            }
             onChanged(std::move(copy));
         };
         children.push_back(
@@ -726,6 +730,12 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                                 .With(huxerui::Spacing(theme.spacing.medium),
                                       huxerui::CrossAlign(
                                           huxerui::CrossAxisAlignment::Stretch))};
+
+    // 右岛与左岛一级并列：同样的岛屿包裹（圆角 + surface_container_low 底）。
+    rightIsland = std::move(rightIsland)
+                      .With(huxerui::Background(theme.colors.surface_container_low),
+                            huxerui::CornerRadius(theme.shapes.large),
+                            huxerui::Padding(theme.spacing.medium));
 
     if (compact) {
         // Compact：上 = 请求列表（限高 220、宽度撑满），下 = 编辑区（撑满剩余）。

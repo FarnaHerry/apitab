@@ -2,7 +2,8 @@
 //   标题栏岛：Logo(AT) + 顶级项目标签条（主页钉在最左，项目标签横向滚动）+ 齿轮
 //     (全局设置) + 框架窗口按钮；底色随全局主题（surface_container_low），深色主题为
 //     「AI 极客风」近黑配色（GeekDarkThemeSpec）。
-//   下方：左侧图标侧边栏（无岛屿包裹，直接落在窗口背景上）｜内容岛（surface 大圆角）。
+//   下方：左侧图标侧边栏（无岛屿包裹，直接落在窗口背景上）｜内容区（页面自己的
+//   一级岛屿划分区域，外壳不再套岛）。根节点刷 theme.colors.background 整窗底色。
 //   响应式：UseViewportClass() Compact 时收窄侧栏宽度与各处间距。
 // 托盘：托盘图标/菜单（显示主窗口/退出）；关闭行为三选（每次询问/直接关闭/
 //   最小化到托盘），未配置时第一次关闭弹窗询问并把选择写入配置。
@@ -387,20 +388,22 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
                       theme.spacing.extra_small)),
                   huxerui::Spacing(gap),
                   huxerui::Background(theme.colors.surface_container_low)),
-        // 主行：侧栏（无岛屿包裹）+ 内容岛；Grow 吃满标题栏之外的剩余高度。
+        // 主行：侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外的剩余高度。
+        // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
         huxerui::Row {
             SideShell(navPage),
-            // 内容岛：surface 底色 + 大圆角 + 裁剪，与页内 surface_container_low 小岛拉开层级。
             pages::PageFor(navPage.Get(), navPage, tabs, activeProject, themeMode, closeBehavior)
                 .Key(navPage.Get() * 100000 + activeProject.Get())
-                .With(huxerui::Grow(1.0F), huxerui::Background(theme.colors.surface),
-                      huxerui::CornerRadius(theme.shapes.large), huxerui::ClipChildren()),
+                .With(huxerui::Grow(1.0F)),
         }
             .With(huxerui::Spacing(gap),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Grow(1.0F)),
     }
-                               .With(huxerui::Spacing(gap));
+                               .With(huxerui::Spacing(gap),
+                                     // 窗口整体背景：主题背景色刷满根节点，
+                                     // 否则深色模式下岛间缝隙透出窗口默认白底。
+                                     huxerui::Background(theme.colors.background));
 
     // 深色分支用极客风自定义 spec（MaterialDarkTheme 无自定义 spec 构造，走
     // MaterialTheme(spec, content)）；浅色分支保持内置 Material 浅色。
