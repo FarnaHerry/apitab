@@ -1,7 +1,7 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 托盘）：
 //   标题栏岛：Logo(AT) + 顶级项目标签条（主页钉在最左，项目标签横向滚动）+ 齿轮
-//     (全局设置) + 框架窗口按钮；底色随全局主题（surface_container_low），深色主题为
-//     「AI 极客风」近黑配色（GeekDarkThemeSpec）。
+//     (全局设置) + 框架窗口按钮；底色随全局主题（surface_container_low），主题为
+//     极简 AI 黑白风（MinimalDark/MinimalLightThemeSpec，对齐 tinynext 配色）。
 //   下方：左侧图标侧边栏（无岛屿包裹，直接落在窗口背景上）｜内容区（页面自己的
 //   一级岛屿划分区域，外壳不再套岛）。根节点刷整窗底色（rootSpec.colors.background——
 //   AppRoot 在主题 provider 之上，UseTheme 只能拿到默认浅色 spec，须按 dark 自选）。
@@ -68,28 +68,52 @@ enum PageIndex : std::size_t {
 
 namespace {
 
-// 「AI 极客风」深色主题：以 Material 深色令牌为底，覆盖为近黑底 +
-// 电气青/亮蓝 accent 的配色；形状/间距/排版沿用内置深色方案。
-huxerui::ThemeSpec GeekDarkThemeSpec() {
+// 极简 AI 黑白风主题（对齐 tinynext 的 heibu geekBlack/geekWhite 配色）：
+// 深色 = 近纯黑底 + 纯白主色（主色控件白底黑字）；浅色 = 近白底 + 纯黑主色。
+// 文本/描边只用地道中灰，状态色仅 error 保留柔和红。
+huxerui::ThemeSpec MinimalDarkThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
-    spec.colors.primary = huxerui::Color::Rgb(62, 198, 224);       // #3EC6E0 电气青
-    spec.colors.on_primary = huxerui::Color::Rgb(6, 32, 42);       // #06202A 近黑
-    spec.colors.secondary = huxerui::Color::Rgb(76, 194, 255);     // #4CC2FF 亮蓝
-    spec.colors.on_secondary = huxerui::Color::Rgb(6, 32, 42);     // #06202A
-    spec.colors.secondary_container = huxerui::Color::Rgb(24, 32, 44);
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(230, 237, 243);
-    spec.colors.background = huxerui::Color::Rgb(7, 9, 13);        // #07090D
-    spec.colors.surface = huxerui::Color::Rgb(10, 13, 18);         // #0A0D12
-    spec.colors.surface_container_low = huxerui::Color::Rgb(13, 17, 23);    // #0D1117
-    spec.colors.surface_container = huxerui::Color::Rgb(18, 22, 30);        // #12161E
-    spec.colors.surface_container_high = huxerui::Color::Rgb(24, 32, 44);   // #18202C
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(31, 41, 55); // #1F2937
-    spec.colors.on_surface = huxerui::Color::Rgb(230, 237, 243);   // #E6EDF3
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(139, 148, 158); // #8B949E
-    spec.colors.outline = huxerui::Color::Rgb(45, 55, 69);         // #2D3745
-    spec.colors.inverse_surface = huxerui::Color::Rgb(230, 237, 243);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(10, 13, 18);
-    spec.colors.error = huxerui::Color::Rgb(255, 92, 92);          // #FF5C5C
+    spec.colors.primary = huxerui::Color::Rgb(255, 255, 255);      // 纯白主色
+    spec.colors.on_primary = huxerui::Color::Rgb(10, 10, 12);      // 白底上翻黑
+    spec.colors.secondary = huxerui::Color::Rgb(214, 214, 217);
+    spec.colors.on_secondary = huxerui::Color::Rgb(10, 10, 12);
+    spec.colors.secondary_container = huxerui::Color::Rgb(30, 30, 35);
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(242, 242, 242);
+    spec.colors.background = huxerui::Color::Rgb(10, 10, 12);      // #0A0A0C 近纯黑
+    spec.colors.surface = huxerui::Color::Rgb(14, 14, 17);
+    spec.colors.surface_container_low = huxerui::Color::Rgb(19, 19, 22);
+    spec.colors.surface_container = huxerui::Color::Rgb(24, 24, 28);
+    spec.colors.surface_container_high = huxerui::Color::Rgb(30, 30, 35);
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(37, 37, 43);
+    spec.colors.on_surface = huxerui::Color::Rgb(242, 242, 242);   // 0.95 白
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(148, 148, 153); // 0.58 灰
+    spec.colors.outline = huxerui::Color::Rgb(46, 46, 52);
+    spec.colors.inverse_surface = huxerui::Color::Rgb(242, 242, 242);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(10, 10, 12);
+    spec.colors.error = huxerui::Color::Rgb(235, 122, 112);        // tinynext 柔和红
+    return spec;
+}
+
+huxerui::ThemeSpec MinimalLightThemeSpec() {
+    huxerui::ThemeSpec spec; // 默认值即内置浅色方案
+    spec.colors.primary = huxerui::Color::Rgb(0, 0, 0);            // 纯黑主色
+    spec.colors.on_primary = huxerui::Color::Rgb(255, 255, 255);   // 黑底上翻白
+    spec.colors.secondary = huxerui::Color::Rgb(69, 69, 71);
+    spec.colors.on_secondary = huxerui::Color::Rgb(255, 255, 255);
+    spec.colors.secondary_container = huxerui::Color::Rgb(229, 229, 232);
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(31, 31, 31);
+    spec.colors.background = huxerui::Color::Rgb(244, 244, 245);   // #F4F4F5 近白
+    spec.colors.surface = huxerui::Color::Rgb(255, 255, 255);
+    spec.colors.surface_container_low = huxerui::Color::Rgb(255, 255, 255);
+    spec.colors.surface_container = huxerui::Color::Rgb(240, 240, 241);
+    spec.colors.surface_container_high = huxerui::Color::Rgb(231, 231, 233);
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(222, 222, 225);
+    spec.colors.on_surface = huxerui::Color::Rgb(31, 31, 31);      // 0.12 近黑
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(115, 115, 120); // 0.45 灰
+    spec.colors.outline = huxerui::Color::Rgb(201, 201, 204);
+    spec.colors.inverse_surface = huxerui::Color::Rgb(31, 31, 31);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(255, 255, 255);
+    spec.colors.error = huxerui::Color::Rgb(204, 64, 51);
     return spec;
 }
 
@@ -288,7 +312,7 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
     auto tasks = huxerui::UseTaskScope();
 
     // 初始值在 UseState 之前算好（组合体内不写 State）：
-    // 主题模式 0=跟随系统 1=深色 2=浅色，未保存偏好时默认深色（极客风黑底）。
+    // 主题模式 0=跟随系统 1=深色 2=浅色，未保存偏好时默认深色（极简黑白黑底）。
     int initialThemeMode = 1;
     if (sessionPreference("theme_mode") == "0") initialThemeMode = 0;
     if (sessionPreference("theme_mode") == "2") initialThemeMode = 2;
@@ -311,7 +335,7 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
     // 的默认浅色 spec——主题由本函数返回时包进子树，自身读不到。所以根节点自身的
     // 配色（整窗背景、标题栏底、间距）必须直接按 dark 选 spec；子组件在 provider
     // 之下，它们的 UseTheme() 是正常的。
-    const huxerui::ThemeSpec rootSpec = dark ? GeekDarkThemeSpec() : huxerui::ThemeSpec{};
+    const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
     // 响应式：Compact(<600) 收窄间距，Medium/Expanded 保持现状。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const float gap = compact ? rootSpec.spacing.extra_small : rootSpec.spacing.medium;
@@ -410,10 +434,9 @@ huxerui::ThemeSpec GeekDarkThemeSpec() {
                                      // 否则深色模式下岛间缝隙透出窗口默认白底。
                                      huxerui::Background(rootSpec.colors.background));
 
-    // 深色分支用极客风自定义 spec（MaterialDarkTheme 无自定义 spec 构造，走
-    // MaterialTheme(spec, content)）；浅色分支保持内置 Material 浅色。
-    return dark ? huxerui::View{huxerui::MaterialTheme(GeekDarkThemeSpec(), content)}
-                : huxerui::View{huxerui::MaterialTheme{content}};
+    // 两个分支都走 MaterialTheme(spec, content) 自定义 spec：极简黑白双主题。
+    return dark ? huxerui::View{huxerui::MaterialTheme(MinimalDarkThemeSpec(), content)}
+                : huxerui::View{huxerui::MaterialTheme(MinimalLightThemeSpec(), content)};
 }
 
 } // namespace apitab::ui
