@@ -19,6 +19,8 @@ const huxerui::Application application{
             .title = "apitab — API 测试与压测",
             .initial_size = {1180.0F, 760.0F},
             .chrome_mode = huxerui::WindowChromeMode::Custom,
-            .title_bar_height = 32.0F,
+            // 自定义标题栏的期望逻辑高度（SDK 会保留更大的系统控件最小值）。
+            // 内容高 24pt： tabs/齿轮均 Frame height=24。
+            .title_bar_height = 24.0F,
         }},
 };

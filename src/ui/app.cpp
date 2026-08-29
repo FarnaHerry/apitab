@@ -414,8 +414,10 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                 .With(huxerui::Tooltip("全局设置"), huxerui::Frame{.height = 24.0F}),
         }
             // 标签栏收窄 + 去背景：直接融入窗口底色，不再垫 surface_container_low。
+            // 垂直零内边距：内容本身 24pt 高，与 title_bar_height 对齐，避免
+            // 标题栏下缘与岛屿之间多出一条空隙。
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
-                      compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small, 2.0F)),
+                      compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small, 0.0F)),
                   huxerui::Spacing(gap)),
         // 主行：侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
