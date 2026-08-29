@@ -108,6 +108,10 @@ State（UI 线程调度）；旧 `requestUiUpdate` 唤醒钩子保留为 no-op�
 7. **k6 指标**：Trend 汇总默认只带 avg/min/med/max/p(90)/p(95)——脚本 options 里
    已声明 `summaryTrendStats` 加 p(99)，p50 用 `med` 键（没有 `p(50)`）。
 8. **curl_easy_setopt 多线程必须 `CURLOPT_NOSIGNAL=1`**（已设）。
+9. **Spacer 自带 Grow(1)**：零宽/零高占位绝不能用 `Spacer().With(Frame{...})`——
+   它会和兄弟平分剩余空间（曾把首页挤到右半屏）。占位用空 `Row{}`/`Column{}`；
+   岛屿布局的根链必须层层有界：外壳根 Column 要 `CrossAlign(Stretch)`，页面根
+   `Grow(1.0F)`，岛占满分区块、内容在岛内滚动（不要 ScrollView 套自包含岛）。
 
 ## CMake 迁移备注（原 mcpp 行为对照）
 
