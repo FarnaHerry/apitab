@@ -415,16 +415,25 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
             huxerui::Row {ProjectTabStrip(navPage, tabs, activeProject)}
                 .With(huxerui::Grow(1.0F),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            huxerui::IconButton(app::images::gear, "全局设置")
+            // 齿轮不用 IconButton（框架内置最小触摸尺寸，Frame 压不住、比标签高
+            // 一截）：裸 Image + 自绘热区，与项目标签同高同底，尺寸完全受控。
+            huxerui::Row {
+                huxerui::Image(app::images::gear)
+                    .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}),
+            }
+                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
+                      huxerui::Frame{.height = kTitleBarContentHeight},
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                      huxerui::Background(rootSpec.colors.surface_container),
+                      huxerui::CornerRadius(rootSpec.shapes.medium),
+                      huxerui::Tooltip("全局设置"))
                 .OnClick([tasks, navPage] {
                     // 切页会卸载内容子树：推迟出指针事件路径
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         co_await huxerui::Delay(std::chrono::duration<double>{0});
                         navPage = pages::kAppSettings;
                     });
-                })
-                .With(huxerui::Tooltip("全局设置"),
-                      huxerui::Frame{.width = 32.0F, .height = kTitleBarContentHeight}),
+                }),
         }
             // 标签栏收窄 + 去背景：直接融入窗口底色，不再垫 surface_container_low。
             // 垂直零内边距：内容本身 24pt 高，与 title_bar_height 对齐，避免
