@@ -1,7 +1,7 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 托盘）：
 //   标题栏岛：Logo(AT) + 顶级项目标签条（主页钉在最左，项目标签横向滚动）+ 齿轮
-//     (全局设置) + 框架窗口按钮；底色随全局主题（surface_container_low），主题为
-//     极简 AI 黑白风（MinimalDark/MinimalLightThemeSpec，对齐 tinynext 配色）。
+//     (全局设置) + 框架窗口按钮；收窄为 32px 高、去背景直接融入窗口底色，
+//     主题为极简 AI 黑白风（MinimalDark/MinimalLightThemeSpec，对齐 tinynext 配色）。
 //   下方：左侧图标侧边栏（无岛屿包裹，直接落在窗口背景上）｜内容区（页面自己的
 //   一级岛屿划分区域，外壳不再套岛）。根节点刷整窗底色（rootSpec.colors.background——
 //   AppRoot 在主题 provider 之上，UseTheme 只能拿到默认浅色 spec，须按 dark 自选）。
@@ -120,7 +120,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
 [[huxerui::composable]] huxerui::View LogoBadge() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Text("AT", huxerui::TextRole::Title)
-        .With(huxerui::Frame{.width = 36.0F, .height = 28.0F},
+        .With(huxerui::Frame{.width = 32.0F, .height = 24.0F},
               huxerui::Background(theme.colors.primary),
               huxerui::CornerRadius(theme.shapes.medium),
               huxerui::Foreground(theme.colors.on_primary),
@@ -139,7 +139,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     auto tasks = huxerui::UseTaskScope();
     const bool active = activeProject.Get() == id;
 
-    // 标题栏底色为 surface_container_low：未激活标签用 surface_container 微微浮起，
+    // 标题栏已无底色（融入窗口背景）：未激活标签用 surface_container 微微浮起，
     // 激活标签用 surface_container_highest 进一步提亮。
     const huxerui::Color tabFill =
         active ? theme.colors.surface_container_highest : theme.colors.surface_container;
@@ -212,8 +212,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
               huxerui::CornerRadius(theme.shapes.medium),
               huxerui::Padding(iconOnly ? huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)
                                         : huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
-              iconOnly ? huxerui::Frame{.width = 32.0F, .height = 28.0F}
-                       : huxerui::Frame{.height = 28.0F});
+              iconOnly ? huxerui::Frame{.width = 32.0F, .height = 24.0F}
+                       : huxerui::Frame{.height = 24.0F});
 }
 
 // 顶级标签条：主页标签（房子图标，固定不可关）钉在最左不参与滚动；
@@ -409,13 +409,12 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                         navPage = pages::kAppSettings;
                     });
                 })
-                .With(huxerui::Tooltip("全局设置"), huxerui::Frame{.height = 28.0F}),
+                .With(huxerui::Tooltip("全局设置"), huxerui::Frame{.height = 24.0F}),
         }
+            // 标签栏收窄 + 去背景：直接融入窗口底色，不再垫 surface_container_low。
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
-                      compact ? rootSpec.spacing.small : rootSpec.spacing.medium,
-                      rootSpec.spacing.extra_small)),
-                  huxerui::Spacing(gap),
-                  huxerui::Background(rootSpec.colors.surface_container_low)),
+                      compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small, 2.0F)),
+                  huxerui::Spacing(gap)),
         // 主行：侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
         // 主页时内容整宽覆盖侧栏：未打开项目就点不到任何项目相关入口。

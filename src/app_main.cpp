@@ -19,7 +19,7 @@ const huxerui::Application application{
             .title = "apitab — API 测试与压测",
             .initial_size = {1180.0F, 760.0F},
             .chrome_mode = huxerui::WindowChromeMode::Custom,
-            .title_bar_height = 44.0F,
+            .title_bar_height = 32.0F,
         }},
 };
 

@@ -147,11 +147,20 @@ namespace {
     }
 
     // ---- 左岛：组织列表 + 新建组织（标题行加号按钮弹窗创建）----
-    std::vector<huxerui::View> orgChildren;
-    orgChildren.push_back(
-        huxerui::Row {
-            huxerui::Text("组织", huxerui::TextRole::Title).With(huxerui::Grow(1.0F)),
-            huxerui::Button("+").OnClick([dialog, tasks, toast, refresh, newOrgName] {
+    // 列表内部滚动（外岛固定尺寸，参照请求页左岛）。
+    std::vector<huxerui::View> orgRows;
+    if (orgs.empty()) {
+        orgRows.push_back(huxerui::Text("暂无组织", huxerui::TextRole::Body)
+                              .With(huxerui::Foreground(theme.colors.on_surface_variant)));
+    }
+    for (const db::Org& org : orgs) {
+        orgRows.push_back(OrgRow(org, org.id == currentOrg, refresh).Key(org.id));
+    }
+    huxerui::View orgIsland =
+        huxerui::Column {
+            huxerui::Row {
+                huxerui::Text("组织", huxerui::TextRole::Title).With(huxerui::Grow(1.0F)),
+                huxerui::Button("+").OnClick([dialog, tasks, toast, refresh, newOrgName] {
                 dialog.Show(
                     [tasks, toast, refresh, newOrgName](huxerui::DialogContext ctx)
                         -> huxerui::View {
@@ -194,17 +203,12 @@ namespace {
                     },
                     huxerui::DialogOptions{});
             }),
+            }
+                .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+            huxerui::ScrollView{huxerui::Column(std::move(orgRows))
+                                    .With(huxerui::Spacing(theme.spacing.small))}
+                .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
         }
-            .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
-    if (orgs.empty()) {
-        orgChildren.push_back(huxerui::Text("暂无组织", huxerui::TextRole::Body)
-                                  .With(huxerui::Foreground(theme.colors.on_surface_variant)));
-    }
-    for (const db::Org& org : orgs) {
-        orgChildren.push_back(OrgRow(org, org.id == currentOrg, refresh).Key(org.id));
-    }
-    huxerui::View orgIsland =
-        huxerui::Column(std::move(orgChildren))
             .With(huxerui::Padding(theme.spacing.medium),
                   huxerui::Spacing(theme.spacing.small),
                   huxerui::Background(theme.colors.surface_container_low),
@@ -269,12 +273,14 @@ namespace {
                 }),
             }
                 .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            projects.empty()
-                ? huxerui::View{huxerui::Text("该组织暂无项目，点击右上角 + 新建一个。",
-                                              huxerui::TextRole::Body)
-                                    .With(huxerui::Foreground(theme.colors.on_surface_variant))}
-                : huxerui::View{huxerui::Flow(std::move(cards))
-                                    .With(huxerui::Spacing(theme.spacing.medium))},
+            huxerui::ScrollView{
+                projects.empty()
+                    ? huxerui::View{huxerui::Text("该组织暂无项目，点击右上角 + 新建一个。",
+                                                  huxerui::TextRole::Body)
+                                        .With(huxerui::Foreground(theme.colors.on_surface_variant))}
+                    : huxerui::View{huxerui::Flow(std::move(cards))
+                                        .With(huxerui::Spacing(theme.spacing.medium))}}
+                .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
         }
             .With(huxerui::Padding(theme.spacing.large),
                   huxerui::Spacing(theme.spacing.medium),
@@ -282,13 +288,14 @@ namespace {
                   huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
-    return huxerui::ScrollView {
-        huxerui::Row {
-            orgIsland,
-            projectIsland,
-        }.With(huxerui::Spacing(theme.spacing.medium),
-               huxerui::Padding(theme.spacing.large)),
-    }.With(huxerui::ScrollBar());
+    // 根 Row 撑满窗口（Grow）：组织岛定宽在左、项目岛 Grow 在右，整体左对齐。
+    // 不用外层 ScrollView（其内容宽度无界会让 Row 收缩漂移），两岛各自内部滚动。
+    return huxerui::Row {
+        std::move(orgIsland),
+        std::move(projectIsland),
+    }
+        .With(huxerui::Spacing(theme.spacing.medium), huxerui::Grow(1.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 } // namespace apitab::ui
