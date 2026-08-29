@@ -40,6 +40,26 @@ namespace apitab::ui {
         .With(menu.Anchor());
 }
 
+// 纯圆形单符号按钮：无文字标签（框架 Button 是长胶囊且有内建最小宽度，做不出
+// 纯圆）。accent=true 主色底（主动作），false 中性容器底（次动作）。符号用
+// Text 渲染，点击区 = 整个圆。
+[[huxerui::composable]] huxerui::View CircleButton(std::string glyph,
+                                                   std::function<void()> onClick, bool accent) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    return huxerui::Row {
+        huxerui::Text(std::move(glyph), huxerui::TextRole::Label)
+            .With(huxerui::Foreground(accent ? theme.colors.on_primary
+                                             : theme.colors.on_surface)),
+    }
+        .With(huxerui::Frame{.width = 28.0F, .height = 28.0F},
+              huxerui::Background(accent ? theme.colors.primary
+                                         : theme.colors.surface_container_highest),
+              huxerui::CornerRadius(theme.shapes.full),
+              huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
+        .OnClick(std::move(onClick));
+}
+
 // 页面标题 + 副标题。
 [[huxerui::composable]] huxerui::View PageHeader(std::string title, std::string subtitle) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();

@@ -160,7 +160,7 @@ namespace {
         huxerui::Column {
             huxerui::Row {
                 huxerui::Text("组织", huxerui::TextRole::Title).With(huxerui::Grow(1.0F)),
-                huxerui::Button("+").OnClick([dialog, tasks, toast, refresh, newOrgName] {
+                CircleButton("+", [dialog, tasks, toast, refresh, newOrgName] {
                 dialog.Show(
                     [tasks, toast, refresh, newOrgName](huxerui::DialogContext ctx)
                         -> huxerui::View {
@@ -226,7 +226,7 @@ namespace {
                 PageHeader("项目",
                            orgName.empty() ? "当前组织的项目" : "当前组织：" + orgName)
                     .With(huxerui::Grow(1.0F)),
-                huxerui::Button("+").OnClick([dialog, tasks, toast, refresh, newProjectName] {
+                CircleButton("+", [dialog, tasks, toast, refresh, newProjectName] {
                     dialog.Show(
                         [tasks, toast, refresh, newProjectName](huxerui::DialogContext ctx)
                             -> huxerui::View {

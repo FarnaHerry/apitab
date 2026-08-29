@@ -69,7 +69,9 @@ namespace {
 
 // 标题栏内容统一高度：Logo / 主页标签 / 项目标签 / 齿轮全部 20pt，垂直居中。
 // 20pt 低于系统窗口按钮条的最小高度，不再由我们的内容把整条标题栏顶高。
-constexpr float kTitleBarContentHeight = 20.0F;
+// 标题栏内容统一高度：与 AppOptions.window.title_bar_height（24）一致——标签、
+// Logo、齿轮与标题栏等高撑满，文字行高（System 12 ≈ 16pt）不再被 20pt 框裁掉。
+constexpr float kTitleBarContentHeight = 24.0F;
 
 // 极简 AI 黑白风主题（对齐 tinynext 的 heibu geekBlack/geekWhite 配色）：
 // 深色 = 近纯黑底 + 纯白主色（主色控件白底黑字）；浅色 = 近白底 + 纯黑主色。
@@ -120,13 +122,40 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     return spec;
 }
 
+// 主题边界：MaterialThemeDefinition(spec) 之上用 typed style 覆盖组件样式——
+// 长按钮（Button）与分段按钮（SegmentedButton）的圆角统一 8px
+// （M3 默认是全圆胶囊）。Default() 静态基线角半径本来就是 8，重新着色到我们的
+// 黑白调色板即可（DefaultXxxStyle(spec) 在 detail 命名空间，非公共契约，不用）。
+huxerui::View MinimalThemed(bool dark, huxerui::View content) {
+    const huxerui::ThemeSpec spec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
+    huxerui::ThemeDefinition definition = huxerui::MaterialThemeDefinition(spec);
+
+    huxerui::ButtonStyle buttons; // Default()：corner_radius=8、padding Symmetric(14,8)
+    buttons.background = spec.colors.primary;
+    buttons.label_style = huxerui::TextStyle{huxerui::Font::System(14.0F),
+                                             spec.colors.on_primary};
+    definition.Set(buttons);
+
+    huxerui::SegmentedButtonStyle segments; // Default()：corner_radius=8
+    segments.background = spec.colors.surface;
+    segments.selected_background = spec.colors.primary;
+    segments.label_style = huxerui::TextStyle{huxerui::Font::System(14.0F),
+                                              spec.colors.on_surface};
+    segments.selected_label = spec.colors.on_primary;
+    segments.border = spec.colors.outline;
+    segments.selected_border = spec.colors.primary;
+    definition.Set(segments);
+
+    return huxerui::Theme(std::move(definition), content);
+}
+
 // 软件徽标：字母 AT 合成的圆角块。与标题栏所有控件统一 24pt 高（kTitleBarHeight）。
 [[huxerui::composable]] huxerui::View LogoBadge() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Text("AT", huxerui::TextRole::Title)
         .With(huxerui::Frame{.width = 32.0F, .height = kTitleBarContentHeight},
               huxerui::Background(theme.colors.primary),
-              huxerui::CornerRadius(theme.shapes.medium),
+              huxerui::CornerRadius(theme.shapes.small),
               huxerui::Foreground(theme.colors.on_primary),
               huxerui::Align{.horizontal = huxerui::HorizontalAlignment::Center,
                              .vertical = huxerui::VerticalAlignment::Center});
@@ -216,7 +245,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     }
         .With(huxerui::Spacing(0.0F), huxerui::Background(tabFill),
               huxerui::Foreground(tabForeground),
-              huxerui::CornerRadius(theme.shapes.medium),
+              huxerui::CornerRadius(theme.shapes.small),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
               huxerui::Padding(iconOnly ? huxerui::EdgeInsets::Symmetric(4.0F, 1.0F)
                                         : huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
@@ -408,8 +437,9 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
 
     huxerui::View content = huxerui::Column {
         // 自定义标题栏岛：Logo + 项目标签条 + 齿轮（框架在其右侧渲染窗口按钮）。
-        // 全部内容统一 20pt 高（kTitleBarContentHeight）；WindowTitleBar 构造即带
-        // 交叉轴居中，这里给中间标签条包装 Row 也补上居中，任何一侧偏高都不漂移。
+        // 全部内容统一 24pt 高（kTitleBarContentHeight = title_bar_height）；
+        // WindowTitleBar 构造即带交叉轴居中，这里给中间标签条包装 Row 也补上
+        // 居中，任何一侧偏高都不漂移。
         huxerui::WindowTitleBar {
             LogoBadge(),
             huxerui::Row {ProjectTabStrip(navPage, tabs, activeProject)}
@@ -425,7 +455,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                       huxerui::Frame{.height = kTitleBarContentHeight},
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                       huxerui::Background(rootSpec.colors.surface_container),
-                      huxerui::CornerRadius(rootSpec.shapes.medium),
+                      huxerui::CornerRadius(rootSpec.shapes.small),
                       huxerui::Tooltip("全局设置"))
                 .OnClick([tasks, navPage] {
                     // 切页会卸载内容子树：推迟出指针事件路径
@@ -466,9 +496,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                                      // 占满逻辑区块（首页整体漂移/右对齐的根因）。
                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
-    // 两个分支都走 MaterialTheme(spec, content) 自定义 spec：极简黑白双主题。
-    return dark ? huxerui::View{huxerui::MaterialTheme(MinimalDarkThemeSpec(), content)}
-                : huxerui::View{huxerui::MaterialTheme(MinimalLightThemeSpec(), content)};
+    // 主题边界走 MinimalThemed：自定义 spec + 组件 typed style 覆盖（8px 按钮圆角）。
+    return MinimalThemed(dark, content);
 }
 
 } // namespace apitab::ui

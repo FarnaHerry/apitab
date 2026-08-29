@@ -18,6 +18,9 @@ huxerui::View EmptyState(huxerui::ImageResource icon, std::string title, std::st
                          huxerui::State<std::size_t> navPage);
 huxerui::View DropdownSelect(std::vector<std::string> items, std::size_t current,
                              std::function<void(std::size_t)> onChanged);
+// 纯圆形单符号按钮（如 "+"）：无文字标签。accent=true 主色底（新建等主动作）；
+// accent=false 中性容器底（溢出菜单等次动作）。
+huxerui::View CircleButton(std::string glyph, std::function<void()> onClick, bool accent = true);
 
 // home_page.cpp
 huxerui::View HomePage(huxerui::State<std::size_t> navPage,

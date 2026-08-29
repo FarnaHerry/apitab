@@ -16,6 +16,7 @@ import apitab.api_engine;
 import apitab.db;
 import apitab.preferences;
 import apitab.store.requests;
+import nlohmann.json;
 
 namespace apitab::ui {
 
@@ -327,15 +328,50 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
               huxerui::ClipChildren());
 }
 
-// 右岛编辑区：方法/URL/名称/发送/保存 一行 + Params/Headers/Cookies/Body 分区 + 响应区。
+// Body 文本编辑器：行号 gutter + 无上限多行输入（随内容长高，与外层 ScrollView
+// 一起滚动，gutter 不会因内部滚动错位）。gutter 与正文同字号（System 14 =
+// TextField 默认 text_style）保证行高一致；无 Label（标签行会顶偏第一行）。
+[[huxerui::composable]] huxerui::View BodyTextEditor(
+    huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
+    const RequestDraft& snapshot, const huxerui::ThemeSpec& theme) {
+    std::size_t lineCount = 1;
+    for (const char c : snapshot.body.text) {
+        if (c == '\n') ++lineCount;
+    }
+    std::string numbers;
+    for (std::size_t i = 1; i <= lineCount; ++i) {
+        if (i > 1) numbers += '\n';
+        numbers += std::to_string(i);
+    }
+    return huxerui::Row {
+        huxerui::Text(std::move(numbers), huxerui::TextRole::Body)
+            .Style(huxerui::TextStyle{.font = huxerui::Font::System(14.0F),
+                                      .foreground = theme.colors.on_surface_variant})
+            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 10.0F))),
+        huxerui::TextField(snapshot.body)
+            .Placeholder("Body（" + std::string{kBodyTypeNames.at(snapshot.bodyKindIndex)} + "）")
+            .Variant(huxerui::TextFieldVariant::Outlined)
+            .LineLimits(huxerui::TextFieldLineLimits::MultiLine(6))
+            .OnChanged([drafts, index](const huxerui::TextEditingValue& value) {
+                MutateDraft(drafts, index, [&](RequestDraft& d) { d.body = value; });
+            })
+            .With(huxerui::Grow(1.0F)),
+    }
+        .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start));
+}
+
+// 右岛编辑区：名称一行 + 方法/URL/发送/保存/⋮ 一行 + Params/Headers/Cookies/Body
+// 分区 + 响应区。
 [[huxerui::composable]] huxerui::View RequestEditor(
     huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
+    huxerui::State<std::size_t> activeTab,
     huxerui::State<int> listVersion, huxerui::State<bool> inFlight,
     huxerui::State<std::string> responseBody,
     huxerui::State<std::vector<std::string>> responseHeaders) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
+    auto overflow = huxerui::UseMenu(); // ⋮ 溢出菜单（删除当前请求）
     auto section = huxerui::UseState<std::size_t>(0); // 0=Params 1=Headers 2=Cookies 3=Body
 
     const std::vector<RequestDraft> all = drafts.Get();
@@ -374,16 +410,36 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                 }));
             break;
         default: {
-            // Body：先选类型（下标 = api::BodyKind），再按类型展开对应编辑器。
-            std::vector<huxerui::View> bodyChildren{huxerui::SegmentedButton(
-                {"无", "JSON", "Text", "Form URL-Encoded", "Form-Data", "XML", "GraphQL"},
-                snapshot.bodyKindIndex)
-                                                        .OnChanged([drafts, index](std::size_t kind) {
-                                                            MutateDraft(drafts, index,
-                                                                        [kind](RequestDraft& d) {
-                                                                            d.bodyKindIndex = kind;
-                                                                        });
-                                                        })};
+            // Body：先选类型（下标 = api::BodyKind），再按类型展开对应编辑器；
+            // 格式化按钮只对 JSON 生效（nlohmann 解析后 dump(2) 回写）。
+            std::vector<huxerui::View> bodyChildren{huxerui::Row {
+                huxerui::SegmentedButton(
+                    {"无", "JSON", "Text", "Form URL-Encoded", "Form-Data", "XML", "GraphQL"},
+                    snapshot.bodyKindIndex)
+                    .OnChanged([drafts, index](std::size_t kind) {
+                        MutateDraft(drafts, index,
+                                    [kind](RequestDraft& d) { d.bodyKindIndex = kind; });
+                    }),
+                huxerui::Button("格式化").OnClick([drafts, index, toast] {
+                    const std::vector<RequestDraft> current = drafts.Get();
+                    if (index >= current.size()) return;
+                    if (current[index].bodyKindIndex != 1) {
+                        toast.Show("仅 JSON 支持格式化");
+                        return;
+                    }
+                    try {
+                        const nlohmann::json parsed = nlohmann::json::parse(
+                            current[index].body.text);
+                        MutateDraft(drafts, index, [&](RequestDraft& d) {
+                            d.body = huxerui::TextEditingValue{parsed.dump(2)};
+                        });
+                    } catch (const std::exception& e) {
+                        toast.Show(std::string{"JSON 解析失败: "} + e.what());
+                    }
+                }),
+            }
+                                                        .With(huxerui::Spacing(
+                                                            theme.spacing.small))};
             switch (snapshot.bodyKindIndex) {
                 case 0: // 无
                     bodyChildren.push_back(
@@ -399,17 +455,8 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                                         [&](RequestDraft& d) { d.bodyFields = std::move(rows); });
                         }));
                     break;
-                default: // JSON/Text/XML/GraphQL
-                    bodyChildren.push_back(
-                        huxerui::TextField(snapshot.body)
-                            .Label("Body（" +
-                                   std::string{kBodyTypeNames.at(snapshot.bodyKindIndex)} + "）")
-                            .Variant(huxerui::TextFieldVariant::Outlined)
-                            .LineLimits(huxerui::TextFieldLineLimits::MultiLine(4, 12))
-                            .OnChanged([drafts, index](const huxerui::TextEditingValue& value) {
-                                MutateDraft(drafts, index,
-                                            [&](RequestDraft& d) { d.body = value; });
-                            }));
+                default: // JSON/Text/XML/GraphQL：带行号的文本编辑器
+                    bodyChildren.push_back(BodyTextEditor(drafts, index, snapshot, theme));
                     break;
             }
             editorChildren.push_back(huxerui::Column(std::move(bodyChildren))
@@ -424,7 +471,15 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                                   .foreground = theme.colors.on_surface};
 
     return huxerui::Column {
-        // 操作栏：方法下拉 + URL（占满）+ 名称 + 发送 + 保存。
+        // 名称行：整宽，独立于操作栏（原来的内嵌窄框移到 URL 行上一行）。
+        huxerui::TextField(snapshot.name)
+            .Label("名称")
+            .Placeholder("请求名称")
+            .Variant(huxerui::TextFieldVariant::Outlined)
+            .OnChanged([drafts, index](const huxerui::TextEditingValue& value) {
+                MutateDraft(drafts, index, [&](RequestDraft& d) { d.name = value; });
+            }),
+        // 操作栏：方法下拉 + URL（占满）+ 发送 + 保存 + ⋮（删除）。
         huxerui::Row {
             DropdownSelect(
                 std::vector<std::string>(kMethodNames.begin(), kMethodNames.end()),
@@ -441,14 +496,6 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                     MutateDraft(drafts, index, [&](RequestDraft& d) { d.url = value; });
                 })
                 .With(huxerui::Grow(1.0F)),
-            huxerui::TextField(snapshot.name)
-                .Label("名称")
-                .Placeholder("请求名称")
-                .Variant(huxerui::TextFieldVariant::Standard)
-                .OnChanged([drafts, index](const huxerui::TextEditingValue& value) {
-                    MutateDraft(drafts, index, [&](RequestDraft& d) { d.name = value; });
-                })
-                .With(huxerui::Frame{.width = 140.0F}),
             huxerui::Button(inFlight.Get() ? "发送中…" : "发送").OnClick([=] {
                 if (inFlight.Get()) return;
                 const std::vector<RequestDraft> current = drafts.Get();
@@ -520,6 +567,35 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                     listVersion = listVersion.Get() + 1;
                 }
             }),
+            // ⋮ 溢出菜单：删除当前请求条（已保存的连集合一起删，并关掉本标签）。
+            // 删除会卸载本编辑器 → 菜单项回调里经 tasks.Launch + Delay(0) 推迟。
+            CircleButton(
+                "⋮",
+                [overflow, tasks, drafts, activeTab, listVersion, index] {
+                    std::vector<huxerui::MenuEntry> entries;
+                    entries.push_back(huxerui::MenuItem(
+                        "删除", [tasks, drafts, activeTab, listVersion, index] {
+                            tasks.Launch([=]() -> huxerui::Task<void> {
+                                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                                std::vector<RequestDraft> copy = drafts.Get();
+                                if (index >= copy.size()) co_return;
+                                if (copy[index].savedId != 0) {
+                                    (void)g_requests.remove(copy[index].savedId);
+                                    listVersion = listVersion.Get() + 1;
+                                }
+                                copy.erase(copy.begin() + static_cast<long>(index));
+                                drafts = copy;
+                                if (!copy.empty() && activeTab.Get() >= copy.size())
+                                    activeTab = copy.size() - 1;
+                            });
+                        }));
+                    overflow.Show(std::move(entries),
+                                  huxerui::MenuOptions{
+                                      .placement = {huxerui::AnchorSide::Below,
+                                                    huxerui::AnchorAlignment::End}});
+                },
+                /*accent=*/false)
+                .With(overflow.Anchor()),
         }
             .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
@@ -532,11 +608,11 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
-// 左岛：当前项目的请求列表（点击开标签，✕ 从集合删除）+ 顶部“＋ 新建 ▾”类型菜单。
+// 左岛：当前项目的请求列表（点击开标签，✕ 从集合删除）+ 头部圆形 "+" 新建类型菜单。
 // vertical=true 用于 Compact 视口：列表改为顶部横岛（限高、宽度撑满）。
 [[huxerui::composable]] huxerui::View RequestListIsland(
     huxerui::State<std::vector<RequestDraft>> drafts, huxerui::State<std::size_t> activeTab,
-    huxerui::State<int> listVersion, std::string projectName, bool vertical) {
+    huxerui::State<int> listVersion, bool vertical) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto menu = huxerui::UseMenu();
@@ -618,12 +694,14 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                            .With(huxerui::Foreground(theme.colors.on_surface_variant)));
     }
 
-    // “＋ 新建 ▾”：动作菜单选择请求类型；菜单项回调在菜单层关闭后执行，
-    // 不卸载被点按钮（按钮在本岛，菜单在层上），可直接写 State。
+    // 头部行：标题 + 圆形 "+"（弹出新建类型菜单）。不再显示项目名——
+    // 顶级标签条已标识当前项目。菜单项回调在菜单层关闭后执行，不卸载被点
+    // 按钮（按钮在本岛，菜单在层上），可直接写 State。
     huxerui::View island = huxerui::Column {
-                               PageHeader("请求", "项目: " + std::move(projectName)),
-                               huxerui::Button("＋ 新建 ▾")
-                                   .OnClick([menu, drafts, activeTab] {
+                               huxerui::Row {
+                                   huxerui::Text("请求", huxerui::TextRole::Title)
+                                       .With(huxerui::Grow(1.0F)),
+                                   CircleButton("+", [menu, drafts, activeTab] {
                                        auto pushDraft = [drafts, activeTab](int kind) {
                                            std::vector<RequestDraft> copy = drafts.Get();
                                            copy.push_back(RequestDraft{.kind = kind});
@@ -641,8 +719,10 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                                                  huxerui::MenuOptions{
                                                      .placement = {huxerui::AnchorSide::Below,
                                                                    huxerui::AnchorAlignment::Start}});
-                                   })
-                                   .With(menu.Anchor()),
+                                   }).With(menu.Anchor()),
+                               }
+                                   .With(huxerui::CrossAlign(
+                                       huxerui::CrossAxisAlignment::Center)),
                                huxerui::ScrollView{huxerui::Column(std::move(rows))
                                                        .With(huxerui::Spacing(theme.spacing.small))}
                                    .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
@@ -661,12 +741,8 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
 [[huxerui::composable]] huxerui::View RequestPage(huxerui::State<std::int64_t> opened) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
 
-    // 当前项目名（打开工作区时由主页写入领域 store）。
     // 未打开项目的兜底已删：主页整宽覆盖侧栏后本页在 opened==0 时不可达。
-    std::string projectName = "（未知项目）";
-    for (const db::Project& p : g_requests.projects()) {
-        if (p.id == opened.Get()) projectName = p.name;
-    }
+    (void)opened;
 
     // 内部标签页：每个打开的请求一个草稿；响应区状态为页面级（单引擎）。
     auto openDrafts = huxerui::UseState<std::vector<RequestDraft>>({});
@@ -695,7 +771,7 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
             ? WebSocketPage().With(huxerui::Grow(1.0F)).Key(contentKey)
         : currentKind == 2
             ? TcpPage().With(huxerui::Grow(1.0F)).Key(contentKey)
-            : huxerui::View{huxerui::ScrollView{RequestEditor(openDrafts, current,
+            : huxerui::View{huxerui::ScrollView{RequestEditor(openDrafts, current, activeTab,
                                                               listVersion, inFlight,
                                                               responseBody, responseHeaders)
                                                     .Key(contentKey)}
@@ -732,7 +808,7 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
     if (compact) {
         // Compact：上 = 请求列表（限高 220、宽度撑满），下 = 编辑区（撑满剩余）。
         return huxerui::Column {
-                   RequestListIsland(openDrafts, activeTab, listVersion, projectName, true),
+                   RequestListIsland(openDrafts, activeTab, listVersion, true),
                    std::move(rightIsland).With(huxerui::Grow(1.0F)),
                }
             .With(huxerui::Spacing(theme.spacing.small),
@@ -740,7 +816,7 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
     return huxerui::Row {
-               RequestListIsland(openDrafts, activeTab, listVersion, projectName, false),
+               RequestListIsland(openDrafts, activeTab, listVersion, false),
                std::move(rightIsland).With(huxerui::Grow(1.0F)),
            }
         .With(huxerui::Spacing(theme.spacing.small),
