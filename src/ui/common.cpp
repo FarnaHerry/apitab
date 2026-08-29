@@ -1,8 +1,10 @@
-// common.cpp — HuxerUI 前端公共小组件（页面标题、状态文本、空状态页）。
+// common.cpp — HuxerUI 前端公共小组件（页面标题、状态文本、空状态页、下拉选择器）。
 #include <huxerui/huxerui.h>
 
 #include <cstddef>
+#include <functional>
 #include <string>
+#include <vector>
 
 #include "app_resources.h"
 #include "ui.h"
@@ -10,6 +12,33 @@
 import std;
 
 namespace apitab::ui {
+
+// 通用下拉选择器：触发按钮显示当前项 + ▾，点击弹出锚定菜单（SDK 无原生 ComboBox）。
+// onChanged 在菜单项点击后触发（菜单层已关闭，脱离指针事件路径）；
+// 若回调会卸载节点/重建树（如切主题），调用方需自行 tasks.Launch + Delay(0) 推迟。
+[[huxerui::composable]] huxerui::View DropdownSelect(
+    std::vector<std::string> items, std::size_t current,
+    std::function<void(std::size_t)> onChanged) {
+    auto menu = huxerui::UseMenu();
+    const std::size_t safe = current < items.size() ? current : 0;
+    return huxerui::Button(items.at(safe) + " ▾")
+        .OnClick([menu, items = std::move(items), current = safe, onChanged = std::move(onChanged)] {
+            std::vector<huxerui::MenuEntry> entries;
+            entries.reserve(items.size());
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                huxerui::MenuItem item(items[i], [onChanged, i] { onChanged(i); });
+                if (i == current)
+                    entries.push_back(std::move(item).Checked(true));
+                else
+                    entries.push_back(std::move(item));
+            }
+            menu.Show(std::move(entries),
+                      huxerui::MenuOptions{
+                          .placement = {huxerui::AnchorSide::Below,
+                                        huxerui::AnchorAlignment::Start}});
+        })
+        .With(menu.Anchor());
+}
 
 // 页面标题 + 副标题。
 [[huxerui::composable]] huxerui::View PageHeader(std::string title, std::string subtitle) {

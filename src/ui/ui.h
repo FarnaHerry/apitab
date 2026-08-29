@@ -4,7 +4,10 @@
 #include <huxerui/huxerui.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace apitab::ui {
 
@@ -13,6 +16,8 @@ huxerui::View PageHeader(std::string title, std::string subtitle);
 huxerui::View MigrationPlaceholder(std::string pageName);
 huxerui::View EmptyState(huxerui::ImageResource icon, std::string title, std::string subtitle,
                          huxerui::State<std::size_t> navPage);
+huxerui::View DropdownSelect(std::vector<std::string> items, std::size_t current,
+                             std::function<void(std::size_t)> onChanged);
 
 // home_page.cpp
 huxerui::View HomePage(huxerui::State<std::size_t> navPage,

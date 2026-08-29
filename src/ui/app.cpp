@@ -1,5 +1,7 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 托盘）：
-//   标题栏岛：Logo(AT) + 顶级项目标签条（Grow）+ 齿轮(全局设置) + 框架窗口按钮。
+//   标题栏岛：Logo(AT) + 顶级项目标签条（Grow，超长项目名裁剪）+ 齿轮(全局设置)
+//     + 框架窗口按钮；底色随全局主题（surface_container_low），深色主题为
+//     「AI 极客风」近黑配色（GeekDarkThemeSpec）。
 //   下方：左侧图标侧边栏岛（Tooltip 悬停提示）｜内容岛。
 // 托盘：托盘图标/菜单（显示主窗口/退出）；关闭行为三选（每次询问/直接关闭/
 //   最小化到托盘），未配置时第一次关闭弹窗询问并把选择写入配置。
@@ -66,6 +68,31 @@ enum PageIndex : std::size_t {
 
 namespace {
 
+// 「AI 极客风」深色主题：以 Material 深色令牌为底，覆盖为近黑底 +
+// 电气青/亮蓝 accent 的配色；形状/间距/排版沿用内置深色方案。
+huxerui::ThemeSpec GeekDarkThemeSpec() {
+    huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
+    spec.colors.primary = huxerui::Color::Rgb(62, 198, 224);       // #3EC6E0 电气青
+    spec.colors.on_primary = huxerui::Color::Rgb(6, 32, 42);       // #06202A 近黑
+    spec.colors.secondary = huxerui::Color::Rgb(76, 194, 255);     // #4CC2FF 亮蓝
+    spec.colors.on_secondary = huxerui::Color::Rgb(6, 32, 42);     // #06202A
+    spec.colors.secondary_container = huxerui::Color::Rgb(24, 32, 44);
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(230, 237, 243);
+    spec.colors.background = huxerui::Color::Rgb(7, 9, 13);        // #07090D
+    spec.colors.surface = huxerui::Color::Rgb(10, 13, 18);         // #0A0D12
+    spec.colors.surface_container_low = huxerui::Color::Rgb(13, 17, 23);    // #0D1117
+    spec.colors.surface_container = huxerui::Color::Rgb(18, 22, 30);        // #12161E
+    spec.colors.surface_container_high = huxerui::Color::Rgb(24, 32, 44);   // #18202C
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(31, 41, 55); // #1F2937
+    spec.colors.on_surface = huxerui::Color::Rgb(230, 237, 243);   // #E6EDF3
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(139, 148, 158); // #8B949E
+    spec.colors.outline = huxerui::Color::Rgb(45, 55, 69);         // #2D3745
+    spec.colors.inverse_surface = huxerui::Color::Rgb(230, 237, 243);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(10, 13, 18);
+    spec.colors.error = huxerui::Color::Rgb(255, 92, 92);          // #FF5C5C
+    return spec;
+}
+
 // 软件徽标：字母 AT 合成的圆角块。
 [[huxerui::composable]] huxerui::View LogoBadge() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -78,7 +105,7 @@ namespace {
                              .vertical = huxerui::VerticalAlignment::Center});
 }
 
-// 单个标签页：激活态 = 白底圆角；内容 = 图标/文字 + 集成的关闭按钮。
+// 单个标签页：激活态 = 最高层级容器底 + 主文字色；未激活 = 略深容器底 + 次级文字色。
 // 整块外层只负责激活与切换（点击卸载内容子树，推迟出指针事件路径，CLAUDE.md 约定 6）；
 // 内层用两个兄弟节点分别承载“切换”与“关闭”，避免各自做一次整标签的背景重绘。
 [[huxerui::composable]] huxerui::View ProjectTab(
@@ -89,11 +116,12 @@ namespace {
     auto tasks = huxerui::UseTaskScope();
     const bool active = activeProject.Get() == id;
 
-    // 激活态 = 白色浅底 + 深色文字；未激活 = 主题色底 + 浅色文字。
+    // 标题栏底色为 surface_container_low：未激活标签用 surface_container 微微浮起，
+    // 激活标签用 surface_container_highest 进一步提亮。
     const huxerui::Color tabFill =
-        active ? theme.colors.surface_container_low : theme.colors.primary;
+        active ? theme.colors.surface_container_highest : theme.colors.surface_container;
     const huxerui::Color tabForeground =
-        active ? theme.colors.on_surface : theme.colors.on_primary;
+        active ? theme.colors.on_surface : theme.colors.on_surface_variant;
 
     auto activateProject = [tasks, activeProject, tabs, navPage](std::int64_t tabId) {
         tasks.Launch([=]() -> huxerui::Task<void> {
@@ -127,7 +155,8 @@ namespace {
 
     const auto badgeFont =
         huxerui::Font::System(12.0F).WithWeight(huxerui::FontWeight::SemiBold);
-    // 主页标签只放图标：省略文字、收窄边距并固定窄宽，避免挤占项目标签空间。
+    // 主页标签只放图标：省略文字、收窄边距并固定窄宽，避免挤占项目标签空间；
+    // 项目标签限宽 180 并裁剪子内容，超长项目名截断显示。
     const bool iconOnly = name.empty();
     return huxerui::Row {
         // 切换区：点击 = 激活本标签。
@@ -157,10 +186,11 @@ namespace {
         .With(huxerui::Spacing(0.0F), huxerui::Background(tabFill),
               huxerui::Foreground(tabForeground),
               huxerui::CornerRadius(theme.shapes.medium),
+              huxerui::ClipChildren(),
               huxerui::Padding(iconOnly ? huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)
                                         : huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
               iconOnly ? huxerui::Frame{.width = 32.0F, .height = 28.0F}
-                       : huxerui::Frame{.height = 28.0F});
+                       : huxerui::Frame{.height = 28.0F, .max_width = 180.0F});
 }
 
 // 顶级标签条：第一个为主页（固定不可关，房子图标），其后每个项目一个可关标签。
@@ -247,20 +277,25 @@ namespace {
     auto dialog = huxerui::UseDialog();
     auto tasks = huxerui::UseTaskScope();
 
+    // 初始值在 UseState 之前算好（组合体内不写 State）：
+    // 主题模式 0=跟随系统 1=深色 2=浅色，未保存偏好时默认深色（极客风黑底）。
+    int initialThemeMode = 1;
+    if (sessionPreference("theme_mode") == "0") initialThemeMode = 0;
+    if (sessionPreference("theme_mode") == "2") initialThemeMode = 2;
+    // 关闭行为：0=每次询问 1=直接关闭 2=最小化到托盘
+    int initialCloseBehavior = 0;
+    if (sessionPreference("close_behavior") == "1") initialCloseBehavior = 1;
+    if (sessionPreference("close_behavior") == "2") initialCloseBehavior = 2;
+
     auto navPage = huxerui::UseState<std::size_t>(pages::kHome);
-    auto themeMode = huxerui::UseState<int>(0); // 0=跟随系统 1=深色 2=浅色
+    auto themeMode = huxerui::UseState<int>(std::move(initialThemeMode));
     // 顶级标签：activeProject = 0 为主页标签；其余值为打开的项目 id。
     auto tabs = huxerui::UseState<std::vector<std::int64_t>>({});
     auto activeProject = huxerui::UseState<std::int64_t>(0);
-    // 关闭行为：0=每次询问 1=直接关闭 2=最小化到托盘
-    auto closeBehavior = huxerui::UseState<int>(0);
+    auto closeBehavior = huxerui::UseState<int>(std::move(initialCloseBehavior));
     auto closeDialogOpen = huxerui::UseState(false);
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
 
-    if (sessionPreference("theme_mode") == "1") themeMode = 1;
-    if (sessionPreference("theme_mode") == "2") themeMode = 2;
-    if (sessionPreference("close_behavior") == "1") closeBehavior = 1;
-    if (sessionPreference("close_behavior") == "2") closeBehavior = 2;
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
 
@@ -339,7 +374,7 @@ namespace {
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(theme.spacing.medium,
                                                                   theme.spacing.extra_small)),
                   huxerui::Spacing(theme.spacing.medium),
-                  huxerui::Background(theme.colors.primary)),
+                  huxerui::Background(theme.colors.surface_container_low)),
         huxerui::Row {
             SideShell(navPage),
             pages::PageFor(navPage.Get(), navPage, tabs, activeProject, themeMode, closeBehavior)
@@ -350,7 +385,9 @@ namespace {
     }
                                .With(huxerui::Spacing(theme.spacing.medium));
 
-    return dark ? huxerui::View{huxerui::MaterialDarkTheme{content}}
+    // 深色分支用极客风自定义 spec（MaterialDarkTheme 无自定义 spec 构造，走
+    // MaterialTheme(spec, content)）；浅色分支保持内置 Material 浅色。
+    return dark ? huxerui::View{huxerui::MaterialTheme(GeekDarkThemeSpec(), content)}
                 : huxerui::View{huxerui::MaterialTheme{content}};
 }
 
