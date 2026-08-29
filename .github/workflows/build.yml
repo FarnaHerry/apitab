@@ -46,10 +46,7 @@ jobs:
         run: |
           apt-get install -y --no-install-recommends \
             clang-21 libc++-21-dev ninja-build pkg-config file python3 python3-pip \
-            libssl-dev \
-            libgl1-mesa-dev mesa-common-dev \
-            libx11-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev \
-            libxext-dev libxfixes-dev libxrender-dev libxcb1-dev libxau-dev libxdmcp-dev
+            libssl-dev
           # 26.04 的 apt cmake 是 3.31（无 GNU 发现模块且全局 token 不匹配），固定 pip 4.4.2
           python3 -m pip install --break-system-packages -q cmake==4.4.2
           cmake --version | head -1

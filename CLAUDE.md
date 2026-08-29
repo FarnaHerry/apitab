@@ -3,9 +3,9 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 apitab 是一个 **C++23 模块化 GUI 工具**：API 测试（libcurl 单请求）+ k6 压测 +
-SQLite 存储，EUI-NEO 前端，用 **CMake** 构建（已从 mcpp 迁移）。分层沿用原结构：
-UI（src/ui/*，依赖 eui）/ 领域 store（src/store/*，无 eui）/ 引擎三层，引擎自保留
-在 store 单例中。
+SQLite 存储，用 **CMake** 构建。**本分支正在把前端从 EUI-NEO 迁移到 HuxerUI
+（组件式声明 UI，SDK 接入）**——迁移地图与进度见 `docs/huxerui-migration.md`。
+领域层（src/store/*、引擎、DB、config）与 UI 框架无关。
 
 ## EUI 参考顺序
 

@@ -84,33 +84,22 @@ set(APITAB_MODULE_UNITS
     src/store/loadtest.cppm
     src/store/tcp.cppm
     src/store/websocket.cppm
-    # 视图 store + EUI 前端
+    # HuxerUI 前端
     src/store/ui.cppm
-    src/ui/theme.cppm
-    src/ui/utils.cppm
-    src/ui/widgets.cppm
-    src/ui/sidebar.cppm
-    src/ui/topbars.cppm
-    src/ui/request_page.cppm
-    src/ui/websocket_page.cppm
-    src/ui/tcp_page.cppm
-    src/ui/loadtest_page.cppm
-    src/ui/history_page.cppm
+    src/ui/common.cppm
     src/ui/home_page.cppm
-    src/ui/settings_page.cppm
+    src/ui/request_page.cppm
+    src/ui/app.cppm
 )
 
 add_executable(apitab
-    src/app.cpp
+    src/app_main.cpp
     # 模块实现单元（module apitab.X;）
     src/curl_engine.cpp
     src/k6_engine.cpp
     src/websocket_engine.cpp
     src/tcp_engine.cpp
     src/db.cpp
-    # EUI-NEO app-main feature：GLFW 主循环 + main()（对应旧 mcpp features=["app-main"]）。
-    # 路径 = third_party 解包产物（third_party/CMakeLists 的 apitab_extract(eui_neo ...)）。
-    "${CMAKE_BINARY_DIR}/vendor/eui_neo/eui-neo-0.5.7/core/app/glfw_app_main.cpp"
 )
 target_sources(apitab PRIVATE FILE_SET apitab_modules TYPE CXX_MODULES
     BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -123,7 +112,7 @@ if(MSVC)
 endif()
 target_include_directories(apitab PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(apitab PRIVATE
-    eui::neo
+    huxerui
     asio
     ixwebsocket
     CURL::libcurl
@@ -146,12 +135,22 @@ if(WIN32)
     endif()
 endif()
 
-# 字体/图标资源放 <exe>/assets（eui 按 exe 目录 → assets/ 搜索字体）；
-# 仓库根 assets/ 在工作目录 = 仓库根时同样能被解析，双保险。
+# 图标资源放 <exe>/assets；HuxerUI 框架资源放 <exe>.resources/huxerui/
 add_custom_command(TARGET apitab POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:apitab>/assets"
-    COMMENT "Copying assets next to apitab")
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:apitab>/apitab.resources/huxerui"
+    COMMAND ${CMAKE_COMMAND} -E copy
+            "${HUXERUI_RESOURCES_BIN}" "$<TARGET_FILE_DIR:apitab>/apitab.resources/huxerui/resources.bin"
+    COMMENT "Copying assets and HuxerUI resources next to apitab")
+if(WIN32)
+    # HuxerUI 运行时 DLL 需在 exe 旁
+    add_custom_command(TARGET apitab POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${HUXERUI_SDK_DIR}/bin/huxerui.dll" "$<TARGET_FILE_DIR:apitab>"
+        COMMENT "Copying huxerui.dll next to apitab")
+endif()
 
 # 仓库根的 compile_commands.json 软链（给 clangd 用；.gitignore 已忽略）
 file(CREATE_LINK "${CMAKE_BINARY_DIR}/compile_commands.json"

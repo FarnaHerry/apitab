@@ -149,41 +149,39 @@ if(UNIX AND NOT APPLE)
     endif()
 endif()
 
-# ---- EUI-NEO 0.5.7（bundled 3rd/，glfw + opengl）-----------------------------
-# 与 compat.eui-neo 的形状对齐：不编 apps/examples/tests，不装 install 规则；
-# tray 关（原 mcpp 构建是 EUI_TRAY_HAS_BACKEND=0 桩），markdown 关（未编译 md4c）；
-# app-main 的 glfw_app_main.cpp 不在库里，由 apitab 自己编进可执行目标。
-apitab_extract(eui_neo
-    "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/eui-neo-0.5.7.tar.gz"
-    "c91b341c928465c9280b8bddab6d86bf4722dc2948c82ae41e7ca9609cbed11f"
-    "eui-neo-0.5.7")
-set(EUI_BUILD_APPS OFF CACHE BOOL "" FORCE)
-set(EUI_BUILD_USER_APPS OFF CACHE BOOL "" FORCE)
-set(EUI_BUILD_TEST_FIXTURES OFF CACHE BOOL "" FORCE)
-set(EUI_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-set(EUI_ENABLE_TRAY OFF CACHE BOOL "" FORCE)
-set(EUI_ENABLE_MARKDOWN OFF CACHE BOOL "" FORCE)
-set(EUI_WINDOW_BACKEND "glfw" CACHE STRING "" FORCE)
-set(EUI_RENDER_BACKEND "opengl" CACHE STRING "" FORCE)
-set(EUI_DEPS_MODE "bundled" CACHE STRING "" FORCE)
-# glfw 保持 X11-only（与原 compat.glfw 形状一致）：Wayland 后端需要 wayland-scanner
-# 等额外依赖，旧构建的打包/运行路径（XWayland）也是这么走的。
-set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_X11 ON CACHE BOOL "" FORCE)
-# X11 兜底前缀只对 eui 子树生效（本文件里它是最后一个 add_subdirectory）
-if(APITAB_X11_FALLBACK_PREFIX)
-    set(CMAKE_PREFIX_PATH "${APITAB_X11_FALLBACK_PREFIX}")
+# ---- HuxerUI 0.1.0（官方预编译 SDK，shared 库）--------------------------------
+# 替换 EUI-NEO：组件式声明 UI（composable View + UseState + TaskScope）。
+# Linux 后端为 GTK4/Cairo，运行时需要系统 libgtk-4-1/libsoup-3.0-0（本机已具备，
+# 无需 dev 头文件 —— 直接链接 SDK 的 libhuxerui.so）。
+if(APPLE)
+    apitab_extract(huxerui
+        "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/huxerui-sdk-0.1.0-macos-arm64.tar.gz"
+        "f1f3d115f0647d43e8149c82be1e628605fbef4414bf75bd1d7b9de7b1df0852"
+        "huxerui-sdk-0.1.0-macos-arm64")
+elseif(WIN32)
+    apitab_extract(huxerui
+        "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/huxerui-sdk-0.1.0-windows-x86_64.zip"
+        "8d8863878a56b38ad1e669ba666297cc0526e896f3d5e32aabf8aeaaf0b68539"
+        "huxerui-sdk-0.1.0-windows-x86_64")
+else()
+    apitab_extract(huxerui
+        "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/huxerui-sdk-0.1.0-linux-x86_64.tar.gz"
+        "147833204b7a08bdae28a2d66019679ac0814af2d3d7238c7a6ea6e39fb1c5a3"
+        "huxerui-sdk-0.1.0-linux-x86_64")
 endif()
-add_subdirectory("${eui_neo_SOURCE_DIR}" "eui-neo-build")
+set(HUXERUI_SDK_DIR "${huxerui_SOURCE_DIR}" CACHE INTERNAL "HuxerUI SDK root")
 
-# GCC 16 的 libstdc++ 不再把 isnan 泄漏进全局命名空间（标准清洁化）；
-# 上游 vendored 的 nanosvgrast.h 仅此一处踩到，解包后打确定性补丁（幂等）。
-set(_nsvg_header "${eui_neo_SOURCE_DIR}/3rd/nanosvgrast.h")
-file(READ "${_nsvg_header}" _nsvg_txt)
-string(REPLACE "if (isnan(a))" "if (std::isnan(a))" _nsvg_txt "${_nsvg_txt}")
-if(NOT _nsvg_txt MATCHES "#include <cmath>")
-    string(REPLACE "#include <math.h>" "#include <math.h>\n#include <cmath>" _nsvg_txt "${_nsvg_txt}")
+add_library(huxerui SHARED IMPORTED GLOBAL)
+set_target_properties(huxerui PROPERTIES IMPORTED_GLOBAL TRUE
+    INTERFACE_INCLUDE_DIRECTORIES "${HUXERUI_SDK_DIR}/include")
+if(WIN32)
+    set_target_properties(huxerui PROPERTIES
+        IMPORTED_IMPLIB "${HUXERUI_SDK_DIR}/lib/huxerui.lib"
+        IMPORTED_LOCATION "${HUXERUI_SDK_DIR}/bin/huxerui.dll")
+else()
+    set_target_properties(huxerui PROPERTIES
+        IMPORTED_LOCATION "${HUXERUI_SDK_DIR}/lib/libhuxerui.so")
 endif()
-file(WRITE "${_nsvg_header}" "${_nsvg_txt}")
-unset(_nsvg_header)
-unset(_nsvg_txt)
+# SDK 自带的资源包（运行时按 HUXERUI_RESOURCES_DIR 或 <exe>.resources/ 查找）
+set(HUXERUI_RESOURCES_BIN "${HUXERUI_SDK_DIR}/share/huxerui/resources/huxerui/resources.bin" CACHE INTERNAL "")
+
