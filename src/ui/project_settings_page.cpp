@@ -1,11 +1,12 @@
 // project_settings_page.cpp — 当前项目设置：项目信息与重命名。
-// 未打开项目时不可用（侧栏入口仅在项目标签页激活时有意义）。
+// 未打开项目时显示空状态（去主页打开项目）。
 #include <huxerui/huxerui.h>
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
+#include "app_resources.h"
 #include "ui.h"
 
 import apitab.db;
@@ -16,6 +17,7 @@ namespace apitab::ui {
 [[huxerui::composable]] huxerui::View ProjectSettingsPage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
+    auto navPage = huxerui::UseState<std::size_t>(0);
 
     const std::int64_t current = g_requests.currentProjectId();
     const db::Project* project = nullptr;
@@ -23,7 +25,9 @@ namespace apitab::ui {
         if (p.id == current) project = &p;
     }
     if (project == nullptr) {
-        return MigrationPlaceholder("项目设置（先在主页打开项目）");
+        return huxerui::ScrollView{EmptyState(app::images::project_settings, "项目设置未打开",
+                                              "先在主页打开一个项目，再进入项目设置。", navPage)}
+            .With(huxerui::ScrollBar());
     }
 
     auto name = huxerui::UseState(huxerui::TextEditingValue{project->name});
@@ -51,7 +55,7 @@ namespace apitab::ui {
         }),
     }
                                .With(huxerui::Padding(theme.spacing.large),
-                                     huxerui::Spacing(theme.spacing.medium))};
+                                     huxerui::Spacing(theme.spacing.medium))}.With(huxerui::ScrollBar());
 }
 
 } // namespace apitab::ui

@@ -34,7 +34,7 @@ std::string StateName(api::WebSocketState s) {
                 .With(huxerui::Foreground(theme.colors.on_surface_variant));
         }),
     }
-                               .With(huxerui::Frame{.height = 300.0F})};
+                               .With(huxerui::Frame{.height = 300.0F})}.With(huxerui::ScrollBar());
 }
 
 [[huxerui::composable]] huxerui::View WebSocketPage() {
@@ -135,7 +135,7 @@ std::string StateName(api::WebSocketState s) {
         WsEventStream(events, theme),
     }
                                .With(huxerui::Padding(theme.spacing.large),
-                                     huxerui::Spacing(theme.spacing.medium))};
+                                     huxerui::Spacing(theme.spacing.medium))}.With(huxerui::ScrollBar());
 }
 
 } // namespace apitab::ui

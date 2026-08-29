@@ -70,7 +70,7 @@ namespace {
 [[huxerui::composable]] huxerui::View LogoBadge() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Text("AT", huxerui::TextRole::Title)
-        .With(huxerui::Frame{.width = 44.0F, .height = 36.0F},
+        .With(huxerui::Frame{.width = 36.0F, .height = 28.0F},
               huxerui::Background(theme.colors.primary),
               huxerui::CornerRadius(theme.shapes.medium),
               huxerui::Foreground(theme.colors.on_primary),
@@ -78,12 +78,89 @@ namespace {
                              .vertical = huxerui::VerticalAlignment::Center});
 }
 
-// 顶级标签条：第一个为主页（固定不可关），其后每个项目一个可关标签。
+// 单个标签页：激活态 = 白底圆角；内容 = 图标/文字 + 集成的关闭按钮。
+// 整块外层只负责激活与切换（点击卸载内容子树，推迟出指针事件路径，CLAUDE.md 约定 6）；
+// 内层用两个兄弟节点分别承载“切换”与“关闭”，避免各自做一次整标签的背景重绘。
+[[huxerui::composable]] huxerui::View ProjectTab(
+    huxerui::State<std::size_t> navPage, huxerui::State<std::vector<std::int64_t>> tabs,
+    huxerui::State<std::int64_t> activeProject, std::int64_t id, huxerui::View leading,
+    std::string name) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto tasks = huxerui::UseTaskScope();
+    const bool active = activeProject.Get() == id;
+
+    // 激活态 = 白色浅底 + 深色文字；未激活 = 主题色底 + 浅色文字。
+    const huxerui::Color tabFill =
+        active ? theme.colors.surface_container_low : theme.colors.primary;
+    const huxerui::Color tabForeground =
+        active ? theme.colors.on_surface : theme.colors.on_primary;
+
+    auto activateProject = [tasks, activeProject, tabs, navPage](std::int64_t tabId) {
+        tasks.Launch([=]() -> huxerui::Task<void> {
+            co_await huxerui::Delay(std::chrono::duration<double>{0});
+            if (tabId != 0) {
+                g_requests.selectProject(tabId);
+                g_loadtest.setProject(tabId);
+                saveSessionPreference("active_project", std::to_string(tabId));
+                if (navPage.Get() == pages::kHome) navPage = pages::kRequest; // 进入工作区
+            } else {
+                navPage = pages::kHome; // 主页标签
+            }
+            activeProject = tabId;
+        });
+    };
+    auto closeTab = [tasks, activeProject, tabs, navPage](std::int64_t tabId) {
+        tasks.Launch([=]() -> huxerui::Task<void> {
+            co_await huxerui::Delay(std::chrono::duration<double>{0});
+            std::vector<std::int64_t> rest = tabs.Get();
+            std::erase(rest, tabId);
+            tabs = rest;
+            if (activeProject.Get() == tabId) {
+                g_requests.selectProject(0);
+                g_loadtest.setProject(0);
+                saveSessionPreference("active_project", "0");
+                activeProject = 0;
+                navPage = pages::kHome;
+            }
+        });
+    };
+
+    const auto badgeFont =
+        huxerui::Font::System(12.0F).WithWeight(huxerui::FontWeight::SemiBold);
+    return huxerui::Row {
+        // 切换区：点击 = 激活本标签。
+        huxerui::Row {std::move(leading),
+                      huxerui::Text(name, huxerui::TextRole::Label).Style(huxerui::TextStyle{
+                          .font = badgeFont,
+                          .foreground = tabForeground})}
+            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 4.0F)),
+                  huxerui::Spacing(4.0F))
+            .OnClick([activateProject, id] { activateProject(id); }),
+        // 关闭区（仅项目标签）：独立兄弟，点击关闭标签页。
+        id != 0
+            ? huxerui::View{huxerui::Text("✕", huxerui::TextRole::Label)
+                                .Style(huxerui::TextStyle{
+                                    .font = badgeFont,
+                                    .foreground = tabForeground,
+                                })
+                                .With(huxerui::Padding(4.0F))
+                                .OnClick([closeTab, id] { closeTab(id); })
+                                .On<huxerui::ViewEvents::PointerMove>(
+                                    [](const huxerui::PointerEvent&) {})}
+            : huxerui::View{huxerui::Spacer().With(huxerui::Frame{.width = 0.0F})},
+    }
+        .With(huxerui::Spacing(0.0F), huxerui::Background(tabFill),
+              huxerui::Foreground(tabForeground),
+              huxerui::CornerRadius(theme.shapes.medium),
+              huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
+              huxerui::Frame{.height = 28.0F});
+}
+
+// 顶级标签条：第一个为主页（固定不可关，房子图标），其后每个项目一个可关标签。
 [[huxerui::composable]] huxerui::View ProjectTabStrip(
     huxerui::State<std::size_t> navPage, huxerui::State<std::vector<std::int64_t>> tabs,
     huxerui::State<std::int64_t> activeProject) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    auto tasks = huxerui::UseTaskScope();
 
     std::vector<std::pair<std::int64_t, std::string>> items;
     items.emplace_back(0, "主页");
@@ -93,39 +170,15 @@ namespace {
         }
     }
 
-    auto activateProject = [activeProject, tabs, navPage](std::int64_t id) {
-        if (id != 0) {
-            g_requests.selectProject(id);
-            g_loadtest.setProject(id);
-            saveSessionPreference("active_project", std::to_string(id));
-            if (navPage.Get() == pages::kHome) navPage = pages::kRequest; // 进入工作区
-        } else {
-            navPage = pages::kHome; // 主页标签
-        }
-        activeProject = id;
-    };
-
     std::vector<huxerui::View> chips;
     for (const auto& [id, name] : items) {
-        const bool active = activeProject.Get() == id;
-        const std::string label = (active ? "● " : "") + name;
-        chips.push_back(
-            huxerui::Row {
-                huxerui::Button(label).OnClick([activateProject, id] { activateProject(id); }),
-                id != 0 ? huxerui::View{huxerui::Button("✕").OnClick(
-                              [=] {
-                                  // 关闭会移除本按钮所在行：推迟出指针事件路径
-                                  tasks.Launch([=]() -> huxerui::Task<void> {
-                                      co_await huxerui::Delay(std::chrono::duration<double>{0});
-                                      std::vector<std::int64_t> rest = tabs.Get();
-                                      std::erase(rest, id);
-                                      tabs = rest;
-                                      if (activeProject.Get() == id) activateProject(0);
-                                  });
-                              })}
-                        : huxerui::View{huxerui::Text("")},
-            }
-                .With(huxerui::Spacing(2.0F)));
+        // 主页标签只放房子图标（去掉文字），项目标签用项目名。
+        const huxerui::View leading =
+            id == 0 ? huxerui::View{huxerui::Image(app::images::home)
+                                        .With(huxerui::Frame{.width = 16.0F, .height = 16.0F})}
+                    : huxerui::View{huxerui::Spacer().With(huxerui::Frame{.width = 0.0F})};
+        chips.push_back(ProjectTab(navPage, tabs, activeProject, id, std::move(leading), name)
+                            .Key(id == 0 ? 0LL : id));
     }
 
     return huxerui::Row(std::move(chips))
@@ -136,6 +189,7 @@ namespace {
 // 左列岛：图标侧边栏（选中态用实心图标变体，悬停显示文字提示）。
 [[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto tasks = huxerui::UseTaskScope();
     struct Item {
         huxerui::ImageResource icon;
         huxerui::ImageResource icon_selected;
@@ -155,9 +209,16 @@ namespace {
         const Item& item = items[i];
         const std::size_t page = i + 1; // 侧栏项从 kRequest 开始
         const huxerui::ImageResource& icon = navPage.Get() == page ? item.icon_selected : item.icon;
-        buttons.push_back(huxerui::IconButton(icon, item.tooltip)
-                              .OnClick([navPage, page] { navPage = page; })
-                              .With(huxerui::Tooltip(item.tooltip)));
+        buttons.push_back(
+            huxerui::IconButton(icon, item.tooltip)
+                .OnClick([tasks, navPage, page] {
+                    // 切页会卸载内容子树：推迟出指针事件路径
+                    tasks.Launch([=]() -> huxerui::Task<void> {
+                        co_await huxerui::Delay(std::chrono::duration<double>{0});
+                        navPage = page;
+                    });
+                })
+                .With(huxerui::Tooltip(item.tooltip)));
     }
     return huxerui::Column(std::move(buttons))
         .With(huxerui::Padding(theme.spacing.medium), huxerui::Spacing(theme.spacing.small),
@@ -173,8 +234,11 @@ namespace {
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     const huxerui::WindowHandle window = huxerui::UseWindow();
     const huxerui::SystemTrayHandle tray = application.SystemTray();
+    // IsAvailable() 内部会观察托盘可用性 State：DBus 托盘宿主就绪较晚时，
+    // 这里在组合期订阅，可用性翻转后本作用域重组、托盘随后注册。
     const bool trayAvailable = tray.IsAvailable();
     auto dialog = huxerui::UseDialog();
+    auto tasks = huxerui::UseTaskScope();
 
     auto navPage = huxerui::UseState<std::size_t>(pages::kHome);
     auto themeMode = huxerui::UseState<int>(0); // 0=跟随系统 1=深色 2=浅色
@@ -193,7 +257,8 @@ namespace {
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
 
-    // 托盘：图标 + 菜单；点击托盘图标激活主窗口。
+    // 托盘：图标 + 菜单；点击托盘图标激活主窗口。仅在可用时注册；
+    // 首次组合时宿主未就绪则跳过，待可用性触发重组后再注册。
     if (trayAvailable) {
         tray.OnActivate([window] { window.Activate(); });
         huxerui::Lifecycle(
@@ -216,9 +281,10 @@ namespace {
     }
 
     // 关闭拦截：按配置直接关闭/进托盘；未配置时第一次询问并把选择写入配置。
+    // 托盘可用性在关闭时动态查询（不要用组合期快照，避免错过宿主晚就绪）。
     window.OnCloseRequest(
         [=]() mutable -> bool {
-            if (!trayAvailable) return false; // 无托盘：交给系统直接关闭
+            if (!tray.IsAvailable()) return false; // 无托盘：交给系统直接关闭
             if (closeBehavior.Get() == 1) return false;
             if (closeBehavior.Get() == 2) {
                 window.Hide();
@@ -254,8 +320,14 @@ namespace {
             LogoBadge(),
             huxerui::Row {ProjectTabStrip(navPage, tabs, activeProject)}.With(huxerui::Grow(1.0F)),
             huxerui::IconButton(app::images::gear, "全局设置")
-                .OnClick([navPage] { navPage = pages::kAppSettings; })
-                .With(huxerui::Tooltip("全局设置")),
+                .OnClick([tasks, navPage] {
+                    // 切页会卸载内容子树：推迟出指针事件路径
+                    tasks.Launch([=]() -> huxerui::Task<void> {
+                        co_await huxerui::Delay(std::chrono::duration<double>{0});
+                        navPage = pages::kAppSettings;
+                    });
+                })
+                .With(huxerui::Tooltip("全局设置"), huxerui::Frame{.height = 28.0F}),
         }
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(theme.spacing.medium,
                                                                   theme.spacing.extra_small)),

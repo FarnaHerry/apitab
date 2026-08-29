@@ -82,7 +82,7 @@ namespace apitab::ui {
     return huxerui::ScrollView{
         huxerui::Column(std::move(rows)).With(huxerui::Padding(theme.spacing.large),
                                                huxerui::Spacing(theme.spacing.medium))
-    };
+    }.With(huxerui::ScrollBar());
 }
 
 } // namespace apitab::ui

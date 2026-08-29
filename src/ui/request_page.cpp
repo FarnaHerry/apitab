@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ui.h"
+#include "app_resources.h"
 
 import apitab.api_engine;
 import apitab.db;
@@ -38,6 +39,7 @@ api::KeyValue ToKeyValue(const KvRow& row) {
 [[huxerui::composable]] huxerui::View KvTable(huxerui::State<std::vector<KvRow>> rows,
                                               const huxerui::ThemeSpec& theme,
                                               std::string keyLabel, std::string valueLabel) {
+    auto tasks = huxerui::UseTaskScope();
     std::vector<huxerui::View> children{huxerui::Text(keyLabel, huxerui::TextRole::Label)};
 
     const std::vector<KvRow> snapshot = rows.Get();
@@ -65,10 +67,14 @@ api::KeyValue ToKeyValue(const KvRow& row) {
                     if (i < copy.size()) copy[i].enabled = checked;
                     rows = copy;
                 }),
-                huxerui::Button("✕").OnClick([rows, i] {
-                    std::vector<KvRow> copy = rows.Get();
-                    if (i < copy.size()) copy.erase(copy.begin() + static_cast<long>(i));
-                    rows = copy;
+                huxerui::Button("✕").OnClick([tasks, rows, i] {
+                    // 删除会移除本按钮所在行：推迟出指针事件路径
+                    tasks.Launch([=]() -> huxerui::Task<void> {
+                        co_await huxerui::Delay(std::chrono::duration<double>{0});
+                        std::vector<KvRow> copy = rows.Get();
+                        if (i < copy.size()) copy.erase(copy.begin() + static_cast<long>(i));
+                        rows = copy;
+                    });
                 }),
             }
                 .With(huxerui::Spacing(theme.spacing.small)));
@@ -92,21 +98,50 @@ api::KeyValue ToKeyValue(const KvRow& row) {
                                                    const huxerui::ThemeSpec& theme) {
     auto responseTab = huxerui::UseState<std::size_t>(0);
 
-    return huxerui::Column {
-        ResponseArea(responseBody, responseHeaders, theme),
+    const huxerui::TextStyle mono{.font = huxerui::Font::Monospace(13.0F),
+                                  .foreground = theme.colors.on_surface};
+    std::vector<huxerui::View> children{
+        huxerui::SegmentedButton({"Body", "Headers"}, responseTab)
+            .OnChanged([responseTab](std::size_t index) { responseTab = index; })};
+    if (responseTab.Get() == 0) {
+        children.push_back(huxerui::SelectionArea{
+            huxerui::Text(responseBody.Get(), huxerui::TextRole::Body).Style(mono)});
+    } else {
+        const std::vector<std::string> lines = responseHeaders.Get();
+        std::vector<huxerui::View> rows;
+        rows.reserve(lines.size());
+        for (const std::string& line : lines)
+            rows.push_back(huxerui::Text(line, huxerui::TextRole::Body).Style(mono));
+        children.push_back(
+            rows.empty()
+                ? huxerui::View{huxerui::Text("（无响应头）", huxerui::TextRole::Body)}
+                : huxerui::View{huxerui::SelectionArea{huxerui::Column(std::move(rows))
+                                                           .With(huxerui::Spacing(2.0F))}});
     }
-        .With(huxerui::Spacing(theme.spacing.medium));
+
+    return huxerui::Column(std::move(children))
+        .With(huxerui::Spacing(theme.spacing.medium),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 [[huxerui::composable]] huxerui::View RequestPage(huxerui::State<std::int64_t> opened) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
+    auto navPage = huxerui::UseState<std::size_t>(1);
 
     // 当前项目名（打开工作区时由主页写入领域 store）。
     std::string projectName = "（未知项目）";
     for (const db::Project& p : g_requests.projects()) {
         if (p.id == opened.Get()) projectName = p.name;
+    }
+
+    // 未打开项目：完整空状态页（图标 + 说明 + 去主页按钮）。
+    if (opened.Get() == 0) {
+        return huxerui::ScrollView{EmptyState(app::images::request, "请求工作区未打开",
+                                              "先在主页打开一个项目，再进入请求、压测等页面。",
+                                              navPage)}
+            .With(huxerui::ScrollBar());
     }
 
     auto methodIndex = huxerui::UseState<std::size_t>(0);
@@ -165,9 +200,9 @@ api::KeyValue ToKeyValue(const KvRow& row) {
 
     return huxerui::ScrollView{huxerui::Column {
         PageHeader("请求", "项目: " + projectName + " · 单次 API 调试（curl 引擎）"),
-        huxerui::Button("关闭工作区").OnClick([=] {
-            auto tasks = huxerui::UseTaskScope();
-            tasks.Launch([=]() -> huxerui::Task<void> {
+        huxerui::Button("关闭工作区").OnClick([tasks, opened] {
+            // 关闭会卸载本按钮所在页：推迟出指针事件路径
+            tasks.Launch([opened]() -> huxerui::Task<void> {
                 co_await huxerui::Delay(std::chrono::duration<double>{0});
                 saveSessionPreference("active_project", "0");
                 opened = 0;
@@ -248,7 +283,7 @@ api::KeyValue ToKeyValue(const KvRow& row) {
         ResponseArea(responseBody, responseHeaders, theme),
     }
                                .With(huxerui::Padding(theme.spacing.large),
-                                     huxerui::Spacing(theme.spacing.medium))};
+                                     huxerui::Spacing(theme.spacing.medium))}.With(huxerui::ScrollBar());
 }
 
 } // namespace apitab::ui

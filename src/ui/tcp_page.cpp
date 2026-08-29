@@ -59,7 +59,7 @@ std::string StateName(api::TcpState s) {
                 .With(huxerui::Foreground(theme.colors.on_surface_variant));
         }),
     }
-                               .With(huxerui::Frame{.height = 300.0F})};
+                               .With(huxerui::Frame{.height = 300.0F})}.With(huxerui::ScrollBar());
 }
 
 [[huxerui::composable]] huxerui::View TcpPage() {
@@ -155,7 +155,7 @@ std::string StateName(api::TcpState s) {
         TcpEventStream(events, theme),
     }
                                .With(huxerui::Padding(theme.spacing.large),
-                                     huxerui::Spacing(theme.spacing.medium))};
+                                     huxerui::Spacing(theme.spacing.medium))}.With(huxerui::ScrollBar());
 }
 
 } // namespace apitab::ui

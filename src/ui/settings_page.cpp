@@ -42,7 +42,7 @@ namespace apitab::ui {
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
     }
                                .With(huxerui::Padding(theme.spacing.large),
-                                     huxerui::Spacing(theme.spacing.medium))};
+                                     huxerui::Spacing(theme.spacing.medium))}.With(huxerui::ScrollBar());
 }
 
 } // namespace apitab::ui

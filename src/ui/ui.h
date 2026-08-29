@@ -3,6 +3,7 @@
 
 #include <huxerui/huxerui.h>
 
+#include <cstddef>
 #include <string>
 
 namespace apitab::ui {
@@ -10,6 +11,8 @@ namespace apitab::ui {
 // common.cpp
 huxerui::View PageHeader(std::string title, std::string subtitle);
 huxerui::View MigrationPlaceholder(std::string pageName);
+huxerui::View EmptyState(huxerui::ImageResource icon, std::string title, std::string subtitle,
+                         huxerui::State<std::size_t> navPage);
 
 // home_page.cpp
 huxerui::View HomePage(huxerui::State<std::size_t> navPage,

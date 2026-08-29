@@ -30,7 +30,7 @@ constexpr std::size_t kOutputCap = 300;
                 .With(huxerui::Foreground(theme.colors.on_surface_variant));
         }),
     }
-                               .With(huxerui::Frame{.height = 260.0F})};
+                               .With(huxerui::Frame{.height = 260.0F})}.With(huxerui::ScrollBar());
 }
 
 // 汇总行：独立重组作用域。
@@ -137,7 +137,7 @@ constexpr std::size_t kOutputCap = 300;
             }),
     }
                                .With(huxerui::Padding(theme.spacing.large),
-                                     huxerui::Spacing(theme.spacing.medium))};
+                                     huxerui::Spacing(theme.spacing.medium))}.With(huxerui::ScrollBar());
 }
 
 } // namespace apitab::ui
