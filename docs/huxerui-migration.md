@@ -38,19 +38,14 @@ TaskScope 结构化并发）。领域层（src/store/*、引擎、DB、config）
 - [x] 删除：store/ui.cppm（旧视图状态机）、i18n 翻译表（改为 preferences 模块）、
       EUI 字体、eui-neo-compat 文档、eui-neo-ui-replicator skill、eui SDK tarball
 
-## 待迁移（按优先级）
+## 待迁移（后续增强）
 
-1. **请求页完整版**：Headers/Params/Body/Cookies 表格编辑（旧 request_page.cppm 861 行）
-   → ForEach + TextField 网格；响应的 Headers/Body 切换（Tabs）
-2. **压测页**：vus/duration 输入 + 启动/停止 + k6 实时输出流（TaskScope 循环
-   drainOutput）+ LoadSummary 表格 + 自动化用例列表
-3. **历史页**：分页列表（historyPage）+ 清空确认
-4. **WebSocket / TCP 页**：连接/收发/事件流（引擎接口不变，UI 换成
-   TextField + 事件 VirtualList）
-5. **集合侧栏**：分组树 + 右键菜单 → DrawerLayout / Anchored popup
-6. **设置页**：语言（i18n）/ 主题模式；**全局状态条**（g_statusMessage → State 桥）
-7. 旧视图状态清理：store/ui.cppm 中 Page/g_tabs/Draft 等逐步废弃
-8. Windows SDK 的 debug dll（huxerui_debug.dll 17MB）如不需要可从 tarball 精简
+1. **集合侧栏**：分组树 + 右键菜单（UseMenu）→ DrawerLayout；从集合打开请求
+2. **环境管理**：环境列表/变量（KvTable 模式复用）
+3. **压测自动化用例**：saveAutomation/automationFromRequest 接入（从集合请求生成）
+4. **本地化**：strings 资源包（resources/default.properties + namespace），替代
+   已删除的 i18n 硬编码表
+5. Windows SDK 的 debug dll（huxerui_debug.dll 17MB）如不需要可从 tarball 精简
 
 ## 已知差异 / 风险
 

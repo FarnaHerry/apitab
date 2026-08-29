@@ -113,6 +113,11 @@ huxerui_add_app(apitab
         src/ui/app.cpp
         src/ui/home_page.cpp
         src/ui/request_page.cpp
+        src/ui/loadtest_page.cpp
+        src/ui/websocket_page.cpp
+        src/ui/tcp_page.cpp
+        src/ui/history_page.cpp
+        src/ui/settings_page.cpp
         src/ui/common.cpp
         # 模块实现单元（module apitab.X;）—— codegen 无 composable 标记时原样放行
         src/curl_engine.cpp

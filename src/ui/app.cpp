@@ -1,4 +1,4 @@
-// app.cpp — HuxerUI 前端根：侧栏导航 + 页面切换 + 会话恢复。
+// app.cpp — HuxerUI 前端根：侧栏导航 + 页面切换 + 主题 + 会话恢复。
 #include <huxerui/huxerui.h>
 
 #include <cstdint>
@@ -17,28 +17,42 @@ namespace apitab::ui {
 
 namespace pages {
 
-enum PageIndex : std::size_t { kHome = 0, kRequest = 1, kLoad = 2, kHistory = 3, kSettings = 4 };
+enum PageIndex : std::size_t {
+    kHome = 0,
+    kRequest = 1,
+    kLoad = 2,
+    kWebSocket = 3,
+    kTcp = 4,
+    kHistory = 5,
+    kSettings = 6,
+};
 
-[[huxerui::composable]] huxerui::View PageFor(std::size_t index) {
+[[huxerui::composable]] huxerui::View PageFor(std::size_t index, huxerui::State<bool> dark) {
     switch (index) {
-        case pages::kHome:
+        case kHome:
             return HomePage();
-        case pages::kRequest:
-            return !sessionPreference("active_project").empty() ? RequestPage()
-                                             : MigrationPlaceholder("请求（先在主页打开项目）");
-        case pages::kLoad:
-            return MigrationPlaceholder("压测");
-        case pages::kHistory:
-            return MigrationPlaceholder("历史");
+        case kRequest:
+            return !sessionPreference("active_project").empty()
+                       ? RequestPage()
+                       : MigrationPlaceholder("请求（先在主页打开项目）");
+        case kLoad:
+            return LoadTestPage();
+        case kWebSocket:
+            return WebSocketPage();
+        case kTcp:
+            return TcpPage();
+        case kHistory:
+            return HistoryPage();
         default:
-            return MigrationPlaceholder("设置");
+            return SettingsPage(dark);
     }
 }
 } // namespace pages
 
-// 应用根：左侧导航 + 内容区。
+// 应用根：左侧导航 + 内容区 + 主题。
 [[huxerui::composable]] huxerui::View AppRoot() {
     auto selected = huxerui::UseState<std::size_t>(pages::kHome);
+    auto dark = huxerui::UseState(sessionPreference("dark") == "1");
 
     // 会话恢复：进入首个组合时恢复上次打开的项目。
     huxerui::Lifecycle(
@@ -52,7 +66,6 @@ enum PageIndex : std::size_t { kHome = 0, kRequest = 1, kLoad = 2, kHistory = 3,
                         if (const std::string err =
                                 g_requests.selectProjectInOrg(project.orgId, project.id);
                             err.empty()) {
-                            saveSessionPreference("active_project", std::to_string(project.id));
                             g_loadtest.setProject(project.id);
                         }
                         break;
@@ -63,18 +76,24 @@ enum PageIndex : std::size_t { kHome = 0, kRequest = 1, kLoad = 2, kHistory = 3,
         },
         0);
 
-    return huxerui::MaterialTheme{huxerui::Row{
+    huxerui::View content = huxerui::Row{
         huxerui::NavigationPane(
             {
                 huxerui::NavigationItem("主页"),
                 huxerui::NavigationItem("请求"),
                 huxerui::NavigationItem("压测"),
+                huxerui::NavigationItem("WebSocket"),
+                huxerui::NavigationItem("TCP"),
                 huxerui::NavigationItem("历史"),
                 huxerui::NavigationItem("设置"),
             },
             selected, true)
             .OnChanged([selected](std::size_t index) { selected = index; }),
-        pages::PageFor(selected.Get()).Key(selected.Get())}};
+        pages::PageFor(selected.Get(), dark).Key(selected.Get())};
+
+    // 主题跟随设置页开关（会话持久化）。
+    return dark.Get() ? huxerui::View{huxerui::MaterialDarkTheme{content}}
+                      : huxerui::View{huxerui::MaterialTheme{content}};
 }
 
 } // namespace apitab::ui

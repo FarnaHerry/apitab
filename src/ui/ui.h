@@ -17,4 +17,19 @@ huxerui::View HomePage();
 // request_page.cpp
 huxerui::View RequestPage();
 
+// loadtest_page.cpp
+huxerui::View LoadTestPage();
+
+// websocket_page.cpp
+huxerui::View WebSocketPage();
+
+// tcp_page.cpp
+huxerui::View TcpPage();
+
+// history_page.cpp
+huxerui::View HistoryPage();
+
+// settings_page.cpp（dark 主题开关由 AppRoot 持有）
+huxerui::View SettingsPage(huxerui::State<bool> dark);
+
 } // namespace apitab::ui
