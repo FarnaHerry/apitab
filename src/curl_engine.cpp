@@ -1,10 +1,12 @@
 // curl_engine.cpp — apitab.curl_engine 实现单元。
 //
-// 线程模型（继承 tinynext 引擎纪律）：send() 在 UI 线程调用、立即返回；实际
-// 传输在工作线程里同步跑（curl_easy_perform 阻塞），完成后写互斥保护的结果槽并
-// requestUiUpdate() 唤醒 UI 一帧。UI 线程 compose 时 takeResponse() 取走。
-// 取消是协作式的：CURLOPT_XFERINFOFUNCTION 每帧查原子标志，置位即中断传输
-// （curl 返回 CURLE_ABORTED_BY_CALLBACK）。
+// 线程模型：常驻工作线程 + 条件变量队列。send() 在 UI 线程调用、纯入队立即
+// 返回——绝不在 UI 线程 join 工作线程（旧实现 send 时 join 上一条传输，端点
+// 挂起时整条 UI 线程被拖死）。工作线程串行消费队列：新请求到来时协作打断在途
+// 传输（CURLOPT_XFERINFOFUNCTION 每帧查原子标志，curl 返回
+// CURLE_ABORTED_BY_CALLBACK），被取代请求的结果按代际丢弃，不会冒充新请求的
+// 结果。完成后写互斥保护的结果槽并 requestUiUpdate() 唤醒 UI 一帧，UI 轮询
+// takeResponse() 取走。
 module;
 
 #include <curl/curl.h>
@@ -137,22 +139,41 @@ std::vector<std::pair<std::string, std::string>> parseFormData(std::string_view 
 
 class CurlEngine final : public api::ApiEngine {
 public:
-    CurlEngine() { curl_global_init(CURL_GLOBAL_DEFAULT); }
-    ~CurlEngine() override { cancel(); joinWorker(); }
+    CurlEngine() : worker_([this] { workerLoop(); }) {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+    }
+    ~CurlEngine() override {
+        {
+            std::lock_guard lock(queueMutex_);
+            quit_ = true;
+            cancelled_.store(true);  // 打断在途传输，让 join 尽快返回
+        }
+        queueCv_.notify_one();
+        if (worker_.joinable()) worker_.join();
+    }
 
+    // 纯入队，立即返回：只保留最新一条待跑规格；在途请求由工作线程自己协作
+    // 打断并丢弃其结果（代际不符），UI 线程永不等待传输。
     void send(const api::RequestSpec& spec) override {
-        cancel();       // 打断在途请求
-        joinWorker();   // 等工作线程退出（保证同一线程串行用结果槽）
-        cancelled_.store(false);
-        busy_.store(true);
-        worker_ = std::thread([this, spec] { run(spec); });
+        {
+            std::lock_guard lock(queueMutex_);
+            queued_ = spec;
+            ++generation_;
+            cancelled_.store(true);  // 打断在途传输（若有）
+        }
+        queueCv_.notify_one();
     }
 
     void cancel() override {
-        if (busy_.load()) cancelled_.store(true);
+        std::lock_guard lock(queueMutex_);
+        cancelled_.store(true);
     }
 
-    bool busy() const override { return busy_.load(); }
+    bool busy() const override {
+        if (busy_.load()) return true;
+        std::lock_guard lock(queueMutex_);
+        return queued_.has_value();
+    }
 
     bool takeResponse(api::ResponseView& out) override {
         std::lock_guard lock(resultMutex_);
@@ -164,8 +185,29 @@ public:
     }
 
 private:
-    void joinWorker() {
-        if (worker_.joinable()) worker_.join();
+    void workerLoop() {
+        while (true) {
+            api::RequestSpec spec;
+            std::uint64_t generation = 0;
+            {
+                std::unique_lock lock(queueMutex_);
+                queueCv_.wait(lock, [this] { return quit_ || queued_.has_value(); });
+                if (quit_) return;
+                spec = std::move(*queued_);
+                queued_.reset();
+                generation = generation_.load();
+                // 锁内复位取消标志：send 的置位要么在本复位之前（打断的是上一条
+                // 传输，已被消费），要么在本复位之后（打断本条），不会误伤新请求。
+                cancelled_.store(false);
+                busy_.store(true);
+            }
+            {   // 丢弃上一请求遗留的结果槽（已被新请求取代）
+                std::lock_guard rlock(resultMutex_);
+                pending_ = api::ResponseView{};
+                resultReady_ = false;
+            }
+            run(spec, generation);
+        }
     }
 
     static int onProgress(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
@@ -173,13 +215,13 @@ private:
         return self->cancelled_.load() ? 1 : 0;  // 非 0 → CURLE_ABORTED_BY_CALLBACK
     }
 
-    void run(const api::RequestSpec& spec) {
+    void run(const api::RequestSpec& spec, std::uint64_t generation) {
         api::ResponseView result;
 
         CURL* easy = curl_easy_init();
         if (!easy) {
             result.error = "curl_easy_init failed";
-            finish(std::move(result));
+            finish(std::move(result), generation);
             return;
         }
 
@@ -276,20 +318,28 @@ private:
         if (mime) curl_mime_free(mime);
         curl_slist_free_all(headerList);
         curl_easy_cleanup(easy);
-        finish(std::move(result));
+        finish(std::move(result), generation);
     }
 
-    void finish(api::ResponseView&& result) {
+    void finish(api::ResponseView&& result, std::uint64_t generation) {
         {
             std::lock_guard lock(resultMutex_);
-            pending_ = std::move(result);
-            resultReady_ = true;
+            // 已被新请求取代的结果直接丢弃，不投递（否则会冒充新请求的结果）。
+            if (generation == generation_.load()) {
+                pending_ = std::move(result);
+                resultReady_ = true;
+            }
         }
         busy_.store(false);
         core::platform::requestUiUpdate();  // 唤醒 UI 一帧取结果
     }
 
-    std::thread worker_;
+    std::thread worker_;  // 常驻工作线程（构造即起，析构 join）
+    mutable std::mutex queueMutex_;  // busy() 是 const：锁可变
+    std::condition_variable queueCv_;
+    std::optional<api::RequestSpec> queued_;  // 只保留最新一条待跑规格
+    bool quit_ = false;
+    std::atomic<std::uint64_t> generation_{0};  // 每次 send 递增；结果按代际投递
     std::atomic<bool> busy_{false};
     std::atomic<bool> cancelled_{false};
     std::mutex resultMutex_;

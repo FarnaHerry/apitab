@@ -1,11 +1,12 @@
-// request_page.cpp — 请求工作区：左岛 = 当前项目的请求列表；右岛 = 编辑区，
-// 右岛顶部为内部标签页（每个标签一个请求草稿，可开可关）。
+// request_page.cpp — 请求工作区：左岛 = 当前项目的请求列表；右侧 HTTP 拆上下两岛
+// （上 = 标签条 + 编辑器，下 = 响应区；WS/TCP 自包含整页仍单岛）。
 // 发送经 TaskScope 协程轮询 curl 引擎；保存落到当前项目集合并刷新左岛列表。
 #include <huxerui/huxerui.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -215,8 +216,9 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
     }
 }
 
-// 响应区：独立重组作用域 —— responseTab/responseBody/responseHeaders 的变化只
-// 重组此区域，不扩散到整个编辑器（KV 表不受影响）。
+// 响应区（右侧下岛）：独立重组作用域 —— responseTab/responseBody/responseHeaders
+// 的变化只重组此区域，不扩散到整个编辑器（KV 表不受影响）。标题与 Body/Headers
+// 切换固定在上，响应内容在内部 ScrollView 里滚动（垂直滚动条）。
 [[huxerui::composable]] huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
                                                    huxerui::State<std::vector<std::string>> responseHeaders,
                                                    const huxerui::ThemeSpec& theme) {
@@ -224,27 +226,33 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
 
     const huxerui::TextStyle mono{.font = huxerui::Font::Monospace(13.0F),
                                   .foreground = theme.colors.on_surface};
-    std::vector<huxerui::View> children{
-        huxerui::SegmentedButton({"Body", "Headers"}, responseTab)
-            .OnChanged([responseTab](std::size_t index) { responseTab = index; })};
+    huxerui::View content = huxerui::Row{};
     if (responseTab.Get() == 0) {
-        children.push_back(huxerui::SelectionArea{
-            huxerui::Text(responseBody.Get(), huxerui::TextRole::Body).Style(mono)});
+        content = huxerui::View{huxerui::SelectionArea{
+            huxerui::Text(responseBody.Get(), huxerui::TextRole::Body).Style(mono)}};
     } else {
         const std::vector<std::string> lines = responseHeaders.Get();
         std::vector<huxerui::View> rows;
         rows.reserve(lines.size());
         for (const std::string& line : lines)
             rows.push_back(huxerui::Text(line, huxerui::TextRole::Body).Style(mono));
-        children.push_back(
-            rows.empty()
-                ? huxerui::View{huxerui::Text("（无响应头）", huxerui::TextRole::Body)}
-                : huxerui::View{huxerui::SelectionArea{huxerui::Column(std::move(rows))
-                                                           .With(huxerui::Spacing(2.0F))}});
+        content = rows.empty()
+            ? huxerui::View{huxerui::Text("（无响应头）", huxerui::TextRole::Body)}
+            : huxerui::View{huxerui::SelectionArea{huxerui::Column(std::move(rows))
+                                                       .With(huxerui::Spacing(2.0F))}};
     }
 
-    return huxerui::Column(std::move(children))
-        .With(huxerui::Spacing(theme.spacing.medium),
+    return huxerui::Column {
+        huxerui::Row {
+            huxerui::Text("响应", huxerui::TextRole::Title).With(huxerui::Grow(1.0F)),
+            huxerui::SegmentedButton({"Body", "Headers"}, responseTab)
+                .OnChanged([responseTab](std::size_t index) { responseTab = index; }),
+        }
+            .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        huxerui::ScrollView{std::move(content)}
+            .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+    }
+        .With(huxerui::Spacing(theme.spacing.small),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
@@ -328,9 +336,11 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
               huxerui::ClipChildren());
 }
 
-// Body 文本编辑器：行号 gutter + 无上限多行输入（随内容长高，与外层 ScrollView
-// 一起滚动，gutter 不会因内部滚动错位）。gutter 与正文同字号（System 14 =
-// TextField 默认 text_style）保证行高一致；无 Label（标签行会顶偏第一行）。
+// Body 文本编辑器：行号 gutter + 无上限多行输入（随内容长高，由所在分区的
+// ScrollView 统一滚动并显示垂直滚动条，gutter 与正文同滚不错位）。gutter 与
+// 正文同字号（System 14 = TextField 默认 text_style）保证行高一致；gutter 顶
+// 内边距 9pt 对齐 Outlined TextField 的文字起点（border 1pt + 内边距 8pt，见
+// TextFieldStyle 默认值）；无 Label（浮动标签会顶偏第一行）。
 [[huxerui::composable]] huxerui::View BodyTextEditor(
     huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
     const RequestDraft& snapshot, const huxerui::ThemeSpec& theme) {
@@ -347,7 +357,8 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
         huxerui::Text(std::move(numbers), huxerui::TextRole::Body)
             .Style(huxerui::TextStyle{.font = huxerui::Font::System(14.0F),
                                       .foreground = theme.colors.on_surface_variant})
-            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 10.0F))),
+            .With(huxerui::Padding(huxerui::EdgeInsets{
+                .top = 9.0F, .right = 6.0F, .bottom = 8.0F, .left = 6.0F})),
         huxerui::TextField(snapshot.body)
             .Placeholder("Body（" + std::string{kBodyTypeNames.at(snapshot.bodyKindIndex)} + "）")
             .Variant(huxerui::TextFieldVariant::Outlined)
@@ -360,8 +371,10 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
         .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start));
 }
 
-// 右岛编辑区：名称一行 + 方法/URL/发送/保存/⋮ 一行 + Params/Headers/Cookies/Body
-// 分区 + 响应区。
+// 右上岛编辑区：名称一行 + 方法/URL/发送/保存/⋮ 一行 + Params/Headers/Cookies/Body
+// 分区。固定部分（名称/操作栏/分区切换/Body 类型行）不滚动；分区内容（KV 表或
+// Body 编辑器）在内部 ScrollView 里滚动并带垂直滚动条——所有 Body 类型输入框
+// （含 Form 类 KV 表）都有滚动条。响应区已拆为独立下岛（见 RequestPage）。
 [[huxerui::composable]] huxerui::View RequestEditor(
     huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
     huxerui::State<std::size_t> activeTab,
@@ -381,38 +394,43 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
     }
     const RequestDraft snapshot = all[index];
 
-    std::vector<huxerui::View> editorChildren{huxerui::SegmentedButton(
+    // 分区切换条固定在滚动区外。
+    huxerui::View sectionTabs = huxerui::View{huxerui::SegmentedButton(
         {"Params", "Headers", "Cookies", "Body"}, section)
                                       .OnChanged([section](std::size_t i) { section = i; })};
+    // sectionFixed：分区各自的固定头（仅 Body 有：类型选择 + 格式化按钮）；
+    // sectionContent：进内部 ScrollView 的滚动内容（KV 表 / Body 编辑器）。
+    std::optional<huxerui::View> sectionFixed;
+    huxerui::View sectionContent = huxerui::Column{};
     switch (section.Get()) {
         case 0:
-            editorChildren.push_back(KvTable(
+            sectionContent = KvTable(
                 snapshot.params, theme, "参数名", "参数值",
                 [drafts, index](std::vector<KvRow> rows) {
                     MutateDraft(drafts, index,
                                 [&](RequestDraft& d) { d.params = std::move(rows); });
-                }));
+                });
             break;
         case 1:
-            editorChildren.push_back(KvTable(
+            sectionContent = KvTable(
                 snapshot.headers, theme, "头名称", "头值",
                 [drafts, index](std::vector<KvRow> rows) {
                     MutateDraft(drafts, index,
                                 [&](RequestDraft& d) { d.headers = std::move(rows); });
-                }));
+                });
             break;
         case 2:
-            editorChildren.push_back(KvTable(
+            sectionContent = KvTable(
                 snapshot.cookies, theme, "Cookie 名", "Cookie 值",
                 [drafts, index](std::vector<KvRow> rows) {
                     MutateDraft(drafts, index,
                                 [&](RequestDraft& d) { d.cookies = std::move(rows); });
-                }));
+                });
             break;
         default: {
-            // Body：先选类型（下标 = api::BodyKind），再按类型展开对应编辑器；
-            // 格式化按钮只对 JSON 生效（nlohmann 解析后 dump(2) 回写）。
-            std::vector<huxerui::View> bodyChildren{huxerui::Row {
+            // Body 固定头：类型选择（下标 = api::BodyKind）+ 格式化按钮（仅 JSON
+            // 生效，nlohmann 解析后 dump(2) 回写）。固定在滚动区外，滚动时仍可见。
+            sectionFixed = huxerui::View{huxerui::Row {
                 huxerui::SegmentedButton(
                     {"无", "JSON", "Text", "Form URL-Encoded", "Form-Data", "XML", "GraphQL"},
                     snapshot.bodyKindIndex)
@@ -438,49 +456,41 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                     }
                 }),
             }
-                                                        .With(huxerui::Spacing(
-                                                            theme.spacing.small))};
+                                             .With(huxerui::Spacing(theme.spacing.small))};
             switch (snapshot.bodyKindIndex) {
                 case 0: // 无
-                    bodyChildren.push_back(
+                    sectionContent = huxerui::View{
                         huxerui::Text("无请求体", huxerui::TextRole::Body)
-                            .With(huxerui::Foreground(theme.colors.on_surface_variant)));
+                            .With(huxerui::Foreground(theme.colors.on_surface_variant))};
                     break;
                 case 3: // Form URL-Encoded
                 case 4: // Form-Data
-                    bodyChildren.push_back(KvTable(
+                    sectionContent = KvTable(
                         snapshot.bodyFields, theme, "字段名", "字段值",
                         [drafts, index](std::vector<KvRow> rows) {
                             MutateDraft(drafts, index,
                                         [&](RequestDraft& d) { d.bodyFields = std::move(rows); });
-                        }));
+                        });
                     break;
                 default: // JSON/Text/XML/GraphQL：带行号的文本编辑器
-                    bodyChildren.push_back(BodyTextEditor(drafts, index, snapshot, theme));
+                    sectionContent = BodyTextEditor(drafts, index, snapshot, theme);
                     break;
             }
-            editorChildren.push_back(huxerui::Column(std::move(bodyChildren))
-                                         .With(huxerui::Spacing(theme.spacing.small),
-                                               huxerui::CrossAlign(
-                                                   huxerui::CrossAxisAlignment::Stretch)));
             break;
         }
     }
 
-    const huxerui::TextStyle mono{.font = huxerui::Font::Monospace(13.0F),
-                                  .foreground = theme.colors.on_surface};
-
-    return huxerui::Column {
-        // 名称行：整宽，独立于操作栏（原来的内嵌窄框移到 URL 行上一行）。
-        huxerui::TextField(snapshot.name)
+    std::vector<huxerui::View> children;
+    // 名称行：整宽，独立于操作栏（原来的内嵌窄框移到 URL 行上一行）。
+    children.push_back(huxerui::TextField(snapshot.name)
             .Label("名称")
             .Placeholder("请求名称")
             .Variant(huxerui::TextFieldVariant::Outlined)
             .OnChanged([drafts, index](const huxerui::TextEditingValue& value) {
                 MutateDraft(drafts, index, [&](RequestDraft& d) { d.name = value; });
-            }),
-        // 操作栏：方法下拉 + URL（占满）+ 发送 + 保存 + ⋮（删除）。
-        huxerui::Row {
+            }));
+        // 操作栏：方法下拉 + URL（占满）+ 发送/取消 + 保存 + ⋮（删除）。
+        children.push_back(huxerui::Row {
             DropdownSelect(
                 std::vector<std::string>(kMethodNames.begin(), kMethodNames.end()),
                 snapshot.methodIndex,
@@ -496,8 +506,13 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                     MutateDraft(drafts, index, [&](RequestDraft& d) { d.url = value; });
                 })
                 .With(huxerui::Grow(1.0F)),
-            huxerui::Button(inFlight.Get() ? "发送中…" : "发送").OnClick([=] {
-                if (inFlight.Get()) return;
+            // 发送/取消：在途时按钮变"取消"。引擎 send 是纯入队（UI 线程零阻塞），
+            // cancel 协作打断传输，轮询协程随后收到"已取消"结果并复位 inFlight。
+            huxerui::Button(inFlight.Get() ? "取消" : "发送").OnClick([=] {
+                if (inFlight.Get()) {
+                    g_requests.cancel();
+                    return;
+                }
                 const std::vector<RequestDraft> current = drafts.Get();
                 if (index >= current.size()) return;
                 api::RequestSpec spec = SpecFromDraft(current[index]);
@@ -598,14 +613,15 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                 .With(overflow.Anchor()),
         }
             .With(huxerui::Spacing(theme.spacing.small),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-        huxerui::Column(std::move(editorChildren)).With(huxerui::Spacing(theme.spacing.medium)),
-        // 响应区：独立重组作用域 —— responseTab/responseBody/responseHeaders 的变化只
-        // 重组此区域，不扩散到整个编辑器（KV 表不受影响）。
-        ResponseArea(responseBody, responseHeaders, theme),
-    }
-        .With(huxerui::Spacing(theme.spacing.medium),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+        children.push_back(std::move(sectionTabs));
+        if (sectionFixed.has_value()) children.push_back(std::move(*sectionFixed));
+        // 分区内容：内部滚动 + 垂直滚动条（Grow 撑满上岛剩余高度）。
+        children.push_back(huxerui::ScrollView{std::move(sectionContent)}
+                               .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)));
+        return huxerui::Column(std::move(children))
+            .With(huxerui::Spacing(theme.spacing.medium),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 // 左岛：当前项目的请求列表（点击开标签，✕ 从集合删除）+ 头部圆形 "+" 新建类型菜单。
@@ -762,54 +778,83 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
     // 右岛内容 Key：kind + 标签下标组合，切标签/切类型时正确重组。
     const std::int64_t contentKey = static_cast<std::int64_t>(current) * 4 + currentKind;
 
-    // 右岛第二子节点按活跃草稿类型分派：HTTP 用编辑器（自套 ScrollView）；
-    // WS/TCP 直接嵌入整页组件（内部自带 ScrollView/PageHeader/事件泵，勿再套
-    // ScrollView，避免同轴嵌套滚动）。注意 WS/TCP 页内部用固定 kUid=1 引擎会话：
-    // 多个同类型标签共享同一条连接。
-    huxerui::View content =
-        currentKind == 1
-            ? WebSocketPage().With(huxerui::Grow(1.0F)).Key(contentKey)
-        : currentKind == 2
-            ? TcpPage().With(huxerui::Grow(1.0F)).Key(contentKey)
-            : huxerui::View{huxerui::ScrollView{RequestEditor(openDrafts, current, activeTab,
-                                                              listVersion, inFlight,
-                                                              responseBody, responseHeaders)
-                                                    .Key(contentKey)}
-                                .With(huxerui::ScrollBar(), huxerui::Grow(1.0F))};
-
-    huxerui::View rightIsland =
-        snapshot.empty()
-            ? huxerui::View{huxerui::Column {
-                                huxerui::Image(app::images::request)
-                                    .With(huxerui::Frame{.width = 64.0F, .height = 64.0F},
-                                          huxerui::Foreground(theme.colors.on_surface_variant)),
-                                huxerui::Text("没有打开的请求", huxerui::TextRole::Title),
-                                huxerui::Text("从左侧列表选择请求，或点击“＋ 新建”。",
-                                              huxerui::TextRole::Body)
-                                    .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-                            }
-                                .With(huxerui::Spacing(theme.spacing.medium),
-                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-                                      huxerui::MainAlign(huxerui::MainAxisAlignment::Center))}
-            : huxerui::View{huxerui::Column {
-                                RequestTabStrip(openDrafts, activeTab),
-                                std::move(content),
-                            }
-                                .With(huxerui::Spacing(theme.spacing.medium),
-                                      huxerui::CrossAlign(
-                                          huxerui::CrossAxisAlignment::Stretch))};
-
-    // 右岛与左岛一级并列：同样的岛屿包裹（圆角 + surface_container_low 底）。
-    rightIsland = std::move(rightIsland)
-                      .With(huxerui::Background(theme.colors.surface_container_low),
-                            huxerui::CornerRadius(theme.shapes.large),
-                            huxerui::Padding(theme.spacing.medium));
+    // 右侧按活跃草稿类型分派：
+    // - HTTP：拆上下两岛——上岛 = 标签条 + 编辑器（Grow 3），下岛 = 响应区
+    //   （Grow 2）；编辑器固定部分（名称/操作栏/分区切换/Body 类型行）不滚动，
+    //   分区内容与响应各自内滚（垂直滚动条）。
+    // - WS/TCP：直接嵌入整页组件（内部自带 ScrollView/事件泵，勿再套 ScrollView，
+    //   避免同轴嵌套滚动）；固定 kUid=1 引擎会话，同类型标签共享同一条连接。
+    // - 无打开草稿：单岛空状态。
+    huxerui::View rightArea = huxerui::Column{};
+    if (snapshot.empty()) {
+        rightArea = huxerui::Column {
+                        huxerui::Image(app::images::request)
+                            .With(huxerui::Frame{.width = 64.0F, .height = 64.0F},
+                                  huxerui::Foreground(theme.colors.on_surface_variant)),
+                        huxerui::Text("没有打开的请求", huxerui::TextRole::Title),
+                        huxerui::Text("从左侧列表选择请求，或点击“＋ 新建”。",
+                                      huxerui::TextRole::Body)
+                            .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+                    }
+                        .With(huxerui::Spacing(theme.spacing.medium),
+                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                              huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                              huxerui::Background(theme.colors.surface_container_low),
+                              huxerui::CornerRadius(theme.shapes.large),
+                              huxerui::Padding(theme.spacing.medium),
+                              huxerui::Grow(1.0F));
+    } else if (currentKind == 1 || currentKind == 2) {
+        huxerui::View content = currentKind == 1
+                                    ? WebSocketPage().With(huxerui::Grow(1.0F)).Key(contentKey)
+                                    : TcpPage().With(huxerui::Grow(1.0F)).Key(contentKey);
+        rightArea = huxerui::Column {
+                        RequestTabStrip(openDrafts, activeTab),
+                        std::move(content),
+                    }
+                        .With(huxerui::Spacing(theme.spacing.medium),
+                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                              huxerui::Background(theme.colors.surface_container_low),
+                              huxerui::CornerRadius(theme.shapes.large),
+                              huxerui::Padding(theme.spacing.medium),
+                              huxerui::Grow(1.0F));
+    } else {
+        rightArea = huxerui::Column {
+                        // 上岛：标签条 + 编辑器。
+                        huxerui::Column {
+                            RequestTabStrip(openDrafts, activeTab),
+                            RequestEditor(openDrafts, current, activeTab, listVersion,
+                                          inFlight, responseBody, responseHeaders)
+                                .Key(contentKey)
+                                .With(huxerui::Grow(1.0F)),
+                        }
+                            .With(huxerui::Spacing(theme.spacing.medium),
+                                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                                  huxerui::Background(theme.colors.surface_container_low),
+                                  huxerui::CornerRadius(theme.shapes.large),
+                                  huxerui::Padding(theme.spacing.medium),
+                                  huxerui::Grow(3.0F)),
+                        // 下岛：响应区。
+                        huxerui::Column {
+                            ResponseArea(responseBody, responseHeaders, theme)
+                                .With(huxerui::Grow(1.0F)),
+                        }
+                            .With(huxerui::Spacing(theme.spacing.small),
+                                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                                  huxerui::Background(theme.colors.surface_container_low),
+                                  huxerui::CornerRadius(theme.shapes.large),
+                                  huxerui::Padding(theme.spacing.medium),
+                                  huxerui::Grow(2.0F)),
+                    }
+                        .With(huxerui::Spacing(theme.spacing.small),
+                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                              huxerui::Grow(1.0F));
+    }
 
     if (compact) {
         // Compact：上 = 请求列表（限高 220、宽度撑满），下 = 编辑区（撑满剩余）。
         return huxerui::Column {
                    RequestListIsland(openDrafts, activeTab, listVersion, true),
-                   std::move(rightIsland).With(huxerui::Grow(1.0F)),
+                   std::move(rightArea),
                }
             .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::Grow(1.0F),
@@ -817,7 +862,7 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
     }
     return huxerui::Row {
                RequestListIsland(openDrafts, activeTab, listVersion, false),
-               std::move(rightIsland).With(huxerui::Grow(1.0F)),
+               std::move(rightArea),
            }
         .With(huxerui::Spacing(theme.spacing.small),
               huxerui::Grow(1.0F),

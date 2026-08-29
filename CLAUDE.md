@@ -67,7 +67,7 @@ ctest --test-dir build             # 冒烟测试（test_smoke）
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `apitab.api_engine` | `src/api_engine.cppm` | 抽象接口 `ApiEngine` / `LoadEngine` / `WebSocketEngine` / `TcpEngine` + `RequestSpec` / `ResponseView` / `LoadOptions` / `LoadSummary` |
-| `apitab.curl_engine` | `src/curl_engine.cppm/.cpp` | 单请求引擎：工作线程跑 `curl_easy_perform`，结果槽 + `requestUiUpdate()` 唤醒；`CURLOPT_XFERINFOFUNCTION` 协作取消 |
+| `apitab.curl_engine` | `src/curl_engine.cppm/.cpp` | 单请求引擎：常驻工作线程 + 条件变量队列，send 纯入队（UI 线程零阻塞，绝不 join）；代际结果槽 + `requestUiUpdate()` 唤醒；`CURLOPT_XFERINFOFUNCTION` 协作取消 |
 | `apitab.k6_engine` | `src/k6_engine.cppm/.cpp` | 压测引擎：生成 k6 脚本（`handleSummary` 打印 `K6SUMMARY {json}` 行）→ spawn 子进程 → 监视线程拆 `\r`/`\n` 行入队；stop=SIGINT，3s 宽限后 SIGKILL |
 | `apitab.websocket_engine` / `apitab.tcp_engine` | `src/*.cppm/.cpp` | IXWebSocket / Asio 实现，回调只投递事件 |
 | `apitab.db` | `src/db.cppm/.cpp` | SQLiteCpp：requests / history / load_tests 三表；KV 序列化为 JSON |
