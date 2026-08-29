@@ -80,7 +80,8 @@ namespace {
 
 // 顶级标签条：第一个为主页（固定不可关），其后每个项目一个可关标签。
 [[huxerui::composable]] huxerui::View ProjectTabStrip(
-    huxerui::State<std::vector<std::int64_t>> tabs, huxerui::State<std::int64_t> activeProject) {
+    huxerui::State<std::size_t> navPage, huxerui::State<std::vector<std::int64_t>> tabs,
+    huxerui::State<std::int64_t> activeProject) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
 
@@ -92,11 +93,14 @@ namespace {
         }
     }
 
-    auto activateProject = [activeProject](std::int64_t id) {
+    auto activateProject = [activeProject, tabs, navPage](std::int64_t id) {
         if (id != 0) {
             g_requests.selectProject(id);
             g_loadtest.setProject(id);
             saveSessionPreference("active_project", std::to_string(id));
+            if (navPage.Get() == pages::kHome) navPage = pages::kRequest; // 进入工作区
+        } else {
+            navPage = pages::kHome; // 主页标签
         }
         activeProject = id;
     };
@@ -137,8 +141,7 @@ namespace {
         huxerui::ImageResource icon_selected;
         const char* tooltip;
     };
-    const std::array<Item, 7> items{
-        Item{app::images::home, app::images::home_selected, "主页"},
+    const std::array<Item, 6> items{
         Item{app::images::request, app::images::request_selected, "请求"},
         Item{app::images::loadtest, app::images::loadtest_selected, "压测"},
         Item{app::images::websocket, app::images::websocket_selected, "WebSocket"},
@@ -150,16 +153,12 @@ namespace {
     std::vector<huxerui::View> buttons;
     for (std::size_t i = 0; i < items.size(); ++i) {
         const Item& item = items[i];
-        const huxerui::ImageResource& icon = navPage.Get() == i ? item.icon_selected : item.icon;
+        const std::size_t page = i + 1; // 侧栏项从 kRequest 开始
+        const huxerui::ImageResource& icon = navPage.Get() == page ? item.icon_selected : item.icon;
         buttons.push_back(huxerui::IconButton(icon, item.tooltip)
-                              .OnClick([navPage, i] { navPage = i; })
+                              .OnClick([navPage, page] { navPage = page; })
                               .With(huxerui::Tooltip(item.tooltip)));
     }
-    buttons.push_back(
-        huxerui::IconButton(app::images::gear, "全局设置")
-            .OnClick([navPage] { navPage = pages::kAppSettings; })
-            .With(huxerui::Tooltip("全局设置")));
-
     return huxerui::Column(std::move(buttons))
         .With(huxerui::Padding(theme.spacing.medium), huxerui::Spacing(theme.spacing.small),
               huxerui::Background(theme.colors.surface_container_low),
@@ -253,7 +252,7 @@ namespace {
         // 自定义标题栏岛：Logo + 项目标签条 + 齿轮（框架在其右侧渲染窗口按钮）。
         huxerui::WindowTitleBar {
             LogoBadge(),
-            huxerui::Row {ProjectTabStrip(tabs, activeProject)}.With(huxerui::Grow(1.0F)),
+            huxerui::Row {ProjectTabStrip(navPage, tabs, activeProject)}.With(huxerui::Grow(1.0F)),
             huxerui::IconButton(app::images::gear, "全局设置")
                 .OnClick([navPage] { navPage = pages::kAppSettings; })
                 .With(huxerui::Tooltip("全局设置")),
