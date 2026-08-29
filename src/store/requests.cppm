@@ -330,6 +330,7 @@ public:
 
     // 保存（新建 id==0 / 更新）。失败返回错误消息，成功返回空串。
     std::string save(db::SavedRequest& r) {
+        if (currentProjectId_ == 0) return "未打开项目，无法保存";
         r.projectId = currentProjectId_;
         r.updatedAt = nowUnix();
         try {
@@ -474,10 +475,11 @@ private:
 
     void reloadProjects() {
         projects_ = db_->listProjects(currentOrgId_);
+        // 0 = 用户尚未打开项目；失效（被删/切组织）时显式回落为 0，不静默挑选。
         const bool valid = std::ranges::any_of(projects_, [&](const db::Project& p) {
             return p.id == currentProjectId_;
         });
-        if (!valid && !projects_.empty()) currentProjectId_ = projects_.front().id;
+        if (!valid) currentProjectId_ = 0;
         reloadGroups();
     }
 

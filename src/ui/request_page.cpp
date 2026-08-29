@@ -85,10 +85,29 @@ api::KeyValue ToKeyValue(const KvRow& row) {
 }
 } // namespace
 
-[[huxerui::composable]] huxerui::View RequestPage() {
+// 响应区：独立重组作用域 —— responseTab/responseBody/responseHeaders 的变化只
+// 重组此区域，不扩散到整个请求页（编辑器、KV 表不受影响）。
+[[huxerui::composable]] huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
+                                                   huxerui::State<std::vector<std::string>> responseHeaders,
+                                                   const huxerui::ThemeSpec& theme) {
+    auto responseTab = huxerui::UseState<std::size_t>(0);
+
+    return huxerui::Column {
+        ResponseArea(responseBody, responseHeaders, theme),
+    }
+        .With(huxerui::Spacing(theme.spacing.medium));
+}
+
+[[huxerui::composable]] huxerui::View RequestPage(huxerui::State<std::int64_t> opened) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
+
+    // 当前项目名（打开工作区时由主页写入领域 store）。
+    std::string projectName = "（未知项目）";
+    for (const db::Project& p : g_requests.projects()) {
+        if (p.id == opened.Get()) projectName = p.name;
+    }
 
     auto methodIndex = huxerui::UseState<std::size_t>(0);
     auto url = huxerui::UseState(huxerui::TextEditingValue{});
@@ -100,7 +119,6 @@ api::KeyValue ToKeyValue(const KvRow& row) {
     auto saveName = huxerui::UseState(huxerui::TextEditingValue{});
 
     auto inFlight = huxerui::UseState(false);
-    auto responseTab = huxerui::UseState<std::size_t>(0);
     auto responseBody = huxerui::UseState(std::string{"（尚未发送请求）"});
     auto responseHeaders = huxerui::UseState<std::vector<std::string>>({});
 
@@ -146,7 +164,11 @@ api::KeyValue ToKeyValue(const KvRow& row) {
     }
 
     return huxerui::ScrollView{huxerui::Column {
-        PageHeader("请求", "单次 API 调试（curl 引擎）"),
+        PageHeader("请求", "项目: " + projectName + " · 单次 API 调试（curl 引擎）"),
+        huxerui::Button("关闭工作区").OnClick([opened] {
+            opened = 0;
+            saveSessionPreference("active_project", "0");
+        }),
         huxerui::SegmentedButton(
             {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}, methodIndex)
             .OnChanged([methodIndex](std::size_t index) { methodIndex = index; }),
@@ -219,20 +241,7 @@ api::KeyValue ToKeyValue(const KvRow& row) {
             }),
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
-        huxerui::Tabs({"Body", "Headers"}, responseTab).OnChanged([responseTab](std::size_t index) {
-            responseTab = index;
-        }),
-        responseTab.Get() == 0
-            ? huxerui::Text(responseBody.Get(), huxerui::TextRole::Body)
-                  .With(huxerui::Frame{.height = 320.0F},
-                        huxerui::Background(theme.colors.surface_container_low))
-            : huxerui::ScrollView{huxerui::Column {
-                huxerui::ForEach(responseHeaders.Get(), [theme](const std::string& line) {
-                    return huxerui::Text(line, huxerui::TextRole::Body)
-                        .With(huxerui::Foreground(theme.colors.on_surface_variant));
-                }),
-            }
-                                      .With(huxerui::Frame{.height = 320.0F})},
+        ResponseArea(responseBody, responseHeaders, theme),
     }
                                .With(huxerui::Padding(theme.spacing.large),
                                      huxerui::Spacing(theme.spacing.medium))};

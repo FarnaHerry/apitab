@@ -21,6 +21,23 @@ constexpr std::array<std::string_view, 7> kMethodNames{
 constexpr std::size_t kOutputCap = 300;
 } // namespace
 
+// 输出流：独立重组作用域 —— 压测期间每 200ms 的 output 更新只重绘输出区。
+[[huxerui::composable]] huxerui::View OutputArea(huxerui::State<std::vector<std::string>> output,
+                                                 const huxerui::ThemeSpec& theme) {
+    return huxerui::ScrollView{huxerui::Column {
+        huxerui::ForEach(output.Get(), [theme](const std::string& line) {
+            return huxerui::Text(line, huxerui::TextRole::Body)
+                .With(huxerui::Foreground(theme.colors.on_surface_variant));
+        }),
+    }
+                               .With(huxerui::Frame{.height = 260.0F})};
+}
+
+// 汇总行：独立重组作用域。
+[[huxerui::composable]] huxerui::View SummaryLine(huxerui::State<std::string> summary) {
+    return huxerui::Text(summary.Get(), huxerui::TextRole::Body);
+}
+
 [[huxerui::composable]] huxerui::View LoadTestPage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
@@ -106,16 +123,9 @@ constexpr std::size_t kOutputCap = 300;
                 }),
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
-        huxerui::Text(summary.Get(), huxerui::TextRole::Body),
+        SummaryLine(summary),
         huxerui::Text("输出", huxerui::TextRole::Title),
-        huxerui::ScrollView{huxerui::Column {
-            huxerui::ForEach(
-                output.Get(), [theme](const std::string& line) {
-                    return huxerui::Text(line, huxerui::TextRole::Body)
-                        .With(huxerui::Foreground(theme.colors.on_surface_variant));
-                }),
-        }
-                               .With(huxerui::Frame{.height = 260.0F})},
+        OutputArea(output, theme),
         huxerui::Text("最近记录", huxerui::TextRole::Title),
         huxerui::ForEach(
             g_loadtest.records(10), [theme](const db::LoadRecord& r) {

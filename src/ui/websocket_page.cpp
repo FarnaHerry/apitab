@@ -25,6 +25,18 @@ std::string StateName(api::WebSocketState s) {
 }
 } // namespace
 
+// 事件流：独立重组作用域 —— 每 150ms 的 events 更新只重绘事件区。
+[[huxerui::composable]] huxerui::View WsEventStream(huxerui::State<std::vector<std::string>> events,
+                                                  const huxerui::ThemeSpec& theme) {
+    return huxerui::ScrollView{huxerui::Column {
+        huxerui::ForEach(events.Get(), [theme](const std::string& line) {
+            return huxerui::Text(line, huxerui::TextRole::Body)
+                .With(huxerui::Foreground(theme.colors.on_surface_variant));
+        }),
+    }
+                               .With(huxerui::Frame{.height = 300.0F})};
+}
+
 [[huxerui::composable]] huxerui::View WebSocketPage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
@@ -120,13 +132,7 @@ std::string StateName(api::WebSocketState s) {
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
         huxerui::Text("事件", huxerui::TextRole::Title),
-        huxerui::ScrollView{huxerui::Column {
-            huxerui::ForEach(events.Get(), [theme](const std::string& line) {
-                return huxerui::Text(line, huxerui::TextRole::Body)
-                    .With(huxerui::Foreground(theme.colors.on_surface_variant));
-            }),
-        }
-                               .With(huxerui::Frame{.height = 300.0F})},
+        WsEventStream(events, theme),
     }
                                .With(huxerui::Padding(theme.spacing.large),
                                      huxerui::Spacing(theme.spacing.medium))};

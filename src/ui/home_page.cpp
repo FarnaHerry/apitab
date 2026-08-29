@@ -1,5 +1,6 @@
-// home_page.cpp — 主页面：组织 / 项目列表 + 打开项目工作区。
-// 数据来自领域 store（g_requests），打开项目 = selectProjectInOrg。
+// home_page.cpp — 主页面：组织 / 项目列表 + 显式打开项目工作区。
+// 打开 = selectProjectInOrg（领域状态）+ 记录会话键 + 跳转到请求页；
+// 未打开前，依赖项目的页面（请求集合等）一律不可用。
 #include <huxerui/huxerui.h>
 
 #include <cstdint>
@@ -15,22 +16,29 @@ import apitab.store.requests;
 
 namespace apitab::ui {
 
-[[huxerui::composable]] huxerui::View ProjectRow(const db::Project& project) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    return huxerui::Button("打开 — " + project.name)
-        .OnClick([project] {
+[[huxerui::composable]] huxerui::View ProjectRow(const db::Project& project,
+                                                 huxerui::State<std::size_t> selected,
+                                                 huxerui::State<std::int64_t> opened) {
+    auto toast = huxerui::UseToast();
+    const bool is_open = opened.Get() == project.id;
+    return huxerui::Button(is_open ? "进入 — " + project.name : "打开 — " + project.name)
+        .OnClick([project, selected, opened, toast] {
             if (const std::string err = g_requests.selectProjectInOrg(
                     g_requests.currentOrgId(), project.id);
-                err.empty()) {
-                saveSessionPreference("active_project", std::to_string(project.id));
-                g_loadtest.setProject(project.id);
+                !err.empty()) {
+                toast.Show("打开失败: " + err);
+                return;
             }
+            g_loadtest.setProject(project.id);
+            saveSessionPreference("active_project", std::to_string(project.id));
+            opened = project.id;
+            selected = 1; // 跳转到请求页
         })
         .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    (void)theme;
 }
 
-[[huxerui::composable]] huxerui::View HomePage() {
+[[huxerui::composable]] huxerui::View HomePage(huxerui::State<std::size_t> selected,
+                                               huxerui::State<std::int64_t> opened) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto refresh = huxerui::UseState(0);
 
@@ -45,7 +53,7 @@ namespace apitab::ui {
         rows.push_back(huxerui::Text("暂无项目", huxerui::TextRole::Body));
     }
     for (const db::Project& project : projects) {
-        rows.push_back(ProjectRow(project));
+        rows.push_back(ProjectRow(project, selected, opened).Key(project.id));
     }
     rows.push_back(
         huxerui::Button("刷新列表").OnClick([refresh] { refresh = refresh.Get() + 1; }));
