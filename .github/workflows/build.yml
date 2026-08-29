@@ -269,6 +269,17 @@ jobs:
         shell: bash
         run: bash packaging/ci-package.sh "${{ matrix.name == 'linux-x64' && 'linux' || 'macos' }}" "${{ matrix.name == 'linux-x64' && 'x86_64' || 'arm64' }}" dist-src/apitab engines/k6
 
+      - name: Package Linux deb/rpm
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y rpm
+          version="$(grep -m1 -E '^project\(apitab +VERSION ' CMakeLists.txt | sed -E 's/.*VERSION +([0-9.]+).*/\1/')"
+          bash packaging/ci-package-deb.sh "$version" x86_64 dist
+          bash packaging/ci-package-rpm.sh "$version" x86_64 dist
+
       - name: Install full NSIS
         if: runner.os == 'Windows'
         shell: pwsh

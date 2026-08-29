@@ -6,7 +6,8 @@ Unicode true
   !error "APP_VERSION not defined"
 !endif
 Name "apitab ${APP_VERSION}"
-OutFile "apitab-v${APP_VERSION}-win64-setup.exe"
+; 相对路径以脚本目录（packaging/）为基准，写回仓库根供 CI 上传
+OutFile "..\apitab-v${APP_VERSION}-win64-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\apitab"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma

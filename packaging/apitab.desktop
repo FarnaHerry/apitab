@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=apitab
+GenericName=API Tester
+Comment=API testing and load testing tool
+Exec=/opt/apitab/apitab
+Icon=/opt/apitab/assets/icon.png
+Terminal=false
+Categories=Development;Network;
+Keywords=api;http;rest;load;test;
