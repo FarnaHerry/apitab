@@ -91,6 +91,10 @@ State（UI 线程调度）；旧 `requestUiUpdate` 唤醒钩子保留为 no-op�
    完整 TextEditingValue；动态兄弟用稳定 `.Key(...)`。
 6. **异步结果**：页面 `UseTaskScope().Launch` 协程轮询引擎并写 State；
    `requestUiUpdate` 是 no-op 钩子（app_main.cpp），不要新加调用。
+   **事件处理器内禁止同步写会导致点击节点被卸载的 State**（如切页/关标签/
+   切主题）——pointer-up 处理中同步重组会卸载按钮子树，框架随后 erase
+   PointerSession 段错误。必须经 `tasks.Launch` + `co_await Delay(0)` 推迟；
+   组合体内也不要写 State（挂载路径重入），初始值在 UseState 之前算好。
 7. **k6 指标**：Trend 汇总默认只带 avg/min/med/max/p(90)/p(95)——脚本 options 里
    已声明 `summaryTrendStats` 加 p(99)，p50 用 `med` 键（没有 `p(50)`）。
 8. **curl_easy_setopt 多线程必须 `CURLOPT_NOSIGNAL=1`**（已设）。

@@ -165,9 +165,13 @@ api::KeyValue ToKeyValue(const KvRow& row) {
 
     return huxerui::ScrollView{huxerui::Column {
         PageHeader("请求", "项目: " + projectName + " · 单次 API 调试（curl 引擎）"),
-        huxerui::Button("关闭工作区").OnClick([opened] {
-            opened = 0;
-            saveSessionPreference("active_project", "0");
+        huxerui::Button("关闭工作区").OnClick([=] {
+            auto tasks = huxerui::UseTaskScope();
+            tasks.Launch([=]() -> huxerui::Task<void> {
+                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                saveSessionPreference("active_project", "0");
+                opened = 0;
+            });
         }),
         huxerui::SegmentedButton(
             {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}, methodIndex)

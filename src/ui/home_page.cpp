@@ -22,31 +22,37 @@ namespace apitab::ui {
                                                  huxerui::State<std::vector<std::int64_t>> tabs,
                                                  huxerui::State<std::int64_t> activeProject) {
     auto toast = huxerui::UseToast();
+    auto tasks = huxerui::UseTaskScope();
     const bool is_open = activeProject.Get() == project.id;
     return huxerui::Button(is_open ? "进入 — " + project.name : "打开 — " + project.name)
-        .OnClick([project, navPage, tabs, activeProject, toast] {
-            if (const std::string err = g_requests.selectProjectInOrg(
-                    g_requests.currentOrgId(), project.id);
-                !err.empty()) {
-                toast.Show("打开失败: " + err);
-                return;
-            }
-            g_loadtest.setProject(project.id);
-            saveSessionPreference("active_project", std::to_string(project.id));
-            // 新增（或激活）顶级项目标签页，并持久化标签列表
-            std::vector<std::int64_t> open = tabs.Get();
-            if (!std::ranges::contains(open, project.id)) {
-                open.push_back(project.id);
-                std::string csv;
-                for (std::size_t i = 0; i < open.size(); ++i) {
-                    csv += (i ? "," : "");
-                    csv += std::to_string(open[i]);
+        .OnClick([=] {
+            // 推迟出指针事件路径：本点击会切页（卸载本按钮子树），
+            // 在 pointer-up 处理中同步写 State 会触发框架段错误。
+            tasks.Launch([=]() -> huxerui::Task<void> {
+                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                if (const std::string err = g_requests.selectProjectInOrg(
+                        g_requests.currentOrgId(), project.id);
+                    !err.empty()) {
+                    toast.Show("打开失败: " + err);
+                    co_return;
                 }
-                saveSessionPreference("open_projects", csv);
-            }
-            tabs = open;
-            activeProject = project.id;
-            navPage = 1; // 请求页
+                g_loadtest.setProject(project.id);
+                saveSessionPreference("active_project", std::to_string(project.id));
+                // 新增（或激活）顶级项目标签页，并持久化标签列表
+                std::vector<std::int64_t> open = tabs.Get();
+                if (!std::ranges::contains(open, project.id)) {
+                    open.push_back(project.id);
+                    std::string csv;
+                    for (std::size_t i = 0; i < open.size(); ++i) {
+                        csv += (i ? "," : "");
+                        csv += std::to_string(open[i]);
+                    }
+                    saveSessionPreference("open_projects", csv);
+                }
+                tabs = open;
+                activeProject = project.id;
+                navPage = 1; // 请求页
+            });
         })
         .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }

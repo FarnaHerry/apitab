@@ -82,6 +82,7 @@ namespace {
 [[huxerui::composable]] huxerui::View ProjectTabStrip(
     huxerui::State<std::vector<std::int64_t>> tabs, huxerui::State<std::int64_t> activeProject) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto tasks = huxerui::UseTaskScope();
 
     std::vector<std::pair<std::int64_t, std::string>> items;
     items.emplace_back(0, "主页");
@@ -108,11 +109,15 @@ namespace {
             huxerui::Row {
                 huxerui::Button(label).OnClick([activateProject, id] { activateProject(id); }),
                 id != 0 ? huxerui::View{huxerui::Button("✕").OnClick(
-                              [tabs, activeProject, activateProject, id] {
-                                  std::vector<std::int64_t> rest = tabs.Get();
-                                  std::erase(rest, id);
-                                  tabs = rest;
-                                  if (activeProject.Get() == id) activateProject(0);
+                              [=] {
+                                  // 关闭会移除本按钮所在行：推迟出指针事件路径
+                                  tasks.Launch([=]() -> huxerui::Task<void> {
+                                      co_await huxerui::Delay(std::chrono::duration<double>{0});
+                                      std::vector<std::int64_t> rest = tabs.Get();
+                                      std::erase(rest, id);
+                                      tabs = rest;
+                                      if (activeProject.Get() == id) activateProject(0);
+                                  });
                               })}
                         : huxerui::View{huxerui::Text("")},
             }

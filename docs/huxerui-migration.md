@@ -43,6 +43,10 @@ TaskScope 结构化并发）。领域层（src/store/*、引擎、DB、config）
 - 托盘菜单项不要写在 `SystemTrayOptions{.menu = {...}}` 的列表初始化里
   （GCC 16 报 "expected primary-expression"）——先构造
   `std::vector<huxerui::MenuEntry>` 再 `std::move` 进 `.menu`。
+- **点击处理器内同步写"会卸载点击节点"的 State 会段错误**（框架在
+  HandlePointerUp 里 erase PointerSession 时踩到已重组释放的节点）——切页/
+  关标签/切主题等一律 `tasks.Launch` + `co_await Delay(0)` 推迟；同理，组合
+  体内不写 State，初始值在 UseState 前算好（此前启动 flaky 段错误即此根因）。
 - 生成的资源符号类型是 `huxerui::ImageResource`（svg 同样归一），不是
   VectorAsset；多档位 png（tray.png/@2x/@3x）必须同逻辑尺寸。
 - app 资源包输出在 `build/huxerui-resources/apitab/package/`，POST_BUILD 拷到
