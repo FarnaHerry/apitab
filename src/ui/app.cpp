@@ -336,8 +336,10 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     // 之下，它们的 UseTheme() 是正常的。
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
     // 响应式：Compact(<600) 收窄间距，Medium/Expanded 保持现状。
+    // 外壳统一间隙（标题栏↔主行、侧栏↔内容区、根 Column 子项）：small(8pt)，
+    // 岛屿间隙由各页面根同行收敛。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
-    const float gap = compact ? rootSpec.spacing.extra_small : rootSpec.spacing.medium;
+    const float gap = compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small;
 
     // 托盘：图标 + 菜单；点击托盘图标激活主窗口。仅在可用时注册；
     // 首次组合时宿主未就绪则跳过，待可用性触发重组后再注册。

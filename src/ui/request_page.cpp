@@ -735,7 +735,7 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                    RequestListIsland(openDrafts, activeTab, listVersion, projectName, true),
                    std::move(rightIsland).With(huxerui::Grow(1.0F)),
                }
-            .With(huxerui::Spacing(theme.spacing.medium),
+            .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::Grow(1.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
@@ -743,7 +743,7 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
                RequestListIsland(openDrafts, activeTab, listVersion, projectName, false),
                std::move(rightIsland).With(huxerui::Grow(1.0F)),
            }
-        .With(huxerui::Spacing(theme.spacing.medium),
+        .With(huxerui::Spacing(theme.spacing.small),
               huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }

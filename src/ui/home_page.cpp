@@ -294,7 +294,7 @@ namespace {
         std::move(orgIsland),
         std::move(projectIsland),
     }
-        .With(huxerui::Spacing(theme.spacing.medium), huxerui::Grow(1.0F),
+        .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
