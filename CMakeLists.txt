@@ -118,6 +118,7 @@ huxerui_add_app(apitab
         src/ui/tcp_page.cpp
         src/ui/history_page.cpp
         src/ui/settings_page.cpp
+        src/ui/project_settings_page.cpp
         src/ui/common.cpp
         # 模块实现单元（module apitab.X;）—— codegen 无 composable 标记时原样放行
         src/curl_engine.cpp
@@ -125,6 +126,8 @@ huxerui_add_app(apitab
         src/websocket_engine.cpp
         src/tcp_engine.cpp
         src/db.cpp
+    RESOURCES "${CMAKE_CURRENT_SOURCE_DIR}/resources"
+    RESOURCE_NAMESPACE app
 )
 
 # 领域层 C++23 模块（.cppm 接口 + .cpp 实现单元；codegen 扫描会按扩展名跳过它们）
@@ -161,15 +164,17 @@ if(WIN32)
     endif()
 endif()
 
-# 图标资源放 <exe>/assets；HuxerUI 框架资源放 <exe>.resources/huxerui/
+# 图标资源放 <exe>/assets；HuxerUI 资源包（内置+app 合并，由 huxerui_add_app 的
+# 资源构建生成）放 <exe>.resources/huxerui/resources.bin —— 运行时按此路径查找。
 add_custom_command(TARGET apitab POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:apitab>/assets"
     COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:apitab>/apitab.resources/huxerui"
     COMMAND ${CMAKE_COMMAND} -E copy
-            "${HUXERUI_RESOURCES_BIN}" "$<TARGET_FILE_DIR:apitab>/apitab.resources/huxerui/resources.bin"
-    COMMENT "Copying assets and HuxerUI resources next to apitab")
+            "${CMAKE_BINARY_DIR}/huxerui-resources/apitab/package/huxerui/resources.bin"
+            "$<TARGET_FILE_DIR:apitab>/apitab.resources/huxerui/resources.bin"
+    COMMENT "Copying assets and the merged HuxerUI resource package next to apitab")
 if(WIN32)
     # HuxerUI 运行时 DLL 需在 exe 旁
     add_custom_command(TARGET apitab POST_BUILD

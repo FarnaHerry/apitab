@@ -38,6 +38,16 @@ TaskScope 结构化并发）。领域层（src/store/*、引擎、DB、config）
 - [x] 删除：store/ui.cppm（旧视图状态机）、i18n 翻译表（改为 preferences 模块）、
       EUI 字体、eui-neo-compat 文档、eui-neo-ui-replicator skill、eui SDK tarball
 
+## 已知坑（GCC 16 + HuxerUI 0.1.0）
+
+- 托盘菜单项不要写在 `SystemTrayOptions{.menu = {...}}` 的列表初始化里
+  （GCC 16 报 "expected primary-expression"）——先构造
+  `std::vector<huxerui::MenuEntry>` 再 `std::move` 进 `.menu`。
+- 生成的资源符号类型是 `huxerui::ImageResource`（svg 同样归一），不是
+  VectorAsset；多档位 png（tray.png/@2x/@3x）必须同逻辑尺寸。
+- app 资源包输出在 `build/huxerui-resources/apitab/package/`，POST_BUILD 拷到
+  `<exe>.resources/huxerui/resources.bin`（含框架内置资源的合并包）。
+
 ## 待迁移（后续增强）
 
 1. **集合侧栏**：分组树 + 右键菜单（UseMenu）→ DrawerLayout；从集合打开请求

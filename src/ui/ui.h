@@ -31,7 +31,10 @@ huxerui::View TcpPage();
 // history_page.cpp
 huxerui::View HistoryPage();
 
-// settings_page.cpp（dark 主题开关由 AppRoot 持有）
-huxerui::View SettingsPage(huxerui::State<bool> dark);
+// settings_page.cpp（全局设置：主题模式 + 关闭行为，状态由 AppRoot 持有）
+huxerui::View GlobalSettingsPage(huxerui::State<int> themeMode, huxerui::State<int> closeBehavior);
+
+// project_settings_page.cpp（当前项目设置）
+huxerui::View ProjectSettingsPage();
 
 } // namespace apitab::ui

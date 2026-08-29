@@ -23,6 +23,7 @@ module;
 #include <unistd.h>  // readlink, access, X_OK
 #include <limits.h>  // PATH_MAX
 #endif
+#include <cstdio>  // popen / pclose（跟随系统的深色检测）
 
 export module apitab.config;
 
@@ -134,6 +135,38 @@ export std::filesystem::path k6Binary() {
         }
     }
     return findInPath(k6Name);
+}
+
+// 系统是否偏好深色（"跟随系统"主题模式用）。启动时读取一次即可。
+export bool systemPrefersDark() {
+#if defined(_WIN32)
+    HKEY key;
+    if (RegOpenKeyExA(HKEY_CURRENT_USER,
+                      "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                      0, KEY_READ, &key) != ERROR_SUCCESS)
+        return false;
+    DWORD value = 1, size = sizeof(value);
+    const LONG rc = RegQueryValueExA(key, "AppsUseLightTheme", nullptr, nullptr,
+                                     reinterpret_cast<LPBYTE>(&value), &size);
+    RegCloseKey(key);
+    return rc == ERROR_SUCCESS && value == 0;
+#elif defined(__APPLE__)
+    FILE* pipe = ::popen("defaults read -g AppleInterfaceStyle 2>/dev/null", "r");
+    if (pipe == nullptr) return false;
+    std::array<char, 32> buf{};
+    const bool dark = std::fgets(buf.data(), static_cast<int>(buf.size()), pipe) != nullptr &&
+                      std::string_view(buf.data()).starts_with("Dark");
+    ::pclose(pipe);
+    return dark;
+#else
+    FILE* pipe = ::popen("gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null", "r");
+    if (pipe == nullptr) return false;
+    std::array<char, 64> buf{};
+    const bool dark = std::fgets(buf.data(), static_cast<int>(buf.size()), pipe) != nullptr &&
+                      std::string_view(buf.data()).find("prefer-dark") != std::string_view::npos;
+    ::pclose(pipe);
+    return dark;
+#endif
 }
 
 } // namespace cfg
