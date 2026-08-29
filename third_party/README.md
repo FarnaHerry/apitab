@@ -9,7 +9,7 @@ SHA256 后解包到 `build/vendor/`，源码树不入库），nlohmann::json 是
 
 | 包 | 版本 | tarball | 来源 |
 |----|------|---------|------|
-| EUI-NEO | 0.5.7 | `eui-neo-0.5.7.tar.gz` | 上游 GitHub `sudoevolve/EUI-NEO` v0.5.7 tarball（含 bundled `3rd/`：freetype 2.13.3、libpng 1.6.43、zlib 1.3.1、glfw 3.4、glad 651a425、yyjson 0.12.0、tray 8dd1358、md4c），与 `compat.eui-neo` 同源 |
+| HuxerUI | 0.1.0 | `huxerui-sdk-0.1.0-{linux-x86_64,macos-arm64,windows-x86_64}.tar.gz/.zip` | 上游 `github.com/HuxerUI/HuxerUI` v0.1.0 官方预编译 SDK（shared 库 + headers + CMake 包 + hcg codegen 工具 + 内置资源包）。消费方式走 `find_package(HuxerUI CONFIG REQUIRED COMPONENTS shared)` + `huxerui_add_app()` |
 | Asio | 1.38.1 | `asio-1.38.1.tar.gz` | 上游 `chriskohlhoff/asio` tag asio-1-38-1，同 `chriskohlhoff.asio` |
 | IXWebSocket | 12.0.1 | `ixwebsocket-12.0.1.tar.gz` | 上游 `machinezone/IXWebSocket` v12.0.1，同 `compat.websocket`（client-only、无 TLS/无 zlib，32 个源文件） |
 | curl | 8.21.0 | `curl-8.21.0.tar.gz` | 上游 `curl/curl` release tarball，同 `compat.curl` |
