@@ -55,13 +55,20 @@ constexpr std::size_t kOutputCap = 300;
 
     return huxerui::ScrollView{huxerui::Column {
         PageHeader("压测", k6ok ? "k6 引擎：就绪" : "k6 引擎：未找到（engines/ 或 PATH）"),
-        huxerui::SegmentedButton({"GET", "POST", "PUT", "PATCH", "DELETE"}, methodIndex)
-            .OnChanged([methodIndex](std::size_t index) { methodIndex = index; }),
-        huxerui::TextField(url)
-            .Label("目标 URL")
-            .Placeholder("https://api.example.com/v1/resource")
-            .Variant(huxerui::TextFieldVariant::Outlined)
-            .OnChanged([url](const huxerui::TextEditingValue& value) { url = value; }),
+        huxerui::Row {
+            DropdownSelect(
+                std::vector<std::string>(kMethodNames.begin(), kMethodNames.end()),
+                methodIndex.Get(),
+                [methodIndex](std::size_t index) { methodIndex = index; }),
+            huxerui::TextField(url)
+                .Label("目标 URL")
+                .Placeholder("https://api.example.com/v1/resource")
+                .Variant(huxerui::TextFieldVariant::Outlined)
+                .OnChanged([url](const huxerui::TextEditingValue& value) { url = value; })
+                .With(huxerui::Grow(1.0F)),
+        }
+            .With(huxerui::Spacing(theme.spacing.small),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Row {
             huxerui::TextField(vus)
                 .Label("VUs")
@@ -137,7 +144,9 @@ constexpr std::size_t kOutputCap = 300;
             }),
     }
                                .With(huxerui::Padding(theme.spacing.large),
-                                     huxerui::Spacing(theme.spacing.medium))}.With(huxerui::ScrollBar());
+                                     huxerui::Spacing(theme.spacing.medium),
+                                     huxerui::Background(theme.colors.surface_container_low),
+                                     huxerui::CornerRadius(theme.shapes.large))}.With(huxerui::ScrollBar());
 }
 
 } // namespace apitab::ui

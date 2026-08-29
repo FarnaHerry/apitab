@@ -63,7 +63,10 @@ constexpr int kPageSize = 20;
 
     return huxerui::ScrollView{huxerui::Column(std::move(children))
                                    .With(huxerui::Padding(theme.spacing.large),
-                                         huxerui::Spacing(theme.spacing.medium))}.With(huxerui::ScrollBar());
+                                         huxerui::Spacing(theme.spacing.medium),
+                                         huxerui::Background(
+                                             theme.colors.surface_container_low),
+                                         huxerui::CornerRadius(theme.shapes.large))}.With(huxerui::ScrollBar());
 }
 
 } // namespace apitab::ui

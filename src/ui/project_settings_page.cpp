@@ -1,5 +1,5 @@
 // project_settings_page.cpp — 当前项目设置：项目信息与重命名。
-// 未打开项目时显示空状态（去主页打开项目）。
+// 未选择项目的兜底已删：主页整宽覆盖侧栏后，未打开项目时本页不可达。
 #include <huxerui/huxerui.h>
 
 #include <cstdint>
@@ -17,7 +17,6 @@ namespace apitab::ui {
 [[huxerui::composable]] huxerui::View ProjectSettingsPage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
-    auto navPage = huxerui::UseState<std::size_t>(0);
 
     const std::int64_t current = g_requests.currentProjectId();
     const db::Project* project = nullptr;
@@ -25,9 +24,10 @@ namespace apitab::ui {
         if (p.id == current) project = &p;
     }
     if (project == nullptr) {
-        return huxerui::ScrollView{EmptyState(app::images::project_settings, "项目设置未打开",
-                                              "先在主页打开一个项目，再进入项目设置。", navPage)}
-            .With(huxerui::ScrollBar());
+        // 防御：正常路径不可达（主页遮盖侧栏）。
+        return huxerui::Text("未打开项目", huxerui::TextRole::Body)
+            .With(huxerui::Padding(theme.spacing.large),
+                  huxerui::Foreground(theme.colors.on_surface_variant));
     }
 
     auto name = huxerui::UseState(huxerui::TextEditingValue{project->name});
@@ -55,7 +55,9 @@ namespace apitab::ui {
         }),
     }
                                .With(huxerui::Padding(theme.spacing.large),
-                                     huxerui::Spacing(theme.spacing.medium))}.With(huxerui::ScrollBar());
+                                     huxerui::Spacing(theme.spacing.medium),
+                                     huxerui::Background(theme.colors.surface_container_low),
+                                     huxerui::CornerRadius(theme.shapes.large))}.With(huxerui::ScrollBar());
 }
 
 } // namespace apitab::ui

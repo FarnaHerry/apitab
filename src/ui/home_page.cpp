@@ -1,6 +1,6 @@
 // home_page.cpp — 主页面：两栏岛屿布局。
-//   左岛（固定宽）：组织列表（选中高亮）+ 新建组织；
-//   右岛（Grow）：当前组织的项目卡片（Flow 自动换行）+ 新建项目。
+//   左岛（固定宽）：组织列表（选中高亮），标题行加号按钮弹窗新建组织；
+//   右岛（Grow）：当前组织的项目卡片（Flow 自动换行），标题行加号按钮弹窗新建项目。
 // 打开项目 = selectProjectInOrg（领域状态）+ 新增/激活顶级项目标签页 + 跳转请求页；
 // 未打开前，依赖项目的页面（请求集合等）一律不可用。
 // 所有会触发重组卸载被点击节点的写 State / 领域变更（切组织、新建、删除、打开项目）
@@ -130,6 +130,7 @@ namespace {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
     auto tasks = huxerui::UseTaskScope();
+    auto dialog = huxerui::UseDialog();
     auto refresh = huxerui::UseState(0);
     auto newOrgName = huxerui::UseState(huxerui::TextEditingValue{});
     auto newProjectName = huxerui::UseState(huxerui::TextEditingValue{});
@@ -145,9 +146,56 @@ namespace {
         if (org.id == currentOrg) orgName = org.name;
     }
 
-    // ---- 左岛：组织列表 + 新建组织 ----
+    // ---- 左岛：组织列表 + 新建组织（标题行加号按钮弹窗创建）----
     std::vector<huxerui::View> orgChildren;
-    orgChildren.push_back(huxerui::Text("组织", huxerui::TextRole::Title));
+    orgChildren.push_back(
+        huxerui::Row {
+            huxerui::Text("组织", huxerui::TextRole::Title).With(huxerui::Grow(1.0F)),
+            huxerui::Button("+").OnClick([dialog, tasks, toast, refresh, newOrgName] {
+                dialog.Show(
+                    [tasks, toast, refresh, newOrgName](huxerui::DialogContext ctx)
+                        -> huxerui::View {
+                        return huxerui::Column {
+                            huxerui::Text("新建组织", huxerui::TextRole::Title),
+                            huxerui::TextField(newOrgName)
+                                .Label("组织名称")
+                                .Variant(huxerui::TextFieldVariant::Outlined)
+                                .OnChanged([newOrgName](const huxerui::TextEditingValue& value) {
+                                    newOrgName = value;
+                                }),
+                            huxerui::Row {
+                                huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+                                huxerui::Button("创建")
+                                    .OnClick([ctx, tasks, toast, refresh, newOrgName] {
+                                        if (newOrgName.Get().text.empty()) {
+                                            toast.Show("组织名称不能为空");
+                                            return;
+                                        }
+                                        ctx.Dismiss();
+                                        // 新建会切到新组织并重组本页：推迟出指针事件路径
+                                        tasks.Launch([=]() -> huxerui::Task<void> {
+                                            co_await huxerui::Delay(
+                                                std::chrono::duration<double>{0});
+                                            if (const std::string err = g_requests.createOrg(
+                                                    newOrgName.Get().text);
+                                                !err.empty()) {
+                                                toast.Show("新建组织失败: " + err);
+                                                co_return;
+                                            }
+                                            newOrgName = huxerui::TextEditingValue{};
+                                            refresh = refresh.Get() + 1;
+                                        });
+                                    }),
+                            }
+                                .With(huxerui::Spacing(8.0F)),
+                        }
+                            .With(huxerui::Padding(20.0F), huxerui::Spacing(12.0F),
+                                  huxerui::Frame{.width = 320.0F});
+                    },
+                    huxerui::DialogOptions{});
+            }),
+        }
+            .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
     if (orgs.empty()) {
         orgChildren.push_back(huxerui::Text("暂无组织", huxerui::TextRole::Body)
                                   .With(huxerui::Foreground(theme.colors.on_surface_variant)));
@@ -155,31 +203,6 @@ namespace {
     for (const db::Org& org : orgs) {
         orgChildren.push_back(OrgRow(org, org.id == currentOrg, refresh).Key(org.id));
     }
-    orgChildren.push_back(huxerui::TextField(newOrgName)
-                              .Label("新建组织")
-                              .Placeholder("组织名称")
-                              .Variant(huxerui::TextFieldVariant::Outlined)
-                              .OnChanged([newOrgName](const huxerui::TextEditingValue& value) {
-                                  newOrgName = value;
-                              }));
-    orgChildren.push_back(
-        huxerui::Button("＋ 新建组织").OnClick([tasks, toast, refresh, newOrgName] {
-            if (newOrgName.Get().text.empty()) {
-                toast.Show("组织名称不能为空");
-                return;
-            }
-            // 新建会切到新组织并重组本页：推迟出指针事件路径
-            tasks.Launch([=]() -> huxerui::Task<void> {
-                co_await huxerui::Delay(std::chrono::duration<double>{0});
-                if (const std::string err = g_requests.createOrg(newOrgName.Get().text);
-                    !err.empty()) {
-                    toast.Show("新建组织失败: " + err);
-                    co_return;
-                }
-                newOrgName = huxerui::TextEditingValue{};
-                refresh = refresh.Get() + 1;
-            });
-        }));
     huxerui::View orgIsland =
         huxerui::Column(std::move(orgChildren))
             .With(huxerui::Padding(theme.spacing.medium),
@@ -195,40 +218,59 @@ namespace {
     }
     huxerui::View projectIsland =
         huxerui::Column {
-            PageHeader("项目",
-                       orgName.empty() ? "当前组织的项目" : "当前组织：" + orgName),
             huxerui::Row {
-                huxerui::TextField(newProjectName)
-                    .Placeholder("项目名称")
-                    .Variant(huxerui::TextFieldVariant::Outlined)
-                    .OnChanged([newProjectName](const huxerui::TextEditingValue& value) {
-                        newProjectName = value;
-                    })
+                PageHeader("项目",
+                           orgName.empty() ? "当前组织的项目" : "当前组织：" + orgName)
                     .With(huxerui::Grow(1.0F)),
-                huxerui::Button("＋ 新建项目")
-                    .OnClick([tasks, toast, refresh, newProjectName] {
-                        if (newProjectName.Get().text.empty()) {
-                            toast.Show("项目名称不能为空");
-                            return;
-                        }
-                        // 新建会重载项目列表并重组本页：推迟出指针事件路径
-                        tasks.Launch([=]() -> huxerui::Task<void> {
-                            co_await huxerui::Delay(std::chrono::duration<double>{0});
-                            if (const std::string err =
-                                    g_requests.createProject(newProjectName.Get().text);
-                                !err.empty()) {
-                                toast.Show("新建项目失败: " + err);
-                                co_return;
+                huxerui::Button("+").OnClick([dialog, tasks, toast, refresh, newProjectName] {
+                    dialog.Show(
+                        [tasks, toast, refresh, newProjectName](huxerui::DialogContext ctx)
+                            -> huxerui::View {
+                            return huxerui::Column {
+                                huxerui::Text("新建项目", huxerui::TextRole::Title),
+                                huxerui::TextField(newProjectName)
+                                    .Label("项目名称")
+                                    .Variant(huxerui::TextFieldVariant::Outlined)
+                                    .OnChanged(
+                                        [newProjectName](const huxerui::TextEditingValue& value) {
+                                            newProjectName = value;
+                                        }),
+                                huxerui::Row {
+                                    huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+                                    huxerui::Button("创建")
+                                        .OnClick([ctx, tasks, toast, refresh, newProjectName] {
+                                            if (newProjectName.Get().text.empty()) {
+                                                toast.Show("项目名称不能为空");
+                                                return;
+                                            }
+                                            ctx.Dismiss();
+                                            // 新建会重载项目列表并重组本页：推迟出指针事件路径
+                                            tasks.Launch([=]() -> huxerui::Task<void> {
+                                                co_await huxerui::Delay(
+                                                    std::chrono::duration<double>{0});
+                                                if (const std::string err =
+                                                        g_requests.createProject(
+                                                            newProjectName.Get().text);
+                                                    !err.empty()) {
+                                                    toast.Show("新建项目失败: " + err);
+                                                    co_return;
+                                                }
+                                                newProjectName = huxerui::TextEditingValue{};
+                                                refresh = refresh.Get() + 1;
+                                            });
+                                        }),
+                                }
+                                    .With(huxerui::Spacing(8.0F)),
                             }
-                            newProjectName = huxerui::TextEditingValue{};
-                            refresh = refresh.Get() + 1;
-                        });
-                    }),
+                                .With(huxerui::Padding(20.0F), huxerui::Spacing(12.0F),
+                                      huxerui::Frame{.width = 320.0F});
+                        },
+                        huxerui::DialogOptions{});
+                }),
             }
-                .With(huxerui::Spacing(theme.spacing.small),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+                .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             projects.empty()
-                ? huxerui::View{huxerui::Text("该组织暂无项目，先在上方新建一个。",
+                ? huxerui::View{huxerui::Text("该组织暂无项目，点击右上角 + 新建一个。",
                                               huxerui::TextRole::Body)
                                     .With(huxerui::Foreground(theme.colors.on_surface_variant))}
                 : huxerui::View{huxerui::Flow(std::move(cards))

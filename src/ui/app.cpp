@@ -50,9 +50,8 @@ enum PageIndex : std::size_t {
         case kHome:
             return HomePage(navPage, tabs, activeProject);
         case kRequest:
-            return activeProject.Get() != 0
-                       ? RequestPage(activeProject)
-                       : MigrationPlaceholder("请求（在项目标签页内使用；先在主页打开项目）");
+            // 主页已整宽覆盖侧栏：未打开项目时本页不可达，无需兜底。
+            return RequestPage(activeProject);
         case kLoad:
             return LoadTestPage();
         // kWebSocket/kTcp 不再可达：已并入请求页内部标签（PageIndex 枚举值保留）。
@@ -419,8 +418,11 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                   huxerui::Background(rootSpec.colors.surface_container_low)),
         // 主行：侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
+        // 主页时内容整宽覆盖侧栏：未打开项目就点不到任何项目相关入口。
         huxerui::Row {
-            SideShell(navPage),
+            navPage.Get() == pages::kHome
+                ? huxerui::View{huxerui::Spacer().With(huxerui::Frame{.width = 0.0F})}
+                : SideShell(navPage),
             pages::PageFor(navPage.Get(), navPage, tabs, activeProject, themeMode, closeBehavior)
                 .Key(navPage.Get() * 100000 + activeProject.Get())
                 .With(huxerui::Grow(1.0F)),

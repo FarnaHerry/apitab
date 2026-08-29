@@ -660,20 +660,12 @@ void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t i
 
 [[huxerui::composable]] huxerui::View RequestPage(huxerui::State<std::int64_t> opened) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    auto navPage = huxerui::UseState<std::size_t>(1);
 
     // 当前项目名（打开工作区时由主页写入领域 store）。
+    // 未打开项目的兜底已删：主页整宽覆盖侧栏后本页在 opened==0 时不可达。
     std::string projectName = "（未知项目）";
     for (const db::Project& p : g_requests.projects()) {
         if (p.id == opened.Get()) projectName = p.name;
-    }
-
-    // 未打开项目：完整空状态页（图标 + 说明 + 去主页按钮）。
-    if (opened.Get() == 0) {
-        return huxerui::ScrollView{EmptyState(app::images::request, "请求工作区未打开",
-                                              "先在主页打开一个项目，再进入请求、压测等页面。",
-                                              navPage)}
-            .With(huxerui::ScrollBar());
     }
 
     // 内部标签页：每个打开的请求一个草稿；响应区状态为页面级（单引擎）。
