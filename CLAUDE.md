@@ -26,11 +26,21 @@ layout-and-ui、theme-animation-presentation、navigation-and-window 等分册�
 ## 构建 / 运行
 
 ```bash
-cmake -B build -G Ninja            # 配置（默认 Release；调试加 -DCMAKE_BUILD_TYPE=Debug）
+huxerui run linux                  # HuxerUI CLI 流程：构建到 .huxerui/build/linux/ 并运行
+huxerui build linux --profile release
+cmake -B build -G Ninja            # 直接 CMake 流程（默认 Release；调试加 -DCMAKE_BUILD_TYPE=Debug）
 cmake --build build -j             # 编译
 ctest --test-dir build             # 冒烟测试（test_smoke）
 ./run.sh                           # 启动 GUI（切到仓库根 + INTEL_FORCE_PROBE=1）
 ```
+
+- 项目结构对齐 `huxerui create app` 生成格式：顶部 plan 自省块（CLI
+  识别项目的依据）、`platform/<平台>/main.cpp` 平台入口（`main()` 里先
+  `loadSessionPreferences()` 再 `RunApplication()`）、`src/app.cpp` 只持有
+  `Application` 单例 + `requestUiUpdate` no-op 钩子、src/ 递归 glob 源码、
+  resources/ 以 app 命名空间注册。CLI 在 `~/.local/bin/huxerui`（软链到 vendor SDK）。
+- CLI 的库图扫描模式（HUXERUI_LIBRARY_GRAPH_ONLY）下不启用语言、不构建依赖，
+  顶层 CMakeLists 的所有重活都以该变量为门控跳过。
 
 - 工具链：系统 GCC（本机 16.2.1）+ libstdc++，CMake ≥ 4.4（`import std` 仍是
   experimental：版本相关 UUID 表在 `cmake/CxxImportStdGate.cmake`）。

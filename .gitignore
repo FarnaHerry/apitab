@@ -1,6 +1,9 @@
 # CMake 构建产物
 build/
 
+# HuxerUI CLI 构建/生成产物（huxerui build/run 的构建目录与依赖图）
+.huxerui/
+
 # 旧 mcpp 构建产物（历史残留）
 target/
 .mcpp/
