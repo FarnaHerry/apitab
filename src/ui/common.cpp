@@ -162,7 +162,9 @@ sweetedit_huxer::SweetEditorPalette EditorPalette(const huxerui::ThemeSpec& them
 // 危险项按 PopupMenuDanger 取 error 红（kHoverRed 由逐条 Hover 事件驱动，仅
 // hover 时变红）；点击先关闭整链再回调（同系统菜单语义，回调脱离指针路径，
 // 但仍需自行推迟会卸载节点的 State 写）；条目超限时限高内部滚动（带
-// ScrollBar）。
+// ScrollBar）；separator_before 的条目在行上方叠一条 1pt outline 分隔线
+// （空 Row + 固定高，外层 Column 交叉轴 Stretch 自动拉满菜单宽度），用于
+// 分组条目（如"＋ 新建"菜单）；不设该字段的现有菜单渲染零变化。
 // **级联子菜单**：item.children 非空 = 父项（行尾 ›），hover/点击以本行为锚
 // 向右弹出子层。子层 dismiss_on_outside_press=false → Content 指针策略，不
 // 吞父层条目的点击、也不因外部按压自关（同框架 Menu submenu 配方）；同层父
@@ -298,7 +300,20 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
             if (onClick) onClick();
         });
     }
-    return std::move(row).Key(static_cast<std::int64_t>(index));
+    huxerui::View line = std::move(row).Key(static_cast<std::int64_t>(index));
+    if (item.separator_before) {
+        // 分隔线：空 Row 固定 1pt 高 + outline 底色，外层 Column 交叉轴
+        // Stretch 自动拉满菜单宽度；线上/下各留一档间距形成组界。
+        line = huxerui::Column {
+            huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+                                huxerui::Background(theme.colors.outline)),
+            std::move(line),
+        }
+            .With(huxerui::Spacing(4.0F),
+                  huxerui::Padding(huxerui::EdgeInsets{.top = 4.0F}),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    }
+    return line;
 }
 
 [[huxerui::composable]] huxerui::View PopupMenuContent(huxerui::PopupContext ctx,

@@ -123,7 +123,8 @@ void ShowDangerConfirm(huxerui::DialogHandle dialog, std::string title, std::str
                        std::string confirmLabel, std::function<void()> onConfirm);
 // 自绘弹出菜单（UsePopup 承载）。作者口径：通用 MenuItem 不支持 per-item 配色/
 // hover 定制，需要就自己用 UsePopup 做菜单内容——本组件即该配方。条目语义对齐
-// MenuItem：label + 点击回调 + 可选选中态 + 危险模式 + children（级联子菜单）；
+// MenuItem：label + 点击回调 + 可选选中态 + 危险模式 + children（级联子菜单）+
+// separator_before（本行上方画 1pt 分隔线，用于分组条目）；
 // 外观对齐环境 MenuStyle，
 // 条目悬停/按压复用 item_indication。**选中项不用对钩，填充比 hover 深一档的
 // 底色**（取 item_indication.press 填充色）。点击先 Dismiss 再回调（同系统菜单）。
@@ -144,6 +145,9 @@ struct PopupMenuItem {
     // on_click，点击 = 执行回调并关闭整链（直达该层级的动作，如"移动到
     // 分组 A"本身也是一个目的地）；不设则点击仅展开。
     std::vector<PopupMenuItem> children;
+    // true = 本行上方画 1pt 分隔线（outline 色、随菜单宽度拉满），用于把
+    // 条目分成视觉组（如"＋ 新建"菜单的请求类型/目录/导入三段）。
+    bool separator_before = false;
 };
 void ShowPopupMenu(huxerui::PopupHandle popup, std::vector<PopupMenuItem> items,
                    const huxerui::PopupOptions& options = {});

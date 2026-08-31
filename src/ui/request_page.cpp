@@ -1,5 +1,5 @@
 // request_page.cpp — 请求工作区：左岛 = 当前项目的请求列表；右侧 HTTP 拆上下两岛
-// （上 = 标签条 + 编辑器，下 = 响应区；WS/TCP 自包含整页仍单岛）。
+// （上 = 标签条 + 编辑器，下 = 响应区；WS/TCP 自包含整页仍单岛；gRPC 单岛占位）。
 // 发送走 store 持有的 curl 引擎（api::ApiEngine 抽象：send 纯入队，UI 协程
 // PollWhile 轮询 takeResponse 取回结果，回 UI 线程写 State 并落历史）；
 // 保存落到当前项目集合并刷新左岛列表。
@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -21,6 +22,7 @@
 
 #include "ui.h"
 #include "draft.h"
+#include "api_import.h"
 #include "task_bridge.h"
 #include "app_resources.h"
 #include "syntax_grammars.h"
@@ -1677,8 +1679,233 @@ struct GroupDragPayload {
         });
 }
 
+// ---- 导入接口弹窗（"+" 菜单 → 导入接口…）----
+
+// api_import.h 契约的 bodyKind 字符串 → 草稿/db 的 BodyKind 下标：
+// ""=0 None、json=1、text=2、xml=5、graphql=6；form=3（FormUrlEncoded——
+// 导入的示例体是纯文本，url-encoded 形态最贴近，Form-Data(4) 的字段表
+// 无法从一段文本还原）；其余按 text。
+std::size_t ImportedBodyKindIndex(const std::string& kind) {
+    if (kind == "json") return 1;
+    if (kind == "xml") return 5;
+    if (kind == "form") return 3;
+    if (kind == "graphql") return 6;
+    if (kind.empty()) return 0;
+    return 2;
+}
+
+// 导入接口对话框（DialogCard 布局，同「环境配置弹窗」的自定义内容层写法）：
+// 文件来源用 SDK 公开文件选择服务 huxerui::FilePicker（UseService 取句柄 →
+// OpenFileAsync → FileReference，Linux/macOS/Windows 与预编译 SDK 均有实现）。
+// FileReference 是平台授予的读取能力、不暴露本地路径，故全文经
+// ReadStringAsync() 读入（而非 std::ifstream）；若服务不可用（未安装——老版
+// 预编译 SDK 回落，或 CanOpenFiles false）则退化为多行 TextField 粘贴。
+// 解析成功后给出
+// 「标题：N 个接口」+ 前几条目录/接口预览 + 「导入」；失败显示错误文本，
+// 可重选文件重试。导入执行为纯同步 store 调用，整体推迟出指针事件路径
+// （tasks.Launch + Delay(0)，CLAUDE.md 约定 6）。
+[[huxerui::composable]] huxerui::View ApiImportDialogContent(huxerui::DialogContext ctx,
+                                                             huxerui::State<int> listVersion) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto tasks = huxerui::UseTaskScope();
+    auto toast = huxerui::UseToast();
+    // UseService 未安装时抛 logic_error（老版运行时）：兜住转粘贴退化路径。
+    std::shared_ptr<huxerui::FilePicker> picker;
+    try {
+        picker = huxerui::UseService<huxerui::FilePicker>();
+    } catch (const std::exception&) {
+        picker = nullptr;
+    }
+    const bool canPick = picker != nullptr && picker->CanOpenFiles();
+    // 导入状态：fileName = 已选文件名（文件选择器不返回路径，展示名即可辨识）；
+    // parsed = 解析结果（shared_ptr，空 = 尚未成功解析）；importError = 错误文本。
+    auto fileName = huxerui::UseState(std::string{});
+    auto parsed = huxerui::UseState(std::shared_ptr<ImportedApi>{});
+    auto importError = huxerui::UseState(std::string{});
+    auto pasteValue = huxerui::UseState(huxerui::TextEditingValue{});
+
+    // 解析一段文件全文：成功入 parsed，失败入 importError（互相清零）。
+    auto parseText = [parsed, importError](const std::string& text) {
+        auto api = std::make_shared<ImportedApi>();
+        std::string err;
+        if (!ParseApiFile(text, *api, err)) {
+            parsed = nullptr;
+            importError = err;
+            return;
+        }
+        importError = std::string{};
+        parsed = api;
+    };
+
+    std::vector<huxerui::View> children{
+        huxerui::Text("导入接口", huxerui::TextRole::Title),
+    };
+    if (canPick) {
+        children.push_back(huxerui::Row {
+            huxerui::Button("选择文件…").OnClick([tasks, picker, parseText, fileName, parsed,
+                                                  importError] {
+                tasks.Launch([picker, parseText, fileName, parsed,
+                              importError]() -> huxerui::Task<void> {
+                    const auto ref = co_await picker->OpenFileAsync(
+                        huxerui::FilePickerFilter{.name = "接口文件 (JSON)",
+                                                  .extensions = {"json", "yaml", "yml"}});
+                    if (!ref.has_value()) co_return; // 用户取消
+                    auto read = co_await ref->ReadStringAsync();
+                    if (!read.Succeeded()) {
+                        parsed = nullptr;
+                        importError = "读取文件失败: " + read.Error().message;
+                        co_return;
+                    }
+                    fileName = ref->Name();
+                    parseText(read.Value());
+                });
+            }),
+            huxerui::Text(fileName.Get().empty() ? "未选择文件" : fileName.Get(),
+                          huxerui::TextRole::Label)
+                .With(huxerui::Foreground(theme.colors.on_surface_variant),
+                      huxerui::Grow(1.0F), huxerui::ClipChildren()),
+        }
+                      .With(huxerui::Spacing(theme.spacing.small),
+                            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+    } else {
+        // 无文件选择能力（如受限平台）：退化为粘贴文件全文再解析。
+        children.push_back(huxerui::TextField(pasteValue.Get())
+                               .Label("文件内容（JSON）")
+                               .Placeholder("粘贴 Swagger/OpenAPI 或 Postman Collection 全文")
+                               .Variant(huxerui::TextFieldVariant::Outlined)
+                               .LineLimits(huxerui::TextFieldLineLimits::MultiLine(6))
+                               .OnChanged([pasteValue](const huxerui::TextEditingValue& value) {
+                                   pasteValue = value;
+                               }));
+        children.push_back(huxerui::Row {
+            huxerui::Button("解析粘贴内容").OnClick([pasteValue, parseText] {
+                parseText(pasteValue.Get().text);
+            }),
+        });
+    }
+    if (!importError.Get().empty()) {
+        children.push_back(huxerui::Text(importError.Get(), huxerui::TextRole::Body)
+                               .With(huxerui::Foreground(theme.colors.error)));
+    }
+    // 预览：标题 + 接口总数 + 前 6 条「目录 · 方法 URL — 名称」。
+    if (const auto api = parsed.Get(); api != nullptr) {
+        children.push_back(huxerui::Text(
+            api->title + "：" + std::to_string(api->operations.size()) + " 个接口",
+            huxerui::TextRole::Body));
+        std::vector<huxerui::View> lines;
+        for (std::size_t i = 0; i < api->operations.size() && i < 6; ++i) {
+            const ImportedOperation& op = api->operations[i];
+            std::string dir;
+            for (const std::string& seg : op.dirChain) {
+                if (!dir.empty()) dir += '/';
+                dir += seg;
+            }
+            std::string line = (dir.empty() ? "（根）" : dir) + " · " + op.method + " " + op.url;
+            if (!op.name.empty()) line += " — " + op.name;
+            lines.push_back(huxerui::Text(std::move(line), huxerui::TextRole::Label)
+                                .With(huxerui::Foreground(theme.colors.on_surface_variant),
+                                      huxerui::ClipChildren()));
+        }
+        if (api->operations.size() > 6) {
+            lines.push_back(huxerui::Text(
+                "…（其余 " + std::to_string(api->operations.size() - 6) + " 条略）",
+                huxerui::TextRole::Label)
+                                .With(huxerui::Foreground(theme.colors.on_surface_variant)));
+        }
+        children.push_back(huxerui::Column(std::move(lines))
+                               .With(huxerui::Spacing(2.0F),
+                                     huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+    }
+    children.push_back(huxerui::Row {
+        huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+        huxerui::Button("导入").OnClick([ctx, tasks, toast, listVersion, parsed] {
+            const auto api = parsed.Get();
+            if (api == nullptr) {
+                toast.Show("请先选择文件并成功解析");
+                return;
+            }
+            ctx.Dismiss();
+            // 导入重组左岛列表：推迟出指针事件路径（约定 6）。dirChain 逐级
+            // find-or-create 分组（Name 模式，仅组织作用、不参与 URL），每条
+            // op 组装 db::SavedRequest 落库；遇错即停并 toast。
+            tasks.Launch([api, toast, listVersion]() -> huxerui::Task<void> {
+                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                std::size_t count = 0;
+                for (const ImportedOperation& op : api->operations) {
+                    std::int64_t parent = 0;
+                    bool failed = false;
+                    for (const std::string& seg : op.dirChain) {
+                        auto findChild = [&](std::int64_t parentId) {
+                            std::int64_t gid = 0;
+                            for (const db::Group& g : g_requests.groups()) {
+                                if (g.parentId == parentId && g.name == seg) {
+                                    gid = g.id;
+                                    break;
+                                }
+                            }
+                            return gid;
+                        };
+                        std::int64_t gid = findChild(parent);
+                        if (gid == 0) {
+                            if (const std::string err = g_requests.createGroup(
+                                    seg, db::GroupMode::Name, parent);
+                                !err.empty()) {
+                                toast.Show("导入失败: " + err);
+                                failed = true;
+                                break;
+                            }
+                            gid = findChild(parent); // store 建后 reload，按名回查 id
+                            if (gid == 0) {
+                                toast.Show("导入失败: 新建目录回查不到");
+                                failed = true;
+                                break;
+                            }
+                        }
+                        parent = gid;
+                    }
+                    if (failed) co_return;
+                    db::SavedRequest rec;
+                    rec.groupId = parent;
+                    rec.name = op.name.empty() ? op.method + " " + op.url : op.name;
+                    rec.method = op.method; // 原样字符串（保存/发送接受任意方法名）
+                    rec.url = op.url;       // fullUrl 原样（含 scheme，finalizeSpec 不再
+                                            // 拼环境）；否则为 path 相对
+                    for (const ImportedParam& p : op.params) {
+                        rec.params.push_back(api::KeyValue{.key = p.key, .value = p.value,
+                                                           .enabled = true,
+                                                           .type = InferKvType(p.value),
+                                                           .remark = p.remark});
+                    }
+                    for (const ImportedParam& h : op.headers) {
+                        rec.headers.push_back(api::KeyValue{.key = h.key, .value = h.value,
+                                                            .enabled = true,
+                                                            .type = InferKvType(h.value),
+                                                            .remark = h.remark});
+                    }
+                    const std::size_t bk = ImportedBodyKindIndex(op.bodyKind);
+                    rec.bodyKind = static_cast<api::BodyKind>(bk);
+                    rec.body = op.body; // 兼容字段：当前类型文本
+                    if (bk < rec.bodyContents.size()) rec.bodyContents[bk].text = op.body;
+                    if (const std::string err = g_requests.save(rec); !err.empty()) {
+                        toast.Show("导入失败: " + err);
+                        co_return;
+                    }
+                    ++count;
+                }
+                toast.Show(std::format("已导入 {} 个接口", count));
+                listVersion = listVersion.Get() + 1;
+            });
+        }),
+    }
+                      .With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)));
+    return DialogCard(huxerui::Column(std::move(children))
+                          .With(huxerui::Spacing(12.0F), huxerui::Frame{.width = 520.0F},
+                                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+}
+
 // 左岛：当前项目的请求树（分组按 parentId 层级渲染为可折叠节点，请求为叶子，
-// 点击开标签，行尾 ⋮ / 右键菜单做重命名与删除）+ 头部圆形 "+" 新建类型菜单。
+// 点击开标签，行尾 ⋮ / 右键菜单做重命名与删除）+ 头部圆形 "+" 新建类型菜单
+// （自绘 PopupMenu，条目分隔线分组）。
 // vertical=true 用于 Compact 视口：列表改为顶部横岛（限高、宽度撑满）。
 [[huxerui::composable]] huxerui::View RequestListIsland(
     huxerui::State<std::vector<RequestDraft>> drafts, huxerui::State<std::size_t> activeTab,
@@ -1686,15 +1913,15 @@ struct GroupDragPayload {
 
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
-    auto menu = huxerui::UseMenu();
+    auto addPopup = huxerui::UsePopup(); // "+" 新建菜单（自绘 PopupMenu，卡片观感统一）
     auto ctxMenu = huxerui::UsePopup(); // 行右键菜单（自绘 PopupMenu）：ShowAt 无需锚点，所有行共享
     auto dialog = huxerui::UseDialog();
     auto toast = huxerui::UseToast();
     (void)listVersion.Get(); // 订阅列表版本：保存/删除后触发本岛重组
 
-    // 新建分组弹窗的受控状态（"+" 菜单 → 新建分组 时重置）。
+    // 新建接口目录弹窗的受控状态（"+" 菜单 → 新建接口目录… 时重置）。
     auto newGroupName = huxerui::UseState(huxerui::TextEditingValue{});
-    auto newGroupMode = huxerui::UseState<std::size_t>(0); // 0=仅名称 1=路径
+    auto newGroupPath = huxerui::UseState(huxerui::TextEditingValue{});
 
     // 悬停行：请求行 = 请求 id，分组行 = -分组 id（两表 id 空间会撞，用符号区分），
     // 0 = 无。Hover 事件是包含生命周期：进入行呈现边界发 Enter、离开才发 Leave，
@@ -2066,124 +2293,141 @@ struct GroupDragPayload {
                            .With(huxerui::Foreground(theme.colors.on_surface_variant)));
     }
 
-    // 头部行：标题 + 圆形 "+"（弹出新建类型菜单）。不再显示项目名——
-    // 顶级标签条已标识当前项目。菜单项回调在菜单层关闭后执行，不卸载被点
-    // 按钮（按钮在本岛，菜单在层上），可直接写 State。
+    // 头部行：标题 + 圆形 "+"（自绘 ShowPopupMenu 卡片菜单，与全项目菜单观感
+    // 统一；官方 menu.Show 已弃用）。不再显示项目名——顶级标签条已标识当前
+    // 项目。菜单项回调在菜单层关闭后执行，不卸载被点按钮（按钮在本岛，菜单
+    // 在层上），可直接写 State。
     huxerui::View island = huxerui::Column {
                                huxerui::Row {
                                    huxerui::Text("请求", huxerui::TextRole::Title)
                                        .With(huxerui::Grow(1.0F)),
-                                   CircleButton("+", [menu, dialog, tasks, toast, drafts,
-                                                      activeTab, listVersion, newGroupName,
-                                                      newGroupMode] {
+                                   CircleButton("+", [addPopup, dialog, tasks, toast, drafts,
+                                                     activeTab, listVersion, newGroupName,
+                                                     newGroupPath] {
                                        auto pushDraft = [drafts, activeTab](int kind) {
                                            std::vector<RequestDraft> copy = drafts.Get();
                                            copy.push_back(RequestDraft{.kind = kind});
                                            drafts = copy;
                                            activeTab = copy.size() - 1;
                                        };
-                                       std::vector<huxerui::MenuEntry> entries;
-                                       entries.push_back(huxerui::MenuItem(
-                                           "HTTP 请求", [pushDraft] { pushDraft(0); }));
-                                       entries.push_back(huxerui::MenuItem(
-                                           "WebSocket", [pushDraft] { pushDraft(1); }));
-                                       entries.push_back(huxerui::MenuItem(
-                                           "TCP", [pushDraft] { pushDraft(2); }));
-                                       // 新建分组：弹窗输入名称 + 模式（仅名称/路径）。
-                                       entries.push_back(huxerui::MenuItem(
-                                           "新建分组", [dialog, tasks, toast, listVersion,
-                                                        newGroupName, newGroupMode] {
+                                       // 三组条目（后两组带分隔线）：新建请求类型（四条平铺；
+                                       // kind 3 = gRPC 占位，不落库）/ 新建接口目录 / 导入接口。
+                                       std::vector<PopupMenuItem> items;
+                                       items.push_back(PopupMenuItem{
+                                           .label = "HTTP 请求",
+                                           .on_click = [pushDraft] { pushDraft(0); }});
+                                       items.push_back(PopupMenuItem{
+                                           .label = "WebSocket",
+                                           .on_click = [pushDraft] { pushDraft(1); }});
+                                       items.push_back(PopupMenuItem{
+                                           .label = "TCP",
+                                           .on_click = [pushDraft] { pushDraft(2); }});
+                                       items.push_back(PopupMenuItem{
+                                           .label = "gRPC 请求",
+                                           .on_click = [pushDraft] { pushDraft(3); }});
+                                       items.push_back(PopupMenuItem{
+                                           .label = "新建接口目录…",
+                                           .on_click = [dialog, tasks, toast, listVersion,
+                                                        newGroupName, newGroupPath] {
                                                newGroupName = huxerui::TextEditingValue{};
-                                               newGroupMode = std::size_t{0};
+                                               newGroupPath = huxerui::TextEditingValue{};
                                                dialog.Show(
                                                    [tasks, toast, listVersion, newGroupName,
-                                                    newGroupMode](huxerui::DialogContext ctx)
+                                                    newGroupPath](huxerui::DialogContext ctx)
                                                        -> huxerui::View {
-                                                       return DialogCard(
-                                                           huxerui::Column {
-                                                               huxerui::Text("新建分组",
-                                                                             huxerui::TextRole::Title),
-                                                               huxerui::TextField(newGroupName.Get())
-                                                                   .Label("分组名称")
-                                                                   .Variant(huxerui::TextFieldVariant::Outlined)
-                                                                   .OnChanged([newGroupName](
-                                                                          const huxerui::TextEditingValue&
-                                                                              value) {
+                                                       return DialogCard(huxerui::Column {
+                                                           huxerui::Text(
+                                                               "新建接口目录",
+                                                               huxerui::TextRole::Title),
+                                                           huxerui::TextField(newGroupName.Get())
+                                                               .Label("名称")
+                                                               .Variant(huxerui::TextFieldVariant::Outlined)
+                                                               .OnChanged([newGroupName](
+                                                                      const huxerui::TextEditingValue&
+                                                                          value) {
+                                                                   newGroupName = value;
+                                                               }),
+                                                           // 路径可空 = 仅名称（Name 模式）；
+                                                           // 斜杠分段 = Path 模式（URL 前缀）。
+                                                           // 填路径时名称为空 → 路径同步进名称；
+                                                           // 名称已非空 → 路径不再动名称。
+                                                           huxerui::TextField(newGroupPath.Get())
+                                                               .Label("路径")
+                                                               .Placeholder("api/v1（斜杠分段；留空则仅作名称）")
+                                                               .Variant(huxerui::TextFieldVariant::Outlined)
+                                                               .OnChanged([newGroupName, newGroupPath](
+                                                                      const huxerui::TextEditingValue&
+                                                                          value) {
+                                                                   newGroupPath = value;
+                                                                   if (newGroupName.Get().text.empty())
                                                                        newGroupName = value;
+                                                               }),
+                                                           huxerui::Row {
+                                                               huxerui::Button("取消")
+                                                                   .OnClick([ctx] {
+                                                                       ctx.Dismiss();
                                                                    }),
-                                                               huxerui::SegmentedButton(
-                                                                   {"仅名称", "路径"}, newGroupMode)
-                                                                   .OnChanged([newGroupMode](
-                                                                          std::size_t i) {
-                                                                       newGroupMode = i;
-                                                                   }),
-                                                               huxerui::Row {
-                                                                   huxerui::Button("取消")
-                                                                       .OnClick([ctx] {
-                                                                           ctx.Dismiss();
-                                                                       }),
-                                                                   huxerui::Button("创建")
-                                                                       .OnClick([ctx, tasks, toast,
-                                                                                 listVersion,
-                                                                                 newGroupName,
-                                                                                 newGroupMode] {
-                                                                           if (newGroupName.Get()
-                                                                                   .text.empty()) {
-                                                                               toast.Show(
-                                                                                   "分组名称不能为空");
-                                                                               return;
+                                                               huxerui::Button("创建")
+                                                                   .OnClick([ctx, tasks, toast,
+                                                                             listVersion,
+                                                                             newGroupName,
+                                                                             newGroupPath] {
+                                                                       const std::string name =
+                                                                           newGroupName.Get().text;
+                                                                       const std::string path =
+                                                                           newGroupPath.Get().text;
+                                                                       if (name.empty()) {
+                                                                           toast.Show("名称不能为空");
+                                                                           return;
+                                                                       }
+                                                                       ctx.Dismiss();
+                                                                       // 建目录重组左岛：推迟出指针
+                                                                       // 事件路径（约定 6）。
+                                                                       tasks.Launch([=]() -> huxerui::Task<void> {
+                                                                           co_await huxerui::Delay(
+                                                                               std::chrono::duration<double>{0});
+                                                                           if (const std::string err =
+                                                                                   g_requests.createGroup(
+                                                                                       name,
+                                                                                       path.empty()
+                                                                                           ? db::GroupMode::Name
+                                                                                           : db::GroupMode::Path,
+                                                                                       0, path);
+                                                                               !err.empty()) {
+                                                                               toast.Show("新建接口目录失败: " + err);
+                                                                               co_return;
                                                                            }
-                                                                           ctx.Dismiss();
-                                                                           // 建组重组左岛：推迟出指针事件路径
-                                                                           tasks.Launch([=]()
-                                                                                   -> huxerui::Task<
-                                                                                       void> {
-                                                                               co_await huxerui::Delay(
-                                                                                   std::chrono::duration<
-                                                                                       double>{0});
-                                                                               if (const std::string
-                                                                                       err = g_requests
-                                                                                           .createGroup(
-                                                                                               newGroupName
-                                                                                                   .Get()
-                                                                                                   .text,
-                                                                                               newGroupMode
-                                                                                                           .Get() ==
-                                                                                                       1
-                                                                                                   ? db::GroupMode::
-                                                                                                       Path
-                                                                                                   : db::GroupMode::
-                                                                                                       Name);
-                                                                                   !err.empty()) {
-                                                                                   toast.Show(
-                                                                                       "新建分组失败: " +
-                                                                                       err);
-                                                                                   co_return;
-                                                                               }
-                                                                               listVersion =
-                                                                                   listVersion.Get() +
-                                                                                   1;
-                                                                           });
-                                                                       }),
-                                                               }
-                                                                   .With(huxerui::MainAlign(
-                                                                       huxerui::MainAxisAlignment::
-                                                                           SpaceBetween)),
+                                                                           toast.Show("已新建接口目录");
+                                                                           listVersion = listVersion.Get() + 1;
+                                                                       });
+                                                                   }),
                                                            }
-                                                               .With(huxerui::Spacing(12.0F),
-                                                                     huxerui::Frame{.width =
-                                                                                        320.0F},
-                                                                     huxerui::CrossAlign(
-                                                                         huxerui::CrossAxisAlignment::
-                                                                             Stretch)));
+                                                               .With(huxerui::MainAlign(
+                                                                   huxerui::MainAxisAlignment::SpaceBetween)),
+                                                       }
+                                                           .With(huxerui::Spacing(12.0F),
+                                                                 huxerui::Frame{.width = 320.0F},
+                                                                 huxerui::CrossAlign(
+                                                                     huxerui::CrossAxisAlignment::Stretch)));
                                                    },
                                                    huxerui::DialogOptions{});
-                                           }));
-                                       menu.Show(std::move(entries),
-                                                 huxerui::MenuOptions{
-                                                     .placement = {huxerui::AnchorSide::Below,
-                                                                   huxerui::AnchorAlignment::Start}});
-                                   }).With(menu.Anchor()),
+                                           }});
+                                       items.push_back(PopupMenuItem{
+                                           .label = "导入接口…",
+                                           .on_click = [dialog, listVersion] {
+                                               dialog.Show(
+                                                   [listVersion](huxerui::DialogContext ctx)
+                                                       -> huxerui::View {
+                                                       return ApiImportDialogContent(ctx,
+                                                                                     listVersion);
+                                                   },
+                                                   huxerui::DialogOptions{});
+                                           }});
+                                       ShowPopupMenu(addPopup, std::move(items),
+                                                     huxerui::PopupOptions{
+                                                         .placement = {huxerui::AnchorSide::Below,
+                                                                       huxerui::AnchorAlignment::Start}});
+                                   }).With(addPopup.Anchor()),
                                }
                                    .With(huxerui::CrossAlign(
                                        huxerui::CrossAxisAlignment::Center)),
@@ -2275,6 +2519,8 @@ struct GroupDragPayload {
     //   分区内容与响应各自内滚（垂直滚动条）。
     // - WS/TCP：直接嵌入整页组件（内部自带 ScrollView/事件泵，勿再套 ScrollView，
     //   避免同轴嵌套滚动）；固定 kUid=1 引擎会话，同类型标签共享同一条连接。
+    // - gRPC（kind=3）：引擎未实现——整页占位（仅标签条 + 提示文案，无操作栏、
+    //   无分区、不可保存/发送；gRPC 草稿不落库）。
     // - 无打开草稿：单岛空状态。
     huxerui::View rightArea = huxerui::Column{};
     if (snapshot.empty()) {
@@ -2301,6 +2547,29 @@ struct GroupDragPayload {
         rightArea = huxerui::Column {
                         RequestTabStrip(openDrafts, activeTab, envVersion),
                         std::move(content),
+                    }
+                        .With(huxerui::Spacing(theme.spacing.medium),
+                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                              huxerui::Background(theme.colors.surface_container_low),
+                              huxerui::CornerRadius(theme.shapes.large),
+                              huxerui::Padding(theme.spacing.medium),
+                              huxerui::Grow(1.0F));
+    } else if (currentKind == 3) {
+        // gRPC 占位页：支持规划中——只给标签条 + 居中提示，无操作栏/分区。
+        rightArea = huxerui::Column {
+                        RequestTabStrip(openDrafts, activeTab, envVersion),
+                        huxerui::Column {
+                            huxerui::Text("gRPC 请求：支持规划中（暂不可保存/发送）",
+                                          huxerui::TextRole::Title),
+                            huxerui::Text("协议引擎尚未接入，本标签仅作占位，可直接关闭。",
+                                          huxerui::TextRole::Body)
+                                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+                        }
+                            .With(huxerui::Spacing(theme.spacing.small),
+                                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                                  huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                                  huxerui::Grow(1.0F))
+                            .Key(contentKey),
                     }
                         .With(huxerui::Spacing(theme.spacing.medium),
                               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
