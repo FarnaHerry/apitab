@@ -161,7 +161,7 @@ sweetedit_huxer::SweetEditorPalette EditorPalette(const huxerui::ThemeSpec& them
 // item_indication 的 press 填充色，兜底 surface_container_highest）；危险项按
 // PopupMenuDanger 取 error 红（kHoverRed 由逐条 Hover 事件驱动，仅 hover 时
 // 变红）；点击先 Dismiss 再回调（同系统菜单语义，回调脱离指针路径，但仍需
-// 自行推迟会卸载节点的 State 写）。
+// 自行推迟会卸载节点的 State 写）；条目超限时限高内部滚动（带 ScrollBar）。
 [[huxerui::composable]] huxerui::View PopupMenuContent(huxerui::PopupContext ctx,
                                                        std::vector<PopupMenuItem> items) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -215,7 +215,15 @@ sweetedit_huxer::SweetEditorPalette EditorPalette(const huxerui::ThemeSpec& them
                     if (onClick) onClick();
                 }));
     }
-    return huxerui::Column{std::move(rows)}.With(
+    // 条目多时长列表限高滚动（方法下拉有 20 项，不限高会顶穿屏幕）：行列表
+    // 进 ScrollView + ScrollBar，max_height 只封顶、内容不足时按内容收缩。
+    constexpr float kMenuMaxHeight = 320.0F;
+    huxerui::View list = huxerui::ScrollView {
+        huxerui::Column{std::move(rows)}.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
+    }
+                           .With(huxerui::ScrollBar(),
+                                 huxerui::Frame{.max_height = kMenuMaxHeight});
+    return huxerui::Column{std::move(list)}.With(
         menuStyle.shadow, huxerui::Background(menuStyle.background),
         huxerui::CornerRadius(menuStyle.corner_radius), huxerui::Padding(menuStyle.content_padding),
         huxerui::Frame{.min_width = menuStyle.minimum_width},
