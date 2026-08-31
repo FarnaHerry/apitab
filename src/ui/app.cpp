@@ -369,7 +369,13 @@ struct ProjectTabDragPayload {
               // 拖动时本体透明占位（布局槽位不变），视觉走覆盖层克隆。
               huxerui::Opacity(dragging ? 0.0F : 1.0F),
               // 让位滑动残量（非换位标签恒 0）：实时换位时邻居从旧槽位滑入。
-              huxerui::Offset(huxerui::Point{SlideOffsetOf(slideCell.Get(), id), 0.0F}))
+              huxerui::Offset(huxerui::Point{SlideOffsetOf(slideCell.Get(), id), 0.0F}),
+              // 外层压掉默认 Indication：热区兜底点击（见下）不再叠一层按压高亮。
+              huxerui::Indication{})
+        // 整标签热区兜底：点击不冒泡（最深绑定生效），切换区（图标+文字）与 ✕
+        // 之间的 Spacer/边距没有任何子绑定，点这里原本无响应——外层挂
+        // activate，只会在无更深绑定的空白处命中。
+        .OnClick([activateProject, id] { activateProject(id); })
         // 悬停（containment）：进入边界置位，真正离开才清除；Leave 仅当
         // hoveredTab 仍是本标签才清 -1，避免竞态清掉邻居刚写入的 Enter。
         .On<huxerui::ViewEvents::Hover>(

@@ -21,6 +21,8 @@ export struct Project {
     std::int64_t id = 0;
     std::int64_t orgId = 0;
     std::string name;
+    std::string description;             // 项目说明（项目设置页编辑）
+    std::vector<api::KeyValue> headers;  // 项目公共请求头（发送时合并，不覆盖显式同名头）
 };
 
 // 请求分组（项目内）。mode 决定 url 拼接方式：
@@ -35,6 +37,9 @@ export struct Group {
     std::int64_t parentId = 0;          // 0 = 根目录
     std::string name;
     GroupMode mode = GroupMode::Name;
+    // Path 分组的 URL 前缀（斜杠分段）；空 = 回落 name（兼容旧数据：旧库
+    // Path 分组的 name 即路径）。UI 合并为"名称 + 路径"两字段后两者分离。
+    std::string path;
 };
 
 // 环境（项目内）。baseUrl 作为该项目所有请求的最终 URL 前缀，
@@ -171,6 +176,10 @@ public:
     std::vector<Project> listProjects(std::int64_t orgId);  // id 升序
     std::int64_t createProject(std::int64_t orgId, const std::string& name);
     void renameProject(std::int64_t id, const std::string& name);
+    // 项目设置页全量更新（名称/说明/公共头一起写）。
+    void updateProjectMeta(std::int64_t id, const std::string& name,
+                           const std::string& description,
+                           const std::vector<api::KeyValue>& headers);
     void deleteProject(std::int64_t id);                    // 级联删其请求
 
     // 保底：库为空时自动建「默认组织 / 默认项目」；返回任一可用项目 id。
@@ -179,7 +188,7 @@ public:
     // ---- groups（项目内分组；请求的分组决定侧栏层级与 URL 前缀）----
     std::vector<Group> listGroups(std::int64_t projectId);       // id 升序
     std::int64_t createGroup(std::int64_t projectId, const std::string& name, GroupMode mode,
-                             std::int64_t parentId = 0);
+                             std::int64_t parentId = 0, const std::string& path = "");
     void renameGroup(std::int64_t id, const std::string& name);
     void setGroupMode(std::int64_t id, GroupMode mode);
     void setGroupParent(std::int64_t id, std::int64_t parentId);  // 换父（0 = 根目录）

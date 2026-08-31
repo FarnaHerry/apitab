@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS projects (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     org_id     INTEGER NOT NULL DEFAULT 0,
     name       TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    headers     TEXT NOT NULL DEFAULT '[]',
     created_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS groups (
@@ -158,6 +160,7 @@ CREATE TABLE IF NOT EXISTS groups (
     parent_id  INTEGER NOT NULL DEFAULT 0,
     name       TEXT NOT NULL,
     mode       INTEGER NOT NULL DEFAULT 0,
+    path       TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS environments (
@@ -273,13 +276,31 @@ CREATE TABLE IF NOT EXISTS load_tests (
                 if (col == "test_cases") hasTestCases = true;
                 if (col == "mock") hasMock = true;
             }
+            bool hasGroupPath = false;
             SQLite::Statement groups(db, "PRAGMA table_info(groups)");
             while (groups.executeStep()) {
                 if (groups.getColumn(1).getString() == "parent_id") hasParentId = true;
+                if (groups.getColumn(1).getString() == "path") hasGroupPath = true;
+            }
+            if (!hasGroupPath) {
+                db.exec("ALTER TABLE groups ADD COLUMN path TEXT NOT NULL DEFAULT ''");
             }
             SQLite::Statement envs(db, "PRAGMA table_info(environments)");
             while (envs.executeStep()) {
                 if (envs.getColumn(1).getString() == "variables") hasEnvVariables = true;
+            }
+            bool hasProjectDescription = false;
+            bool hasProjectHeaders = false;
+            SQLite::Statement projs(db, "PRAGMA table_info(projects)");
+            while (projs.executeStep()) {
+                if (projs.getColumn(1).getString() == "description") hasProjectDescription = true;
+                if (projs.getColumn(1).getString() == "headers") hasProjectHeaders = true;
+            }
+            if (!hasProjectDescription) {
+                db.exec("ALTER TABLE projects ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+            }
+            if (!hasProjectHeaders) {
+                db.exec("ALTER TABLE projects ADD COLUMN headers TEXT NOT NULL DEFAULT '[]'");
             }
             if (!hasGroupId) {
                 db.exec("ALTER TABLE requests ADD COLUMN group_id INTEGER NOT NULL DEFAULT 0");
@@ -394,14 +415,29 @@ void Db::deleteOrg(std::int64_t id) {
 
 std::vector<db::Project> Db::listProjects(std::int64_t orgId) {
     SQLite::Statement q(impl_->db,
-        "SELECT id,org_id,name FROM projects WHERE org_id=? ORDER BY id ASC");
+        "SELECT id,org_id,name,description,headers FROM projects WHERE org_id=? ORDER BY id ASC");
     q.bind(1, orgId);
     std::vector<db::Project> out;
     while (q.executeStep()) {
-        out.push_back({q.getColumn(0).getInt64(), q.getColumn(1).getInt64(),
-                       q.getColumn(2).getString()});
+        db::Project p;
+        p.id = q.getColumn(0).getInt64();
+        p.orgId = q.getColumn(1).getInt64();
+        p.name = q.getColumn(2).getString();
+        p.description = q.getColumn(3).getString();
+        p.headers = kvFromJson(q.getColumn(4).getString());
+        out.push_back(std::move(p));
     }
     return out;
+}
+
+void Db::updateProjectMeta(std::int64_t id, const std::string& name, const std::string& description,
+                           const std::vector<api::KeyValue>& headers) {
+    SQLite::Statement q(impl_->db, "UPDATE projects SET name=?,description=?,headers=? WHERE id=?");
+    q.bind(1, name);
+    q.bind(2, description);
+    q.bind(3, kvToJson(headers));
+    q.bind(4, id);
+    q.exec();
 }
 
 std::int64_t Db::createProject(std::int64_t orgId, const std::string& name) {
@@ -531,7 +567,7 @@ void Db::deleteEnvironment(std::int64_t id) {
 
 std::vector<db::Group> Db::listGroups(std::int64_t projectId) {
     SQLite::Statement q(impl_->db,
-        "SELECT id,project_id,parent_id,name,mode FROM groups WHERE project_id=? ORDER BY id ASC");
+        "SELECT id,project_id,parent_id,name,mode,path FROM groups WHERE project_id=? ORDER BY id ASC");
     q.bind(1, projectId);
     std::vector<db::Group> out;
     while (q.executeStep()) {
@@ -539,20 +575,22 @@ std::vector<db::Group> Db::listGroups(std::int64_t projectId) {
                        .projectId = q.getColumn(1).getInt64(),
                        .parentId = q.getColumn(2).getInt64(),
                        .name = q.getColumn(3).getString(),
-                       .mode = static_cast<GroupMode>(q.getColumn(4).getInt())});
+                       .mode = static_cast<GroupMode>(q.getColumn(4).getInt()),
+                       .path = q.getColumn(5).getString()});
     }
     return out;
 }
 
 std::int64_t Db::createGroup(std::int64_t projectId, const std::string& name, GroupMode mode,
-                             std::int64_t parentId) {
+                             std::int64_t parentId, const std::string& path) {
     SQLite::Statement q(impl_->db,
-        "INSERT INTO groups(project_id,parent_id,name,mode,created_at) VALUES(?,?,?,?,?)");
+        "INSERT INTO groups(project_id,parent_id,name,mode,path,created_at) VALUES(?,?,?,?,?,?)");
     q.bind(1, projectId);
     q.bind(2, parentId);
     q.bind(3, name);
     q.bind(4, static_cast<int>(mode));
-    q.bind(5, static_cast<std::int64_t>(std::time(nullptr)));
+    q.bind(5, path);
+    q.bind(6, static_cast<std::int64_t>(std::time(nullptr)));
     q.exec();
     return impl_->db.getLastInsertRowid();
 }

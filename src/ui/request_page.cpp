@@ -1471,6 +1471,48 @@ std::string PrettyXml(const std::string& input) {
                         toast.Show("URL 不能为空");
                         co_return;
                     }
+                    // Mock 拦截：草稿"Mock"子页启用时不发真实请求、不写历史，
+                    // 按模拟定义直接返回响应（定义见 mock_page.cpp / MockDraft）。
+                    // 代际作废语义与正常路径一致：延迟期间被取消/取代则结果不投递。
+                    if (current[index].mock.enabled) {
+                        const MockDraft mock = current[index].mock;
+                        sendSeq += 1;
+                        const std::uint64_t seq = sendSeq.Get();
+                        inFlight = true;
+                        responseBody = "Mock 响应中…";
+                        responseHeaders = {};
+                        responseCookies = {};
+                        const int status = ParseIntField(mock.status, 200);
+                        const int delayMs = std::max(0, ParseIntField(mock.delayMs, 0));
+                        std::vector<api::KeyValue> headers;
+                        for (const KvRow& row : mock.headers) {
+                            if (!row.enabled || row.key.text.empty()) continue;
+                            headers.push_back(api::KeyValue{.key = row.key.text,
+                                                            .value = row.value.text});
+                        }
+                        if (delayMs > 0) {
+                            co_await huxerui::Delay(std::chrono::duration<double>{
+                                delayMs / 1000.0});
+                        }
+                        if (seq != sendSeq.Get()) co_return; // 已取消/被新请求取代
+                        api::ResponseView view;
+                        view.ok = true;
+                        view.status = status;
+                        view.totalMs = static_cast<double>(delayMs);
+                        view.sizeBytes = static_cast<std::int64_t>(mock.body.text.size());
+                        view.body = mock.body.text;
+                        view.headers = std::move(headers);
+                        responseBody = std::format(
+                            "MOCK · HTTP {} · {}ms · {} bytes\n\n{}", view.status,
+                            view.totalMs, view.sizeBytes, view.body);
+                        std::vector<std::string> lines;
+                        for (const api::KeyValue& h : view.headers)
+                            lines.push_back(h.key + ": " + h.value);
+                        responseHeaders = lines;
+                        responseCookies = CookiesFromHeaders(view.headers);
+                        inFlight = false;
+                        co_return;
+                    }
                     const std::int64_t requestId = current[index].savedId;
                     const api::RequestSpec finalSpec = g_requests.finalizeSpec(spec);
                     sendSeq += 1;

@@ -17,7 +17,33 @@ import apitab.api_engine;
 import apitab.curl_engine;
 import apitab.config;
 import apitab.db;
+import apitab.preferences;
 import apitab.utils;
+import nlohmann.json;
+
+namespace {
+std::string lowerAscii(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+// settings.ini 里 KV 列表的 JSON 文本 → KeyValue 数组（与 db 侧 {"k","v","on",
+// "t","r"} 同格式；非法/非数组文本按空表处理）。
+std::vector<api::KeyValue> parseSettingKv(const std::string& text) {
+    std::vector<api::KeyValue> out;
+    const nlohmann::json arr = nlohmann::json::parse(text, nullptr, false);
+    if (!arr.is_array()) return out;
+    for (const auto& item : arr) {
+        if (!item.is_object()) continue;
+        out.push_back({.key = item.value("k", ""),
+                       .value = item.value("v", ""),
+                       .enabled = item.value("on", true),
+                       .type = item.value("t", ""),
+                       .remark = item.value("r", "")});
+    }
+    return out;
+}
+} // namespace
 
 export class RequestStore {
 public:
@@ -127,6 +153,32 @@ public:
             db_->renameProject(id, name);
             reloadProjects();
         });
+    }
+
+    // 项目设置页：全量更新名称/说明/公共请求头。
+    std::string updateProjectMeta(std::int64_t id, const std::string& name,
+                                  const std::string& description,
+                                  const std::vector<api::KeyValue>& headers) {
+        return guarded([&] {
+            db_->updateProjectMeta(id, name, description, headers);
+            reloadProjects();
+        });
+    }
+
+    // ---- 全局设置（settings.ini KV；"全局设置"页写入，发送侧在 finalizeSpec
+    // 统一生效；0/空 = 默认值）。k6 压测不经此路径（超时在脚本 options 里）。----
+    static int globalTimeoutSec() {
+        const std::string v = trim(sessionPreference("request_timeout_sec"));
+        int out = 30;
+        if (!v.empty()) {
+            const auto [ptr, ec] = std::from_chars(v.data(), v.data() + v.size(), out);
+            if (ec != std::errc{} || ptr != v.data() + v.size()) out = 30;
+        }
+        return out > 0 ? out : 30;
+    }
+    static std::string globalProxy() { return trim(sessionPreference("request_proxy")); }
+    static std::vector<api::KeyValue> globalHeaders() {
+        return parseSettingKv(sessionPreference("global_headers"));
     }
 
     // 删除项目（级联删其请求）。
@@ -246,7 +298,7 @@ public:
             url += segment;
         };
         if (const db::Group* g = findGroup(groupId); g && g->mode == db::GroupMode::Path) {
-            appendSegment(g->name);
+            appendSegment(groupPathValue(*g));
         }
         appendSegment(cleanPath);
         return url;
@@ -264,7 +316,7 @@ public:
     std::int64_t resolveGroupId(const std::vector<std::string>& segs) const {
         if (segs.empty()) return 0;
         for (const auto& g : groups_) {
-            if (g.mode == db::GroupMode::Path && g.name == db::groupPath(segs)) {
+            if (g.mode == db::GroupMode::Path && groupPathValue(g) == db::groupPath(segs)) {
                 return g.id;
             }
         }
@@ -276,13 +328,18 @@ public:
     // 这里简化：只取第一层 Path 分组的路径（忽略嵌套），因为目前只支持单层 Path。
     std::string groupUrlPrefix(std::int64_t groupId) const {
         if (const db::Group* g = findGroup(groupId); g && g->mode == db::GroupMode::Path) {
-            return "/" + g->name;  // "api/v1" → "/api/v1"
+            return "/" + groupPathValue(*g);  // "api/v1" → "/api/v1"
         }
         return {};
     }
 
+    // Path 分组的实际 URL 前缀：path 列空时回落 name（兼容旧数据）。
+    static std::string groupPathValue(const db::Group& g) {
+        return g.path.empty() ? g.name : g.path;
+    }
+
     std::string createGroup(const std::string& name, db::GroupMode mode,
-                            std::int64_t parentId = 0) {
+                            std::int64_t parentId = 0, const std::string& path = "") {
         return guarded([&] {
             if (parentId != 0) {
                 const db::Group* parent = findGroup(parentId);
@@ -290,7 +347,7 @@ public:
                     throw std::runtime_error("父目录不属于当前项目");
                 }
             }
-            db_->createGroup(currentProjectId_, name, mode, parentId);
+            db_->createGroup(currentProjectId_, name, mode, parentId, path);
             reloadGroups();
         });
     }
@@ -466,6 +523,27 @@ public:
             finalSpec.body = stripJsonComments(finalSpec.body);
         }
         finalSpec.url = appendQuery(trim(finalSpec.url), enabled);
+        // ---- 项目/全局公共头合并 + 全局超时/代理注入 ----
+        // 同名键（大小写不敏感）请求显式头优先，项目头优先于全局头；环境变量
+        // 替换已在前面完成，公共头不参与 {{var}} 替换（配置侧直接写死值）。
+        std::vector<api::KeyValue> inherited;
+        for (const db::Project& p : projects_) {
+            if (p.id == currentProjectId_)
+                for (const api::KeyValue& h : p.headers) inherited.push_back(h);
+        }
+        for (const api::KeyValue& h : globalHeaders()) inherited.push_back(h);
+        for (const api::KeyValue& h : inherited) {
+            if (!h.enabled || h.key.empty()) continue;
+            const std::string want = lowerAscii(h.key);
+            const bool exists =
+                std::any_of(finalSpec.headers.begin(), finalSpec.headers.end(),
+                            [&](const api::KeyValue& e) {
+                                return e.enabled && !e.key.empty() && lowerAscii(e.key) == want;
+                            });
+            if (!exists) finalSpec.headers.push_back(h);
+        }
+        finalSpec.timeoutSec = globalTimeoutSec();
+        finalSpec.proxy = globalProxy();
         return finalSpec;
     }
 

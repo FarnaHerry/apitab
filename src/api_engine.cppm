@@ -79,6 +79,9 @@ export struct RequestSpec {
     bool followRedirects = true;
     bool allowJsonComments = true;
     int timeoutSec = 30;
+    // HTTP 代理（如 http://127.0.0.1:7890 / socks5://host:port）；空 = 直连。
+    // 由领域 store 在 finalizeSpec 统一注入全局设置（settings.ini request_proxy）。
+    std::string proxy;
 };
 
 export struct ResponseView {
