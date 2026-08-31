@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "ui.h"
+#include "draft.h"
 #include "task_bridge.h"
 #include "app_resources.h"
 #include "syntax_grammars.h"
@@ -34,31 +35,9 @@ import nlohmann.json;
 namespace apitab::ui {
 
 namespace {
-constexpr std::array<std::string_view, 20> kMethodNames{
-    // 经典 7 个 + 近年新注册/常用扩展（QUERY 为 HTTPBIS 新方法草案；
-    // PURGE 常见于 CDN；PROPFIND 起为 WebDAV 一族）。curl 引擎走
-    // CURLOPT_CUSTOMREQUEST、k6 走 http.request，任意方法名都合法。
-    "GET",     "POST",   "PUT",    "PATCH",   "DELETE", "HEAD", "OPTIONS",
-    "CONNECT", "TRACE",  "QUERY",  "PURGE",   "PROPFIND", "PROPPATCH",
-    "MKCOL",   "COPY",   "MOVE",   "LOCK",    "UNLOCK", "REPORT", "SEARCH"};
-
-// 下标与 api::BodyKind 一一对应（None=0 … GraphQL=6）。
-constexpr std::array<std::string_view, 7> kBodyTypeNames{
-    "无", "JSON", "Text", "Form URL-Encoded", "Form-Data", "XML", "GraphQL"};
-
-// 受控 KV 行：TextField 保留完整 TextEditingValue。type/remark 对应
-// api::KeyValue 的同名字段（类型说明 / 备注，仅记录与展示，不参与发送逻辑）。
-// type 为固定枚举值（string/number/boolean），由 KvTypeSelect 下拉选择或
-// 按值文本自动推断（InferKvType）。
-struct KvRow {
-    huxerui::TextEditingValue key;
-    huxerui::TextEditingValue value;
-    huxerui::TextEditingValue type;
-    huxerui::TextEditingValue remark;
-    bool enabled = true;
-
-    bool operator==(const KvRow&) const = default;
-};
+// kMethodNames / kBodyTypeNames / KvRow / RequestDraft 等共享编辑类型已抽到
+// draft.h（测试用例页 / Mock 页同用）；ToKeyValue / FromKeyValue 依赖
+// api::KeyValue（模块类型），留在本 TU。
 
 api::KeyValue ToKeyValue(const KvRow& row) {
     return api::KeyValue{.key = row.key.text,
@@ -75,9 +54,6 @@ KvRow FromKeyValue(const api::KeyValue& kv) {
                  .remark = huxerui::TextEditingValue{kv.remark},
                  .enabled = kv.enabled};
 }
-
-// KV 类型列的固定选项（下拉值；仅记录与展示，不参与发送逻辑）。
-constexpr std::array<std::string_view, 3> kKvTypeNames{"string", "number", "boolean"};
 
 // 值 → 类型自动推断（trimming 后判定）：空 → string；true/false → boolean；
 // 能完整解析为整数/浮点（可带符号、小数点、科学计数）→ number；其余 → string。
@@ -237,49 +213,76 @@ std::string InferKvType(const std::string& raw) {
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
-// 草稿稳定标识：未保存草稿的 savedId 恒为 0，标签拖拽排序与 .Key 需要与
-// 下标无关的稳定 id（每份草稿创建时取一个递增 uid，拷贝沿用）。
-std::uint64_t NextDraftUid() {
-    static std::atomic<std::uint64_t> next{1};
-    return next.fetch_add(1, std::memory_order_relaxed);
-}
-
-// 请求草稿：一个内部标签页的完整编辑状态（savedId = 0 表示未保存的新请求）。
-struct RequestDraft {
-    std::uint64_t uid = NextDraftUid();
-    std::int64_t savedId = 0;
-    int kind = 0; // 0=HTTP 1=WebSocket 2=TCP（对应 api::RequestKind::Http/WebSocket/Tcp）
-    huxerui::TextEditingValue name; // 标签名 / 保存名
-    std::size_t methodIndex = 0;
-    huxerui::TextEditingValue url;
-    std::vector<KvRow> params;
-    std::vector<KvRow> headers;
-    std::vector<KvRow> cookies;
-    std::size_t bodyKindIndex = 0; // 下标 = api::BodyKind 值
-    // 各 body 类型独立一份文本（下标 = api::BodyKind 值），切换类型互不影响；
-    // 文本类（JSON/Text/XML/GraphQL）各有独立编辑框，form 类只用 bodyFields。
-    std::array<huxerui::TextEditingValue, 7> bodies;
-    std::vector<KvRow> bodyFields; // Form 类 body 的字段
-
-    bool operator==(const RequestDraft&) const = default;
-};
-
 // 内部标签拖拽载荷：按 uid 定位源/目标标签，与下标无关。
 struct DraftTabDragPayload {
     std::uint64_t uid = 0;
 };
 
-std::string DraftDisplayName(const RequestDraft& draft) {
-    return draft.name.text.empty() ? "未命名" : draft.name.text;
+// ---- 测试用例 / Mock：草稿编辑形态 ⇄ db 落库形态 ----
+// 数字字段草稿侧用文本承载（受控 TextField），空/非法按"不校验"或默认值换算。
+
+int ParseIntField(const huxerui::TextEditingValue& v, int fallback = 0) {
+    const std::string s = trim(v.text);
+    int out = fallback;
+    if (!s.empty()) {
+        std::from_chars(s.data(), s.data() + s.size(), out);
+    }
+    return out;
 }
 
-// 标签/列表徽标：HTTP 显示方法名，WS/TCP 显示类型缩写。
-std::string DraftKindBadge(const RequestDraft& draft) {
-    switch (draft.kind) {
-        case 1: return "WS";
-        case 2: return "TCP";
-        default: return std::string{kMethodNames.at(draft.methodIndex)};
+db::RequestTestCase CaseToDb(const TestCaseDraft& c) {
+    db::RequestTestCase out;
+    out.name = c.name.text;
+    out.enabled = c.enabled;
+    out.expectStatus = ParseIntField(c.expectStatus);
+    const std::string ms = trim(c.maxMs.text);
+    double parsed = 0.0;
+    if (!ms.empty()) std::from_chars(ms.data(), ms.data() + ms.size(), parsed);
+    out.maxMs = parsed;
+    for (const KvRow& row : c.asserts) {
+        if (row.key.text.empty()) continue;
+        out.asserts.push_back({.path = row.key.text, .equals = row.value.text,
+                               .enabled = row.enabled});
     }
+    return out;
+}
+
+TestCaseDraft CaseFromDb(const db::RequestTestCase& c) {
+    TestCaseDraft out;
+    out.name = huxerui::TextEditingValue{c.name};
+    out.enabled = c.enabled;
+    if (c.expectStatus != 0) out.expectStatus = huxerui::TextEditingValue{std::to_string(c.expectStatus)};
+    if (c.maxMs > 0.0) out.maxMs = huxerui::TextEditingValue{std::to_string(static_cast<long long>(c.maxMs))};
+    for (const db::RequestAssertion& a : c.asserts) {
+        out.asserts.push_back(KvRow{.key = huxerui::TextEditingValue{a.path},
+                                    .value = huxerui::TextEditingValue{a.equals},
+                                    .enabled = a.enabled});
+    }
+    return out;
+}
+
+db::RequestMock MockToDb(const MockDraft& m) {
+    db::RequestMock out;
+    out.enabled = m.enabled;
+    out.status = ParseIntField(m.status, 200);
+    out.delayMs = ParseIntField(m.delayMs);
+    out.body = m.body.text;
+    for (const KvRow& row : m.headers) {
+        if (row.key.text.empty()) continue;
+        out.headers.push_back(api::KeyValue{.key = row.key.text, .value = row.value.text,
+                                            .enabled = row.enabled});
+    }
+    return out;
+}
+
+MockDraft MockFromDb(const db::RequestMock& m) {
+    MockDraft out;
+    out.enabled = m.enabled;
+    out.status = huxerui::TextEditingValue{std::to_string(m.status)};
+    out.delayMs = huxerui::TextEditingValue{std::to_string(m.delayMs)};
+    out.body = huxerui::TextEditingValue{m.body};
+    for (const api::KeyValue& kv : m.headers) out.headers.push_back(FromKeyValue(kv));
+    return out;
 }
 
 RequestDraft DraftFromSaved(const db::SavedRequest& saved) {
@@ -309,6 +312,8 @@ RequestDraft DraftFromSaved(const db::SavedRequest& saved) {
         for (const api::KeyValue& kv : saved.bodyContents[draft.bodyKindIndex].fields)
             draft.bodyFields.push_back(FromKeyValue(kv));
     }
+    for (const db::RequestTestCase& c : saved.testCases) draft.cases.push_back(CaseFromDb(c));
+    draft.mock = MockFromDb(saved.mock);
     return draft;
 }
 
@@ -340,15 +345,8 @@ api::RequestSpec SpecFromDraft(const RequestDraft& draft) {
     return spec;
 }
 
-// 回写草稿中某个字段的便捷方式：copy → mutate → set。
-template <typename F>
-void MutateDraft(huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index, F&& fn) {
-    std::vector<RequestDraft> copy = drafts.Get();
-    if (index < copy.size()) {
-        fn(copy[index]);
-        drafts = copy;
-    }
-}
+// 回写草稿中某个字段的便捷方式（MutateDraft）已抽到 draft.h，与测试用例页/
+// Mock 页共用。
 
 // 从响应头里提取 Set-Cookie 条目（键大小写不敏感），一行一个：
 // "name = value; 属性..."（首个 '=' 换成 ' = ' 便于阅读，属性原样保留）。
@@ -1169,19 +1167,8 @@ std::string PrettyXml(const std::string& input) {
     return out;
 }
 
-// 编辑器子页占位（测试用例/Mock）：居中空态说明。
-[[huxerui::composable]] huxerui::View EditorPlaceholderPage(std::string title,
-                                                            std::string description) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    return huxerui::Column {
-        huxerui::Text(std::move(title), huxerui::TextRole::Title),
-        huxerui::Text(std::move(description), huxerui::TextRole::Body)
-            .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-    }
-        .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-              huxerui::MainAlign(huxerui::MainAxisAlignment::Center));
-}
+// 编辑器子页"测试用例"/"Mock"实现在 testcase_page.cpp / mock_page.cpp
+// （声明在 ui.h）；居中空态样式各自文件内自带。
 
 // 文档页：按当前请求草稿自动生成接口文档（只读；草稿任何编辑触发重组即刷新）。
 [[huxerui::composable]] huxerui::View RequestDocPage(const RequestDraft& snapshot,
@@ -1314,15 +1301,13 @@ std::string PrettyXml(const std::string& input) {
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
 
     if (pageTab.Get() != 0) {
-        // 文档页按当前草稿自动生成；测试用例/Mock 暂为占位页。
+        // 文档页按当前草稿自动生成；测试用例/Mock 为独立编辑页（自有文件）。
         if (pageTab.Get() == 1)
             children.push_back(RequestDocPage(snapshot, envBaseUrl));
         else if (pageTab.Get() == 2)
-            children.push_back(
-                EditorPlaceholderPage("测试用例", "规划中：将支持为请求编写断言与批量用例。"));
+            children.push_back(TestCasePage(snapshot, drafts, index));
         else
-            children.push_back(
-                EditorPlaceholderPage("Mock", "规划中：将支持按请求定义生成模拟响应。"));
+            children.push_back(MockPage(snapshot, drafts, index));
         return huxerui::Column(std::move(children))
             .With(huxerui::Spacing(theme.spacing.medium),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -1544,6 +1529,9 @@ std::string PrettyXml(const std::string& input) {
                 const std::size_t bodyIndex = static_cast<std::size_t>(spec.bodyKind);
                 if (bodyIndex < saved.bodyContents.size())
                     saved.bodyContents[bodyIndex].fields = spec.bodyFields;
+                // 测试用例 / Mock 随请求一起落库（保存按钮是全量覆盖语义）。
+                for (const TestCaseDraft& c : draft.cases) saved.testCases.push_back(CaseToDb(c));
+                saved.mock = MockToDb(draft.mock);
                 if (const std::string err = g_requests.save(saved); !err.empty()) {
                     toast.Show("保存失败: " + err);
                 } else {

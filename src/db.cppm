@@ -51,6 +51,33 @@ export struct Environment {
 // 全路径：a/b/c → "a/b/c"。Path 分组才展开，Name 分组折成单层。
 export std::string groupPath(const std::vector<std::string>& segs);
 
+// JSON 路径断言：path 点分 + 下标（如 "data.items[0].id"），equals 按字符串
+// 比较（实际值为数字/布尔时先 JSON 序列化再比，"200" 可匹配数字 200）。
+export struct RequestAssertion {
+    std::string path;
+    std::string equals;
+    bool enabled = true;
+};
+
+// 测试用例：一组对请求响应的断言。expectStatus=0 / maxMs<=0 = 该项不校验。
+export struct RequestTestCase {
+    std::string name;
+    bool enabled = true;
+    int expectStatus = 0;
+    double maxMs = 0.0;
+    std::vector<RequestAssertion> asserts;
+};
+
+// Mock 响应：enabled 时发送不走真实网络，直接按此定义返回模拟响应；
+// delayMs 模拟网络延迟。
+export struct RequestMock {
+    bool enabled = false;
+    int status = 200;
+    std::vector<api::KeyValue> headers;
+    std::string body;
+    int delayMs = 0;
+};
+
 export struct SavedRequest {
     std::int64_t id = 0;                 // 0 = 未保存过
     std::int64_t projectId = 0;          // 所属项目
@@ -68,6 +95,8 @@ export struct SavedRequest {
     std::array<api::BodyContent, 7> bodyContents{};
     bool followRedirects = true;
     bool allowJsonComments = true;
+    std::vector<RequestTestCase> testCases;  // 测试用例页数据
+    RequestMock mock;                        // Mock 页数据
     std::int64_t updatedAt = 0;
 };
 

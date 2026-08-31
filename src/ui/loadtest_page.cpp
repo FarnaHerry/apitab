@@ -19,12 +19,8 @@ import apitab.store.requests;
 namespace apitab::ui {
 
 namespace {
-// 与请求页 kMethodNames 保持一致（curl/k6 都接受任意方法名；框架 HttpClient
+// kMethodNames 用 draft.h 共享表（curl/k6 都接受任意方法名；框架 HttpClient
 // 的 HttpMethod 枚举只有经典 7 个，故 http_test_page 是例外）。
-constexpr std::array<std::string_view, 20> kMethodNames{
-    "GET",     "POST",   "PUT",    "PATCH",   "DELETE", "HEAD", "OPTIONS",
-    "CONNECT", "TRACE",  "QUERY",  "PURGE",   "PROPFIND", "PROPPATCH",
-    "MKCOL",   "COPY",   "MOVE",   "LOCK",    "UNLOCK", "REPORT", "SEARCH"};
 constexpr std::size_t kOutputCap = 300;
 
 // 按当前参数生成 k6 脚本模板（编辑器初始内容 / 「从参数重新生成」共用）。

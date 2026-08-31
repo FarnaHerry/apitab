@@ -59,6 +59,68 @@ std::array<api::BodyContent, 7> bodyContentsFromJson(const std::string& text) {
     return out;
 }
 
+// ---- 测试用例 / Mock 的 JSON 落库（requests.test_cases / requests.mock 列）----
+
+std::string testCasesToJson(const std::vector<RequestTestCase>& cases) {
+    json arr = json::array();
+    for (const auto& c : cases) {
+        json asserts = json::array();
+        for (const auto& a : c.asserts)
+            asserts.push_back({{"p", a.path}, {"e", a.equals}, {"on", a.enabled}});
+        arr.push_back({{"name", c.name},
+                       {"on", c.enabled},
+                       {"status", c.expectStatus},
+                       {"maxMs", c.maxMs},
+                       {"asserts", std::move(asserts)}});
+    }
+    return arr.dump();
+}
+
+std::vector<RequestTestCase> testCasesFromJson(const std::string& text) {
+    std::vector<RequestTestCase> out;
+    const json arr = json::parse(text, nullptr, false);
+    if (!arr.is_array()) return out;
+    for (const auto& item : arr) {
+        if (!item.is_object()) continue;
+        RequestTestCase c;
+        c.name = item.value("name", "");
+        c.enabled = item.value("on", true);
+        c.expectStatus = item.value("status", 0);
+        c.maxMs = item.value("maxMs", 0.0);
+        if (item.contains("asserts") && item["asserts"].is_array()) {
+            for (const auto& a : item["asserts"]) {
+                if (!a.is_object()) continue;
+                c.asserts.push_back({.path = a.value("p", ""),
+                                     .equals = a.value("e", ""),
+                                     .enabled = a.value("on", true)});
+            }
+        }
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+std::string mockToJson(const RequestMock& m) {
+    return json({{"on", m.enabled},
+                 {"status", m.status},
+                 {"headers", json::parse(kvToJson(m.headers))},
+                 {"body", m.body},
+                 {"delayMs", m.delayMs}})
+        .dump();
+}
+
+RequestMock mockFromJson(const std::string& text) {
+    RequestMock m;
+    const json obj = json::parse(text, nullptr, false);
+    if (!obj.is_object()) return m;
+    m.enabled = obj.value("on", false);
+    m.status = obj.value("status", 200);
+    if (obj.contains("headers")) m.headers = kvFromJson(obj["headers"].dump());
+    m.body = obj.value("body", "");
+    m.delayMs = obj.value("delayMs", 0);
+    return m;
+}
+
 } // namespace
 
 const char* groupModeName(GroupMode mode) { return mode == GroupMode::Path ? "路径" : "仅名称"; }
@@ -123,6 +185,8 @@ CREATE TABLE IF NOT EXISTS requests (
     follow_redirects INTEGER NOT NULL DEFAULT 1,
     allow_json_comments INTEGER NOT NULL DEFAULT 1,
     body_contents TEXT NOT NULL DEFAULT '{}',
+    test_cases    TEXT NOT NULL DEFAULT '[]',
+    mock          TEXT NOT NULL DEFAULT '{}',
     updated_at   INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS global_cookies (
@@ -182,6 +246,8 @@ CREATE TABLE IF NOT EXISTS load_tests (
             bool hasFollowRedirects = false;
             bool hasAllowJsonComments = false;
             bool hasBodyContents = false;
+            bool hasTestCases = false;
+            bool hasMock = false;
             bool hasGlobalCookieProjectId = false;
             bool hasParentId = false;
             bool hasEnvVariables = false;
@@ -204,6 +270,8 @@ CREATE TABLE IF NOT EXISTS load_tests (
                 if (col == "follow_redirects") hasFollowRedirects = true;
                 if (col == "allow_json_comments") hasAllowJsonComments = true;
                 if (col == "body_contents") hasBodyContents = true;
+                if (col == "test_cases") hasTestCases = true;
+                if (col == "mock") hasMock = true;
             }
             SQLite::Statement groups(db, "PRAGMA table_info(groups)");
             while (groups.executeStep()) {
@@ -236,6 +304,12 @@ CREATE TABLE IF NOT EXISTS load_tests (
             }
             if (!hasBodyContents) {
                 db.exec("ALTER TABLE requests ADD COLUMN body_contents TEXT NOT NULL DEFAULT '{}'");
+            }
+            if (!hasTestCases) {
+                db.exec("ALTER TABLE requests ADD COLUMN test_cases TEXT NOT NULL DEFAULT '[]'");
+            }
+            if (!hasMock) {
+                db.exec("ALTER TABLE requests ADD COLUMN mock TEXT NOT NULL DEFAULT '{}'");
             }
             if (!hasParentId) {
                 db.exec("ALTER TABLE groups ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0");
@@ -534,7 +608,7 @@ void Db::deleteGroup(std::int64_t id) {
 
 std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
     SQLite::Statement q(impl_->db,
-        "SELECT id,project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,body_contents,updated_at "
+        "SELECT id,project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,body_contents,test_cases,mock,updated_at "
         "FROM requests WHERE project_id=? ORDER BY updated_at DESC");
     q.bind(1, projectId);
     std::vector<SavedRequest> out;
@@ -561,7 +635,9 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
         if (bodyIndex < r.bodyContents.size() && r.bodyContents[bodyIndex].text.empty()) {
             r.bodyContents[bodyIndex].text = r.body;
         }
-        r.updatedAt = q.getColumn(16).getInt64();
+        r.testCases = testCasesFromJson(q.getColumn(16).getString());
+        r.mock = mockFromJson(q.getColumn(17).getString());
+        r.updatedAt = q.getColumn(18).getInt64();
         out.push_back(std::move(r));
     }
     return out;
@@ -570,8 +646,8 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
 std::int64_t Db::saveRequest(const SavedRequest& r) {
     if (r.id == 0) {
         SQLite::Statement q(impl_->db,
-            "INSERT INTO requests(project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,body_contents,updated_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            "INSERT INTO requests(project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,body_contents,test_cases,mock,updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         q.bind(1, r.projectId);
         q.bind(2, r.groupId);
         q.bind(3, r.name);
@@ -587,12 +663,14 @@ std::int64_t Db::saveRequest(const SavedRequest& r) {
         q.bind(13, static_cast<int>(r.bodyKind));
         q.bind(14, r.body);
         q.bind(15, bodyContentsToJson(r.bodyContents));
-        q.bind(16, r.updatedAt);
+        q.bind(16, testCasesToJson(r.testCases));
+        q.bind(17, mockToJson(r.mock));
+        q.bind(18, r.updatedAt);
         q.exec();
         return impl_->db.getLastInsertRowid();
     }
     SQLite::Statement q(impl_->db,
-        "UPDATE requests SET project_id=?,group_id=?,name=?,request_kind=?,ws_protocol=?,cookies=?,follow_redirects=?,allow_json_comments=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,body_contents=?,"
+        "UPDATE requests SET project_id=?,group_id=?,name=?,request_kind=?,ws_protocol=?,cookies=?,follow_redirects=?,allow_json_comments=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,body_contents=?,test_cases=?,mock=?,"
         "updated_at=? WHERE id=?");
     q.bind(1, r.projectId);
     q.bind(2, r.groupId);
@@ -609,8 +687,10 @@ std::int64_t Db::saveRequest(const SavedRequest& r) {
     q.bind(13, static_cast<int>(r.bodyKind));
     q.bind(14, r.body);
     q.bind(15, bodyContentsToJson(r.bodyContents));
-    q.bind(16, r.updatedAt);
-    q.bind(17, r.id);
+    q.bind(16, testCasesToJson(r.testCases));
+    q.bind(17, mockToJson(r.mock));
+    q.bind(18, r.updatedAt);
+    q.bind(19, r.id);
     q.exec();
     return r.id;
 }

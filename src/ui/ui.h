@@ -4,6 +4,8 @@
 #include <huxerui/huxerui.h>
 #include <sweetedit_core/sweet_editor.h>
 
+#include "draft.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -121,7 +123,8 @@ void ShowDangerConfirm(huxerui::DialogHandle dialog, std::string title, std::str
                        std::string confirmLabel, std::function<void()> onConfirm);
 // 自绘弹出菜单（UsePopup 承载）。作者口径：通用 MenuItem 不支持 per-item 配色/
 // hover 定制，需要就自己用 UsePopup 做菜单内容——本组件即该配方。条目语义对齐
-// MenuItem：label + 点击回调 + 可选选中态 + 危险模式；外观对齐环境 MenuStyle，
+// MenuItem：label + 点击回调 + 可选选中态 + 危险模式 + children（级联子菜单）；
+// 外观对齐环境 MenuStyle，
 // 条目悬停/按压复用 item_indication。**选中项不用对钩，填充比 hover 深一档的
 // 底色**（取 item_indication.press 填充色）。点击先 Dismiss 再回调（同系统菜单）。
 enum class PopupMenuDanger {
@@ -137,6 +140,10 @@ struct PopupMenuItem {
     // 自定义文字色（如方法下拉按 MethodColor 逐方法着色）；设置后优先于
     // danger 取色。
     std::optional<huxerui::Color> label_color;
+    // 子菜单（级联飞出，行尾带 ›）：hover/点击在右侧弹子层。父项若设
+    // on_click，点击 = 执行回调并关闭整链（直达该层级的动作，如"移动到
+    // 分组 A"本身也是一个目的地）；不设则点击仅展开。
+    std::vector<PopupMenuItem> children;
 };
 void ShowPopupMenu(huxerui::PopupHandle popup, std::vector<PopupMenuItem> items,
                    const huxerui::PopupOptions& options = {});
@@ -164,6 +171,15 @@ huxerui::View HomePage(huxerui::State<std::size_t> navPage,
 
 // request_page.cpp
 huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject);
+
+// testcase_page.cpp — 请求编辑器子页"测试用例"（pageTab=2）：用例编辑与
+// 断言运行，读写草稿 cases（持久化经 request_page 保存按钮全量落库）。
+huxerui::View TestCasePage(RequestDraft snapshot,
+                           huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index);
+// mock_page.cpp — 请求编辑器子页"Mock"（pageTab=3）：模拟响应定义，读写草稿
+// mock；调试页"发送"在 mock.enabled 时拦截为本地模拟响应。
+huxerui::View MockPage(RequestDraft snapshot,
+                       huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index);
 
 // loadtest_page.cpp
 huxerui::View LoadTestPage();

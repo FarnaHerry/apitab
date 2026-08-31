@@ -154,16 +154,157 @@ sweetedit_huxer::SweetEditorPalette EditorPalette(const huxerui::ThemeSpec& them
     return palette;
 }
 
-// 自绘弹出菜单内容（ShowPopupMenu[At] 的 PopupFactory 目标）。作者口径：通用
-// MenuItem 不支持 per-item 配色/hover 定制，需要就自己用 UsePopup 做菜单内容。
-// 外观对齐环境 MenuStyle（底板/阴影/圆角/内边距/最小宽、条目 hover 用
-// item_indication）；选中项不用对钩，直接填充比 hover 深一档的底色（取
-// item_indication 的 press 填充色，兜底 surface_container_highest）；危险项按
-// PopupMenuDanger 取 error 红（kHoverRed 由逐条 Hover 事件驱动，仅 hover 时
-// 变红）；点击先 Dismiss 再回调（同系统菜单语义，回调脱离指针路径，但仍需
-// 自行推迟会卸载节点的 State 写）；条目超限时限高内部滚动（带 ScrollBar）。
+// ---- 自绘弹出菜单（ShowPopupMenu[At]）----
+// 作者口径：通用 MenuItem 不支持 per-item 配色/hover 定制，需要就自己用
+// UsePopup 做菜单内容。外观对齐环境 MenuStyle（底板/阴影/圆角/内边距/最小宽、
+// 条目 hover 用 item_indication）；选中项不用对钩，直接填充比 hover 深一档的
+// 底色（取 item_indication 的 press 填充色，兜底 surface_container_highest）；
+// 危险项按 PopupMenuDanger 取 error 红（kHoverRed 由逐条 Hover 事件驱动，仅
+// hover 时变红）；点击先关闭整链再回调（同系统菜单语义，回调脱离指针路径，
+// 但仍需自行推迟会卸载节点的 State 写）；条目超限时限高内部滚动（带
+// ScrollBar）。
+// **级联子菜单**：item.children 非空 = 父项（行尾 ›），hover/点击以本行为锚
+// 向右弹出子层。子层 dismiss_on_outside_press=false → Content 指针策略，不
+// 吞父层条目的点击、也不因外部按压自关（同框架 Menu submenu 配方）；同层父
+// 项互斥，切换/落到叶子行即关旧子层及其整个子树；根层 outside-press/Esc 经
+// on_dismiss_request 递归关子层再关自己（框架见自定义 on_dismiss_request 后
+// 不再自动关层，必须自己 Dismiss）。注意：子层锚点在 Show 时刻取行矩形，
+// 父层随后滚动不会带动子层（菜单场景可接受）。
+
+// 每菜单层一份级联状态（shared_ptr 随 Show 创建、层销毁释放）。
+struct PopupMenuReg {
+    // 当前打开的直接子层关闭器（递归关子树并清本指针）；空 = 无子层。
+    std::shared_ptr<std::function<void()>> closeChild;
+    int childRow = -1; // 子层归属行（hover 重入不重复弹）
+};
+using PopupMenuRegPtr = std::shared_ptr<PopupMenuReg>;
+
+// 关闭本层当前子层（含其整个子树）。先 move 走再调用：closer 执行中会改写
+// reg 字段，避免自销毁调用对象。
+void CloseSubMenu(const PopupMenuRegPtr& reg) {
+    auto closer = std::move(reg->closeChild);
+    reg->childRow = -1;
+    if (closer && *closer) (*closer)();
+}
+
+// 定义在下文（行与内容互相引用，先挂声明）。
+huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuItem> items,
+                               std::vector<huxerui::PopupContext> ancestors, PopupMenuRegPtr reg);
+
+// 菜单行（独立 composable：子层锚点只能挂一个 View，每个父项行需自己的
+// UsePopup；稳定 Key 保证 hover 重组不替换节点、锚点关系不断）。
+[[huxerui::composable]] huxerui::View PopupMenuRow(huxerui::PopupContext ctx,
+                                                   std::vector<huxerui::PopupContext> ancestors,
+                                                   PopupMenuRegPtr reg, std::size_t index,
+                                                   PopupMenuItem item, huxerui::State<int> hovered,
+                                                   huxerui::Color selectedFill) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const huxerui::MenuStyle menuStyle = huxerui::UseEnvironment<huxerui::MenuStyle>();
+    auto popup = huxerui::UsePopup(); // 父项行子层锚点（叶子行闲置）
+    const int rowKey = static_cast<int>(index);
+    const bool hasChildren = !item.children.empty();
+    const bool dangerRed =
+        item.danger == PopupMenuDanger::kAlwaysRed ||
+        (item.danger == PopupMenuDanger::kHoverRed && hovered.Get() == rowKey);
+    const huxerui::Color labelColor =
+        item.label_color.has_value() ? *item.label_color
+        : dangerRed                  ? theme.colors.error
+                                     : menuStyle.foreground;
+
+    // 关闭整条菜单链（同系统菜单）：先关本层已展开子层及子树，再关自身与
+    // 各祖先层（ancestors 根在前，逐深到浅关），最后执行条目回调。
+    auto dismissChain = [ctx, ancestors, reg] {
+        CloseSubMenu(reg);
+        ctx.Dismiss();
+        for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) it->Dismiss();
+    };
+    // 弹出子层：同层互斥先关旧子层。closer 存进本层 reg，也挂在子层
+    // on_dismiss_request 上——子层被 Esc 自关时走同一关闭路径（清父层指针、
+    // 递归关孙层）。id 在 Show 返回后才知，closer 捕获 shared_ptr 延迟读取。
+    auto openChild = [popup, ctx, ancestors, reg, rowKey, item] {
+        if (reg->childRow == rowKey) return; // hover 重入，子层还在
+        CloseSubMenu(reg);
+        auto childReg = std::make_shared<PopupMenuReg>();
+        std::vector<huxerui::PopupContext> childAncestors = ancestors;
+        childAncestors.push_back(ctx);
+        auto id = std::make_shared<huxerui::LayerId>(0);
+        auto closer = std::make_shared<std::function<void()>>();
+        huxerui::PopupOptions options;
+        options.placement = {huxerui::AnchorSide::Right, huxerui::AnchorAlignment::Start};
+        options.dismiss_on_outside_press = false; // Content 策略，父层保持可交互
+        options.on_dismiss_request = [closer] { (*closer)(); };
+        *closer = [popup, id, childReg, reg, rowKey] {
+            CloseSubMenu(childReg);
+            popup.Dismiss(*id);
+            if (reg->childRow == rowKey) {
+                reg->closeChild = nullptr;
+                reg->childRow = -1;
+            }
+        };
+        *id = popup.Show(
+            [items = item.children, childAncestors,
+             childReg](huxerui::PopupContext childCtx) mutable {
+                return PopupMenuContent(childCtx, std::move(items), childAncestors, childReg);
+            },
+            options);
+        reg->childRow = rowKey;
+        reg->closeChild = closer;
+    };
+
+    huxerui::View row =
+        huxerui::Row {
+            huxerui::Text(hasChildren ? item.label + "  ›" : item.label, huxerui::TextRole::Body)
+                .With(huxerui::Foreground(labelColor)),
+        }
+            .With(// 选中项：深于 hover 的填充底色（无对钩）。Background 在
+                  // Padding 外层，整行铺满。
+                  huxerui::Background(item.checked ? selectedFill
+                                                   : huxerui::Color::Transparent()),
+                  huxerui::CornerRadius(menuStyle.corner_radius / 2.0F),
+                  huxerui::Padding(menuStyle.item_padding),
+                  huxerui::Frame{.min_height = menuStyle.minimum_item_height},
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                  // 条目悬停/按压反馈复用菜单样式的 indication（OnClick
+                  // 默认 indication 以此覆盖），叠在选中底色之上。
+                  menuStyle.item_indication);
+    if (hasChildren) row = std::move(row).With(popup.Anchor()); // 子层锚定本行右侧
+
+    // hover：Enter 记悬停行并做子层展开/互斥（父项行打开自己的、叶子行关
+    // 兄弟的）；Leave 仅当仍是本行才清悬停态。
+    row = std::move(row)
+              .On<huxerui::ViewEvents::Hover>(
+                  [hovered, reg, rowKey, hasChildren, openChild](const huxerui::HoverEvent& e) {
+                      if (e.type == huxerui::HoverEventType::Enter) {
+                          hovered = rowKey;
+                          if (hasChildren)
+                              openChild();
+                          else
+                              CloseSubMenu(reg);
+                      } else if (e.type == huxerui::HoverEventType::Leave &&
+                                 hovered.Get() == rowKey)
+                          hovered = -1;
+                  });
+    if (hasChildren && item.on_click) {
+        // 父项兼目的地（如"移动到"的子分组）：点击执行回调并关整链，hover 仍可下钻。
+        row = std::move(row).OnClick([dismissChain, item] {
+            dismissChain();
+            if (item.on_click) item.on_click();
+        });
+    } else if (hasChildren) {
+        row = std::move(row).OnClick([openChild] { openChild(); }); // 纯父项：点击兜底展开
+    } else {
+        row = std::move(row).OnClick([dismissChain, onClick = item.on_click] {
+            dismissChain();
+            if (onClick) onClick();
+        });
+    }
+    return std::move(row).Key(static_cast<std::int64_t>(index));
+}
+
 [[huxerui::composable]] huxerui::View PopupMenuContent(huxerui::PopupContext ctx,
-                                                       std::vector<PopupMenuItem> items) {
+                                                       std::vector<PopupMenuItem> items,
+                                                       std::vector<huxerui::PopupContext> ancestors,
+                                                       PopupMenuRegPtr reg) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const huxerui::MenuStyle menuStyle = huxerui::UseEnvironment<huxerui::MenuStyle>();
     auto hovered = huxerui::UseState(-1); // 悬停条目下标（Hover 是包含生命周期）
@@ -177,44 +318,8 @@ sweetedit_huxer::SweetEditorPalette EditorPalette(const huxerui::ThemeSpec& them
     }
     std::vector<huxerui::View> rows;
     rows.reserve(items.size());
-    for (std::size_t i = 0; i < items.size(); ++i) {
-        const PopupMenuItem& item = items[i];
-        const bool dangerRed =
-            item.danger == PopupMenuDanger::kAlwaysRed ||
-            (item.danger == PopupMenuDanger::kHoverRed && hovered.Get() == static_cast<int>(i));
-        const huxerui::Color labelColor =
-            item.label_color.has_value() ? *item.label_color
-            : dangerRed                  ? theme.colors.error
-                                         : menuStyle.foreground;
-        rows.push_back(
-            huxerui::Row {
-                huxerui::Text(item.label, huxerui::TextRole::Body)
-                    .With(huxerui::Foreground(labelColor)),
-            }
-                .With(// 选中项：深于 hover 的填充底色（无对钩）。Background 在
-                      // Padding 外层，整行铺满。
-                      huxerui::Background(item.checked ? selectedFill
-                                                       : huxerui::Color::Transparent()),
-                      huxerui::CornerRadius(menuStyle.corner_radius / 2.0F),
-                      huxerui::Padding(menuStyle.item_padding),
-                      huxerui::Frame{.min_height = menuStyle.minimum_item_height},
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-                      // 条目悬停/按压反馈复用菜单样式的 indication（OnClick
-                      // 默认 indication 以此覆盖），叠在选中底色之上。
-                      menuStyle.item_indication)
-                .On<huxerui::ViewEvents::Hover>(
-                    [hovered, i](const huxerui::HoverEvent& e) {
-                        if (e.type == huxerui::HoverEventType::Enter)
-                            hovered = static_cast<int>(i);
-                        else if (e.type == huxerui::HoverEventType::Leave &&
-                                 hovered.Get() == static_cast<int>(i))
-                            hovered = -1;
-                    })
-                .OnClick([ctx, onClick = item.on_click] {
-                    ctx.Dismiss();
-                    if (onClick) onClick();
-                }));
-    }
+    for (std::size_t i = 0; i < items.size(); ++i)
+        rows.push_back(PopupMenuRow(ctx, ancestors, reg, i, items[i], hovered, selectedFill));
     // 条目多时长列表限高滚动（方法下拉有 20 项，不限高会顶穿屏幕）：行列表
     // 进 ScrollView + ScrollBar，max_height 只封顶、内容不足时按内容收缩。
     constexpr float kMenuMaxHeight = 320.0F;
@@ -230,23 +335,38 @@ sweetedit_huxer::SweetEditorPalette EditorPalette(const huxerui::ThemeSpec& them
         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
+// 根层 Show 公共包装：建根 reg；接管线上 on_dismiss_request——outside-
+// press/Esc 时先递归关子层再关自己（框架见自定义回调就不再自动关层），并
+// 保留调用方原回调。id 延迟绑定：on_dismiss_request 里读 shared_ptr。
+namespace {
+void ShowPopupMenuRoot(huxerui::PopupHandle popup, std::vector<PopupMenuItem> items,
+                       const huxerui::PopupOptions& options,
+                       const std::optional<huxerui::Point>& at) {
+    auto reg = std::make_shared<PopupMenuReg>();
+    auto id = std::make_shared<huxerui::LayerId>(0);
+    huxerui::PopupOptions opts = options;
+    const auto userRequest = opts.on_dismiss_request;
+    opts.on_dismiss_request = [popup, id, reg, userRequest] {
+        CloseSubMenu(reg);
+        popup.Dismiss(*id);
+        if (userRequest) userRequest();
+    };
+    auto factory = [items = std::move(items), reg](huxerui::PopupContext ctx) mutable {
+        return PopupMenuContent(ctx, std::move(items), {}, reg);
+    };
+    *id = at.has_value() ? popup.ShowAt(*at, std::move(factory), opts)
+                         : popup.Show(std::move(factory), opts);
+}
+} // namespace
+
 void ShowPopupMenu(huxerui::PopupHandle popup, std::vector<PopupMenuItem> items,
                    const huxerui::PopupOptions& options) {
-    popup.Show(
-        [items = std::move(items)](huxerui::PopupContext ctx) {
-            return PopupMenuContent(ctx, items);
-        },
-        options);
+    ShowPopupMenuRoot(std::move(popup), std::move(items), options, std::nullopt);
 }
 
 void ShowPopupMenuAt(huxerui::PopupHandle popup, huxerui::Point point,
                      std::vector<PopupMenuItem> items, const huxerui::PopupOptions& options) {
-    popup.ShowAt(
-        point,
-        [items = std::move(items)](huxerui::PopupContext ctx) {
-            return PopupMenuContent(ctx, items);
-        },
-        options);
+    ShowPopupMenuRoot(std::move(popup), std::move(items), options, point);
 }
 
 // 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（文本 ▾ 弹自绘下拉，
