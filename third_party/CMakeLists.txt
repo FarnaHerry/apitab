@@ -100,10 +100,12 @@ set(SQLITECPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(SQLITECPP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory("${sqlitecpp_SOURCE_DIR}" "SQLiteCpp-build")
 
-# ---- HuxerUI 0.1.0（官方预编译 SDK，shared 库）--------------------------------
+# ---- HuxerUI（源码 third_party/huxerui 或预编译 SDK，由顶层选择）--------------
 # 替换 EUI-NEO：组件式声明 UI（composable View + UseState + TaskScope）。
-# Linux 后端为 GTK4/Cairo，运行时需要系统 libgtk-4-1/libsoup-3.0-0（本机已具备，
-# 无需 dev 头文件 —— 直接链接 SDK 的 libhuxerui.so）。
-# SDK 自带的资源包（运行时按 HUXERUI_RESOURCES_DIR 或 <exe>.resources/ 查找）
-set(HUXERUI_RESOURCES_BIN "${HUXERUI_SDK_DIR}/share/huxerui/resources/huxerui/resources.bin" CACHE INTERNAL "")
+# Linux 后端为 GTK4/Cairo，运行时需要系统 libgtk-4-1/libsoup-3.0-0（本机已具备；
+# SDK 模式直接链接预编译 libhuxerui.so，源码模式需要 gtk4-devel/libsoup3-devel）。
+if (NOT APITAB_HUXERUI_FROM_SOURCE)
+    # SDK 自带的资源包（运行时按 HUXERUI_RESOURCES_DIR 或 <exe>.resources/ 查找）
+    set(HUXERUI_RESOURCES_BIN "${HUXERUI_SDK_DIR}/share/huxerui/resources/huxerui/resources.bin" CACHE INTERNAL "")
+endif ()
 

@@ -1,5 +1,7 @@
 // store/requests.cppm — 领域 store：组织 / 项目 / 请求集合 + 单次发送的唯一入口。
 // UI 无关：不 import 任何 eui / ui.* 模块。持有（自保留）curl 引擎与 SQLite。
+// 单次发送经引擎抽象 api::ApiEngine（当前为 curl 实现）执行：send 纯入队、
+// 结果由 UI 侧轮询 takeResponse 取走；替换引擎实现只动本文件一处。
 //
 // 层级：组织(Org) → 项目(Project) → 请求(Request)。store 缓存当前组织/项目
 // 与其请求列表；切换组织级联切到其第一个项目，切换项目重载请求列表。
@@ -7,7 +9,6 @@
 //
 // 纪律（对齐 tinynext store.tasks）：
 //   - 引擎对象由本 store 持有，外部不直接碰 api::ApiEngine 指针；
-//   - send 只负责派发与记录历史，结果展示是 UI 层的事（经 pollResult 取走）；
 //   - 除引擎内部工作线程外全部在 UI 线程调用；引擎结果槽内部有锁。
 export module apitab.store.requests;
 
@@ -21,7 +22,8 @@ import apitab.utils;
 export class RequestStore {
 public:
     RequestStore()
-        : engine_(makeCurlEngine()), db_(std::make_unique<db::Db>(cfg::databaseFile())) {
+        : engine_(makeCurlEngine()),
+          db_(std::make_unique<db::Db>(cfg::databaseFile())) {
         try {
             // 迁移兜底：空库建默认组织/项目，游离请求归入默认项目。
             db_->ensureDefaultProject();
@@ -199,11 +201,22 @@ public:
         });
     }
 
+    std::string setEnvironmentVariables(std::int64_t id,
+                                        const std::vector<api::KeyValue>& vars) {
+        return guarded([&] {
+            db_->setEnvironmentVariables(id, vars);
+            reloadEnvironments();
+        });
+    }
+
     std::string updateEnvironment(std::int64_t id, const std::string& name,
-                                  const std::string& baseUrl) {
+                                  const std::string& baseUrl,
+                                  const std::vector<api::KeyValue>& variables) {
         return guarded([&] {
             db_->renameEnvironment(id, name);
             db_->setEnvironmentBaseUrl(id, baseUrl);
+            db_->setEnvironmentVariables(id, variables);
+            reloadEnvironments();
         });
     }
 
@@ -317,6 +330,25 @@ public:
         });
     }
 
+    // 分组换父（拖拽用，0 = 移到根目录）。环检测：目标不能是自身或自身的后代。
+    std::string moveGroup(std::int64_t id, std::int64_t parentId) {
+        return guarded([&] {
+            if (!findGroup(id)) throw std::runtime_error("分组不存在");
+            if (parentId != 0) {
+                if (!findGroup(parentId)) throw std::runtime_error("目标分组不存在");
+                // 沿目标的父链上溯，撞到 id 即成环（含 parentId == id 自身）。
+                std::int64_t cur = parentId;
+                while (cur != 0) {
+                    if (cur == id) throw std::runtime_error("不能移动到自身或其子分组下");
+                    const db::Group* g = findGroup(cur);
+                    cur = g != nullptr ? g->parentId : 0;
+                }
+            }
+            db_->setGroupParent(id, parentId);
+            reloadGroups();
+        });
+    }
+
     // ---- 集合（当前项目的请求）----
 
     const std::vector<db::SavedRequest>& list() const { return requests_; }
@@ -353,6 +385,18 @@ public:
         }
     }
 
+    // 重命名已保存请求：改字段走 saveRequest 更新（同 moveToGroup 的思路）。
+    std::string renameRequest(std::int64_t id, const std::string& name) {
+        return guarded([&] {
+            if (const db::SavedRequest* r = find(id)) {
+                db::SavedRequest copy = *r;
+                copy.name = name;
+                db_->saveRequest(copy);
+                reloadRequests();
+            }
+        });
+    }
+
     std::vector<db::GlobalCookie> globalCookies() const {
         try { return db_->listGlobalCookies(currentProjectId_); } catch (...) { return {}; }
     }
@@ -369,48 +413,80 @@ public:
         catch (const std::exception& e) { return e.what(); }
     }
 
-    // ---- 发送 ----
+    // ---- 发送（传输由引擎抽象 api::ApiEngine 执行，当前为 curl 实现）----
 
-    // 派发一次请求（异步）。finalUrl = url + 启用的 query 参数。requestId 用于
-    // 历史记录关联（未保存的草稿 = 0）。
-    void send(const api::RequestSpec& spec, std::int64_t requestId) {
-        pendingMethod_ = spec.method;
-        pendingRequestId_ = requestId;
+    // 派发一次请求（异步）：引擎 send 纯入队立即返回，结果由 UI 侧轮询
+    // takeResponse 取走；busy 时再调视为替换（取消旧请求、发起新请求）。
+    void sendViaEngine(const api::RequestSpec& spec) { engine_->send(spec); }
+    // 协作式取消在途请求（不保证立即生效）；丢弃排队请求，取消后结果不投递。
+    void cancelSend() { engine_->cancel(); }
+    // UI 线程轮询：引擎有新完成的结果则取出并返回 true（一个结果只取一次）。
+    bool takeResponse(api::ResponseView& out) { return engine_->takeResponse(out); }
+
+    // 组装最终请求规格：环境变量替换 + 基础 URL 拼接 + url 拼启用的 query 参数，
+    // 合并全局 Cookie。
+    // 先替换当前环境的 {{变量}}，再拼 URL（保证变量值里的特殊字符被正确百分号编码）。
+    api::RequestSpec finalizeSpec(const api::RequestSpec& spec) {
         api::RequestSpec finalSpec = spec;
+        // 环境变量替换：当前环境启用的 {{name}} 应用到 url / params / headers /
+        // cookies / body；未定义或停用的占位符保留原样。全局 Cookie 是项目级静态
+        // 值，在替换之后合并，不参与变量替换。
+        if (const db::Environment* env = findEnvironment(currentEnvId_);
+            env && !env->variables.empty()) {
+            const std::vector<api::KeyValue>& vars = env->variables;
+            finalSpec.url = substituteEnvVars(finalSpec.url, vars);
+            for (auto& p : finalSpec.params) {
+                p.key = substituteEnvVars(p.key, vars);
+                p.value = substituteEnvVars(p.value, vars);
+            }
+            for (auto& h : finalSpec.headers) {
+                h.key = substituteEnvVars(h.key, vars);
+                h.value = substituteEnvVars(h.value, vars);
+            }
+            for (auto& c : finalSpec.cookies) {
+                c.key = substituteEnvVars(c.key, vars);
+                c.value = substituteEnvVars(c.value, vars);
+            }
+            finalSpec.body = substituteEnvVars(finalSpec.body, vars);
+        }
+        // 基础 URL 拼接：输入（变量替换后）无 URI scheme 且当前环境配置了
+        // baseUrl 时拼上前缀（composeUrl 内部分段去重斜杠；请求页草稿没有分组
+        // 概念，groupId 传 0 跳过 Path 分组）。带 scheme 的完整 URL 原样保留。
+        finalSpec.url = composeUrl(finalSpec.url, 0, currentEnvId_);
         std::vector<std::pair<std::string, std::string>> enabled;
-        for (const auto& p : spec.params) {
+        for (const auto& p : finalSpec.params) {
             if (p.enabled && !p.key.empty()) enabled.emplace_back(p.key, p.value);
         }
-        const std::vector<db::GlobalCookie> global = globalCookies();
-        for (const auto& cookie : global) {
+        for (const auto& cookie : globalCookies()) {
             if (cookie.enabled) finalSpec.cookies.push_back({cookie.name, cookie.value, true, {}, {}});
         }
-        finalSpec.url = appendQuery(trim(spec.url), enabled);
-        pendingUrl_ = finalSpec.url;
-        engine_->send(finalSpec);
+        // JSON 体剥离注释（引擎不处理，见 curl_engine.cpp；原由已删除的
+        // http_build 承担，随发送切回引擎移入本函数）。
+        if (finalSpec.bodyKind == api::BodyKind::Json && finalSpec.allowJsonComments) {
+            finalSpec.body = stripJsonComments(finalSpec.body);
+        }
+        finalSpec.url = appendQuery(trim(finalSpec.url), enabled);
+        return finalSpec;
     }
 
-    bool busy() const { return engine_->busy(); }
-    void cancel() { engine_->cancel(); }
-
-    // UI 线程轮询：引擎有新结果则记录历史并返回 true。
-    bool pollResult(api::ResponseView& out) {
-        if (!engine_->takeResponse(out)) return false;
+    // 历史落库：响应回到 UI 线程后由页面调用；写入失败不打断主流程。
+    // requestId 关联集合请求（未保存的草稿 = 0）。
+    void recordHistory(std::int64_t requestId, const std::string& method,
+                       const std::string& url, const api::ResponseView& result) {
         try {
             db_->addHistory(db::HistoryEntry{
-                .requestId = pendingRequestId_,
-                .method = pendingMethod_,
-                .url = pendingUrl_,
-                .status = out.status,
-                .durationMs = out.totalMs,
-                .sizeBytes = out.sizeBytes,
-                .error = out.error,
+                .requestId = requestId,
+                .method = method,
+                .url = url,
+                .status = result.status,
+                .durationMs = result.totalMs,
+                .sizeBytes = result.sizeBytes,
+                .error = result.error,
                 .createdAt = nowUnix(),
             });
         } catch (...) {
             // 历史写入失败不打断主流程
         }
-        return true;
     }
 
     std::vector<db::HistoryEntry> history(int limit = 50) {
@@ -450,6 +526,58 @@ public:
     bool healthy() const { return healthy_; }
 
 private:
+    // 剥离 JSON 的 // 与 /* */ 注释（字符串字面量内除外），供 finalizeSpec 在
+    // 发送前处理 allowJsonComments 的 JSON body。
+    static std::string stripJsonComments(std::string_view input) {
+        std::string output;
+        output.reserve(input.size());
+        bool inString = false;
+        bool escaped = false;
+        for (std::size_t i = 0; i < input.size();) {
+            const char c = input[i];
+            if (inString) {
+                output.push_back(c);
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                ++i;
+                continue;
+            }
+            if (c == '"') {
+                inString = true;
+                output.push_back(c);
+                ++i;
+            } else if (c == '/' && i + 1 < input.size() && input[i + 1] == '/') {
+                i += 2;
+                while (i < input.size() && input[i] != '\n') ++i;
+            } else if (c == '/' && i + 1 < input.size() && input[i + 1] == '*') {
+                i += 2;
+                while (i + 1 < input.size() && !(input[i] == '*' && input[i + 1] == '/')) ++i;
+                if (i + 1 < input.size()) i += 2;
+            } else {
+                output.push_back(c);
+                ++i;
+            }
+        }
+        return output;
+    }
+
+    // 把启用的变量 {{key}} 替换为其 value；空 key、停用或未定义的占位符保留原样。
+    // 按变量表顺序逐个替换，不递归解析替换结果里的新占位符。
+    static std::string substituteEnvVars(std::string text,
+                                         const std::vector<api::KeyValue>& vars) {
+        for (const auto& v : vars) {
+            if (!v.enabled || v.key.empty()) continue;
+            const std::string token = "{{" + v.key + "}}";
+            std::size_t pos = 0;
+            while ((pos = text.find(token, pos)) != std::string::npos) {
+                text.replace(pos, token.size(), v.value);
+                pos += v.value.size();
+            }
+        }
+        return text;
+    }
+
     // CRUD 包装：统一 try/catch → 错误消息。
     template <typename F>
     std::string guarded(F&& fn) {
@@ -511,7 +639,7 @@ private:
                                            : std::vector<db::SavedRequest>{};
     }
 
-    std::unique_ptr<api::ApiEngine> engine_;
+    std::unique_ptr<api::ApiEngine> engine_;  // 单次发送引擎（自保留，工作线程自管）
     std::unique_ptr<db::Db> db_;
 
     std::vector<db::Org> orgs_;
@@ -524,11 +652,6 @@ private:
     std::int64_t currentEnvId_ = 0;
     std::unordered_map<std::int64_t, std::int64_t> selectedEnvByProject_;
     bool healthy_ = true;
-
-    // 在途请求的历史记录上下文（send 时记下，pollResult 时落库）。
-    std::int64_t pendingRequestId_ = 0;
-    std::string pendingMethod_;
-    std::string pendingUrl_;
 };
 
 export RequestStore g_requests;  // 领域单例（importers 间共享同一实体）

@@ -1,20 +1,22 @@
 // websocket_page.cpp — WebSocket 调试：连接/断开 + 文本/二进制发送 + 事件流。
+// 会话由本页 TaskScope 直接持有（State<shared_ptr<WsSession>>）：IXWebSocket 自管
+// 内部线程，回调事件进会话队列，UI 协程经 PollWhile 泵按节拍 drain 写 State。
 #include <huxerui/huxerui.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "ui.h"
+#include "task_bridge.h"
+#include "ws_session.h"
 
 import apitab.api_engine;
-import apitab.store.websocket;
 
 namespace apitab::ui {
 
 namespace {
-constexpr std::int64_t kUid = 1; // HuxerUI 版单工作区，固定会话 id
-
 std::string StateName(api::WebSocketState s) {
     switch (s) {
         case api::WebSocketState::Connected: return "已连接";
@@ -50,14 +52,21 @@ std::string StateName(api::WebSocketState s) {
     auto connected = huxerui::UseState(false);
     auto status = huxerui::UseState(std::string{"未连接"});
     auto events = huxerui::UseState<std::vector<std::string>>({});
+    // 当前会话：空 = 未连接。页面卸载时 State 释放，会话析构即停 IX 线程。
+    auto session = huxerui::UseState(std::shared_ptr<WsSession>{});
 
-    // 事件泵：页面存活期间持续 drain 引擎事件。
+    // 事件泵：页面存活期间持续从当前会话 drain（IX 线程投递，UI 协程按 150ms
+    // 节拍取回并写 State；页面卸载时 TaskScope 取消本协程）。
     huxerui::Lifecycle(
         [=] -> void {
             tasks.Launch([=]() -> huxerui::Task<void> {
-                while (true) {
+                co_await PollWhile(std::chrono::duration<double>{0.15}, [&] {
+                    const auto& s = session.Get();
+                    if (!s) return true;
+                    std::vector<api::WebSocketEvent> drained = s->drain();
+                    if (drained.empty()) return true;
                     std::vector<std::string> lines = events.Get();
-                    for (const api::WebSocketEvent& e : g_websocket.drain(kUid)) {
+                    for (const api::WebSocketEvent& e : drained) {
                         switch (e.kind) {
                             case api::WebSocketEventKind::Open:
                                 lines.push_back("● 已连接");
@@ -86,8 +95,8 @@ std::string StateName(api::WebSocketState s) {
                     if (lines.size() > 300)
                         lines.erase(lines.begin(), lines.begin() + (lines.size() - 300));
                     events = lines;
-                    co_await huxerui::Delay(std::chrono::duration<double>{0.15});
-                }
+                    return true; // 持续泵到页面卸载
+                });
             });
         },
         0);
@@ -106,11 +115,16 @@ std::string StateName(api::WebSocketState s) {
             huxerui::Button("连接").OnClick([=] {
                 api::WebSocketSpec spec;
                 spec.url = url.Get().text;
-                if (const std::string err = g_websocket.connect(kUid, spec); !err.empty())
+                auto s = std::make_shared<WsSession>();
+                if (const std::string err = s->connect(spec); !err.empty()) {
                     toast.Show(err);
+                    return;
+                }
+                session = s; // 取代旧会话（旧会话析构自动断开）
             }),
             huxerui::Button("断开").OnClick([=] {
-                g_websocket.disconnect(kUid);
+                if (const auto& s = session.Get()) s->disconnect();
+                session = std::shared_ptr<WsSession>{};
                 connected = false;
                 status = "未连接";
             }),
@@ -124,8 +138,12 @@ std::string StateName(api::WebSocketState s) {
                 .OnChanged([message](const huxerui::TextEditingValue& value) { message = value; })
                 .With(huxerui::Grow(1.0F)),
             huxerui::Button("发送").OnClick([=] {
-                if (const std::string err =
-                        g_websocket.send(kUid, message.Get().text, binary.Get());
+                const auto& s = session.Get();
+                if (!s) {
+                    toast.Show("WebSocket 尚未连接");
+                    return;
+                }
+                if (const std::string err = s->send(message.Get().text, binary.Get());
                     !err.empty())
                     toast.Show(err);
                 else

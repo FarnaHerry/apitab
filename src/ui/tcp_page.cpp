@@ -1,19 +1,22 @@
 // tcp_page.cpp — 原始 TCP 调试：连接/断开 + 文本/Hex 发送 + 事件流。
+// 会话由本页 TaskScope 协程直接持有：整条生命周期（连接 → 读循环 → 关闭）在
+// 一个协程里，阻塞 IO 经 RunOnTaskThread 上任务线程，恢复后在 UI 线程写 State。
 #include <huxerui/huxerui.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "ui.h"
+#include "task_bridge.h"
+#include "tcp_session.h"
 
 import apitab.api_engine;
-import apitab.store.tcp;
 
 namespace apitab::ui {
 
 namespace {
-constexpr std::int64_t kUid = 1; // HuxerUI 版单工作区，固定会话 id
 
 int HexNibble(char c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -37,20 +40,9 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
     }
     return bytes;
 }
-
-std::string StateName(api::TcpState s) {
-    switch (s) {
-        case api::TcpState::Connected: return "已连接";
-        case api::TcpState::Resolving: return "解析中";
-        case api::TcpState::Connecting: return "连接中";
-        case api::TcpState::Handshaking: return "TLS 握手中";
-        case api::TcpState::Failed: return "失败";
-        default: return "未连接";
-    }
-}
 } // namespace
 
-// 事件流：独立重组作用域 —— 每 150ms 的 events 更新只重绘事件区。
+// 事件流：独立重组作用域 —— 会话协程的 events 更新只重绘事件区。
 // 不定高：由调用方用 Grow 分配剩余高度，本区内部滚动。
 [[huxerui::composable]] huxerui::View TcpEventStream(huxerui::State<std::vector<std::string>> events,
                                                   const huxerui::ThemeSpec& theme) {
@@ -74,44 +66,17 @@ std::string StateName(api::TcpState s) {
     auto hex = huxerui::UseState(false);
     auto status = huxerui::UseState(std::string{"未连接"});
     auto events = huxerui::UseState<std::vector<std::string>>({});
+    // 当前会话：空 = 未连接。页面卸载时 State 释放，会话析构即关闭连接。
+    auto session = huxerui::UseState(std::shared_ptr<TcpSession>{});
 
-    huxerui::Lifecycle(
-        [=] -> void {
-            tasks.Launch([=]() -> huxerui::Task<void> {
-                while (true) {
-                    std::vector<std::string> lines = events.Get();
-                    for (const api::TcpEvent& e : g_tcp.drain(kUid)) {
-                        switch (e.kind) {
-                            case api::TcpEventKind::Connected:
-                                lines.push_back("● 已连接");
-                                status = "已连接";
-                                break;
-                            case api::TcpEventKind::Received: {
-                                std::string preview(reinterpret_cast<const char*>(e.payload.data()),
-                                                    std::min<std::size_t>(e.payload.size(), 200));
-                                lines.push_back("← " + preview);
-                                break;
-                            }
-                            case api::TcpEventKind::Disconnected:
-                                lines.push_back("○ 连接关闭");
-                                status = "未连接";
-                                break;
-                            case api::TcpEventKind::Error:
-                                lines.push_back("✗ " + e.detail);
-                                status = "失败";
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-                    if (lines.size() > 300)
-                        lines.erase(lines.begin(), lines.begin() + (lines.size() - 300));
-                    events = lines;
-                    co_await huxerui::Delay(std::chrono::duration<double>{0.15});
-                }
-            });
-        },
-        0);
+    // 追加一行事件（带 300 行裁剪）。UI 线程调用。
+    auto appendEvent = [events](std::string line) {
+        std::vector<std::string> lines = events.Get();
+        lines.push_back(std::move(line));
+        if (lines.size() > 300)
+            lines.erase(lines.begin(), lines.begin() + (lines.size() - 300));
+        events = lines;
+    };
 
     // 本页嵌在请求页右岛里（右岛已有 Padding/Background）：根 Column 占满右岛
     // 剩余区块（Grow + Stretch），操作区在顶部，事件流 Grow 吃满剩余高度并内部
@@ -127,11 +92,49 @@ std::string StateName(api::TcpState s) {
             huxerui::Button("连接").OnClick([=] {
                 api::TcpSpec spec;
                 spec.url = address.Get().text;
-                if (const std::string err = g_tcp.connect(kUid, spec); !err.empty())
-                    toast.Show(err);
+                auto s = std::make_shared<TcpSession>();
+                session = s; // 取代旧会话（旧会话析构自动关闭）
+                status = "连接中";
+                tasks.Launch([=]() -> huxerui::Task<void> {
+                    // 整条会话生命周期都在这个协程里；页面卸载时 TaskScope 取消
+                    // 本协程，配合会话析构的 close() 打断阻塞中的 read。
+                    std::string err =
+                        co_await RunOnTaskThread([s, spec] { return s->connect(spec); });
+                    if (session.Get() != s) co_return; // 已被取代/断开
+                    if (!err.empty()) {
+                        appendEvent("✗ " + err);
+                        status = "失败";
+                        session = std::shared_ptr<TcpSession>{};
+                        co_return;
+                    }
+                    status = "已连接";
+                    appendEvent("● 已连接");
+                    for (;;) {
+                        api::TcpEvent e =
+                            co_await RunOnTaskThread([s] { return s->read(); });
+                        if (session.Get() != s) co_return; // 已被取代/断开
+                        if (e.kind == api::TcpEventKind::Received) {
+                            std::string preview(
+                                reinterpret_cast<const char*>(e.payload.data()),
+                                std::min<std::size_t>(e.payload.size(), 200));
+                            appendEvent("← " + preview);
+                            continue;
+                        }
+                        if (e.kind == api::TcpEventKind::Disconnected) {
+                            appendEvent("○ 连接关闭");
+                            status = "未连接";
+                        } else {
+                            appendEvent("✗ " + e.detail);
+                            status = "失败";
+                        }
+                        session = std::shared_ptr<TcpSession>{};
+                        co_return;
+                    }
+                });
             }),
             huxerui::Button("断开").OnClick([=] {
-                g_tcp.disconnect(kUid);
+                if (const auto& s = session.Get()) s->close(); // 唤醒阻塞 read，协程收尾
+                session = std::shared_ptr<TcpSession>{};
                 status = "未连接";
             }),
         }
@@ -144,6 +147,11 @@ std::string StateName(api::TcpState s) {
                 .OnChanged([message](const huxerui::TextEditingValue& value) { message = value; })
                 .With(huxerui::Grow(1.0F)),
             huxerui::Button("发送").OnClick([=] {
+                const auto& s = session.Get();
+                if (!s || !s->isConnected()) {
+                    toast.Show("TCP 尚未连接");
+                    return;
+                }
                 const std::vector<std::uint8_t> bytes =
                     hex.Get() ? FromHex(message.Get().text)
                               : std::vector<std::uint8_t>(message.Get().text.begin(),
@@ -152,8 +160,11 @@ std::string StateName(api::TcpState s) {
                     toast.Show("发送内容为空");
                     return;
                 }
-                if (const std::string err = g_tcp.send(kUid, bytes); !err.empty())
-                    toast.Show(err);
+                // 同步写可能阻塞（对端不收）：派任务线程，不卡 UI。
+                tasks.Launch([=]() -> huxerui::Task<void> {
+                    std::string err = co_await RunOnTaskThread([s, bytes] { return s->send(bytes); });
+                    if (!err.empty()) toast.Show(err);
+                });
             }),
         }
             .With(huxerui::Spacing(theme.spacing.medium)),

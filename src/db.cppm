@@ -39,11 +39,13 @@ export struct Group {
 
 // 环境（项目内）。baseUrl 作为该项目所有请求的最终 URL 前缀，
 // 如 "http://localhost:8080/" —— 请求 URL 只填相对路径即可。
+// variables 是环境变量表：发送时把启用的 {{key}} 占位符替换为 value。
 export struct Environment {
     std::int64_t id = 0;
     std::int64_t projectId = 0;
     std::string name;
     std::string baseUrl;
+    std::vector<api::KeyValue> variables;  // enabled 控制是否生效
 };
 
 // 全路径：a/b/c → "a/b/c"。Path 分组才展开，Name 分组折成单层。
@@ -151,14 +153,16 @@ public:
                              std::int64_t parentId = 0);
     void renameGroup(std::int64_t id, const std::string& name);
     void setGroupMode(std::int64_t id, GroupMode mode);
+    void setGroupParent(std::int64_t id, std::int64_t parentId);  // 换父（0 = 根目录）
     void deleteGroup(std::int64_t id);                           // 其请求置为未分组
 
-    // ---- environments（项目内环境；请求 URL 前缀）----
+    // ---- environments（项目内环境；请求 URL 前缀 + {{变量}} 替换表）----
     std::vector<Environment> listEnvironments(std::int64_t projectId);  // id 升序
     std::int64_t createEnvironment(std::int64_t projectId, const std::string& name,
                                    const std::string& baseUrl);
     void renameEnvironment(std::int64_t id, const std::string& name);
     void setEnvironmentBaseUrl(std::int64_t id, const std::string& baseUrl);
+    void setEnvironmentVariables(std::int64_t id, const std::vector<api::KeyValue>& vars);
     void deleteEnvironment(std::int64_t id);
 
     // ---- requests ----

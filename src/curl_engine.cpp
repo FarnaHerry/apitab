@@ -4,9 +4,18 @@
 // 返回——绝不在 UI 线程 join 工作线程（旧实现 send 时 join 上一条传输，端点
 // 挂起时整条 UI 线程被拖死）。工作线程串行消费队列：新请求到来时协作打断在途
 // 传输（CURLOPT_XFERINFOFUNCTION 每帧查原子标志，curl 返回
-// CURLE_ABORTED_BY_CALLBACK），被取代请求的结果按代际丢弃，不会冒充新请求的
-// 结果。完成后写互斥保护的结果槽并 requestUiUpdate() 唤醒 UI 一帧，UI 轮询
-// takeResponse() 取走。
+// CURLE_ABORTED_BY_CALLBACK），被取代/被取消请求的结果按代际丢弃，不会冒充新
+// 请求的结果。完成后写互斥保护的结果槽并 requestUiUpdate() 唤醒 UI 一帧，UI
+// 轮询 takeResponse() 取走。
+//
+// 健壮性保证：
+// - 任何端点（DNS 失败 / 连接拒绝 / 不可路由）都在 timeoutSec 内返回错误结果
+//   （CURLOPT_TIMEOUT 覆盖 DNS+连接+传输全程，CONNECTTIMEOUT 单独兜底连接段）；
+// - 工作线程全程 try/catch：任何异常都落成错误结果写进结果槽，线程不静默死亡
+//   （否则结果槽永远不填，UI 永远停在"发送中…"）；
+// - curl 回调 noexcept：异常不得穿过 libcurl 的 C 栈帧，出错即中断本次传输；
+// - send 递增代际后立即清结果槽：上次取消残留（如未被取走的"已取消"）不会被
+//   新请求的轮询误取；cancel 丢弃排队请求并递增代际作废在途结果。
 module;
 
 #include <curl/curl.h>
@@ -30,70 +39,46 @@ struct WriteCtx {
     bool truncated = false;
 };
 
-size_t onBodyWrite(char* ptr, size_t size, size_t nmemb, void* userdata) {
-    const size_t n = size * nmemb;
-    auto* ctx = static_cast<WriteCtx*>(userdata);
-    const size_t room = kMaxBodyBytes - std::min(ctx->body->size(), kMaxBodyBytes);
-    const size_t take = std::min(n, room);
-    ctx->body->append(ptr, take);
-    if (take < n) ctx->truncated = true;
-    return n;  // 吞掉全部（不截断传输本身，只截断留存）
+size_t onBodyWrite(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept {
+    // noexcept：异常绝不能穿过 libcurl 的 C 栈帧；失败返回错误值中断本次传输。
+    try {
+        const size_t n = size * nmemb;
+        auto* ctx = static_cast<WriteCtx*>(userdata);
+        const size_t room = kMaxBodyBytes - std::min(ctx->body->size(), kMaxBodyBytes);
+        const size_t take = std::min(n, room);
+        ctx->body->append(ptr, take);
+        if (take < n) ctx->truncated = true;
+        return n;  // 吞掉全部（不截断传输本身，只截断留存）
+    } catch (...) {
+        return CURL_WRITEFUNC_ERROR;
+    }
 }
 
 struct HeaderCtx {
     std::vector<api::KeyValue>* headers;
 };
 
-size_t onHeaderLine(char* ptr, size_t size, size_t nmemb, void* userdata) {
-    const size_t n = size * nmemb;
-    auto* ctx = static_cast<HeaderCtx*>(userdata);
-    std::string line(ptr, n);
-    // 去掉行尾 \r\n；跳过状态行（HTTP/...）与空行。
-    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
-    const auto colon = line.find(':');
-    if (colon != std::string::npos && !line.starts_with("HTTP/")) {
-        std::string key = line.substr(0, colon);
-        std::string value = line.substr(colon + 1);
-        // value 前导空格
-        const auto pos = value.find_first_not_of(' ');
-        if (pos != std::string::npos) value.erase(0, pos);
-        ctx->headers->push_back({std::move(key), std::move(value), true});
-    }
-    return n;
-}
-
-std::string stripJsonComments(std::string_view input) {
-    std::string output;
-    output.reserve(input.size());
-    bool inString = false;
-    bool escaped = false;
-    for (std::size_t i = 0; i < input.size();) {
-        const char c = input[i];
-        if (inString) {
-            output.push_back(c);
-            if (escaped) escaped = false;
-            else if (c == '\\') escaped = true;
-            else if (c == '"') inString = false;
-            ++i;
-            continue;
+size_t onHeaderLine(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept {
+    // noexcept：异常绝不能穿过 libcurl 的 C 栈帧；返回值不等于入参字节数即中断传输。
+    try {
+        const size_t n = size * nmemb;
+        auto* ctx = static_cast<HeaderCtx*>(userdata);
+        std::string line(ptr, n);
+        // 去掉行尾 \r\n；跳过状态行（HTTP/...）与空行。
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        const auto colon = line.find(':');
+        if (colon != std::string::npos && !line.starts_with("HTTP/")) {
+            std::string key = line.substr(0, colon);
+            std::string value = line.substr(colon + 1);
+            // value 前导空格
+            const auto pos = value.find_first_not_of(' ');
+            if (pos != std::string::npos) value.erase(0, pos);
+            ctx->headers->push_back({std::move(key), std::move(value), true});
         }
-        if (c == '"') {
-            inString = true;
-            output.push_back(c);
-            ++i;
-        } else if (c == '/' && i + 1 < input.size() && input[i + 1] == '/') {
-            i += 2;
-            while (i < input.size() && input[i] != '\n') ++i;
-        } else if (c == '/' && i + 1 < input.size() && input[i + 1] == '*') {
-            i += 2;
-            while (i + 1 < input.size() && !(input[i] == '*' && input[i + 1] == '/')) ++i;
-            if (i + 1 < input.size()) i += 2;
-        } else {
-            output.push_back(c);
-            ++i;
-        }
+        return n;
+    } catch (...) {
+        return 0;
     }
-    return output;
 }
 
 std::string formUrlEncode(std::string_view s) {
@@ -139,8 +124,11 @@ std::vector<std::pair<std::string, std::string>> parseFormData(std::string_view 
 
 class CurlEngine final : public api::ApiEngine {
 public:
-    CurlEngine() : worker_([this] { workerLoop(); }) {
+    CurlEngine() {
+        // 先完成 curl 全局初始化再启动工作线程（初始化非线程安全，
+        // 线程启动后一旦有 send 到达就会调 curl_easy_init）。
         curl_global_init(CURL_GLOBAL_DEFAULT);
+        worker_ = std::thread([this] { workerLoop(); });
     }
     ~CurlEngine() override {
         {
@@ -161,12 +149,21 @@ public:
             ++generation_;
             cancelled_.store(true);  // 打断在途传输（若有）
         }
+        {   // 递增代际后立即清结果槽：上次取消残留的结果（如未被 UI 取走的
+            // "已取消"）不得被新请求的轮询误取。在途旧结果随后也会因代际不符
+            // 被 finish 丢弃。锁序 queueMutex_ → resultMutex_ 单向，无死锁。
+            std::lock_guard rlock(resultMutex_);
+            pending_ = api::ResponseView{};
+            resultReady_ = false;
+        }
         queueCv_.notify_one();
     }
 
     void cancel() override {
         std::lock_guard lock(queueMutex_);
-        cancelled_.store(true);
+        queued_.reset();   // 排队中的请求直接丢弃，取消后不再执行
+        ++generation_;     // 在途结果按代际作废（不投递"已取消"残留进结果槽）
+        cancelled_.store(true);  // 协作打断在途传输
     }
 
     bool busy() const override {
@@ -206,7 +203,23 @@ private:
                 pending_ = api::ResponseView{};
                 resultReady_ = false;
             }
+            runSafely(spec, generation);  // 内部全 catch，结果槽必被填写
+        }
+    }
+
+    // run() 的异常兜底：工作线程上任何异常都落成错误结果投递（代际允许时），
+    // 线程本身绝不因未捕获异常死亡——否则结果槽永远不填，UI 永远停在"发送中…"。
+    void runSafely(const api::RequestSpec& spec, std::uint64_t generation) noexcept {
+        try {
             run(spec, generation);
+        } catch (const std::exception& e) {
+            api::ResponseView result;
+            result.error = std::string{"引擎内部异常: "} + e.what();
+            finish(std::move(result), generation);
+        } catch (...) {
+            api::ResponseView result;
+            result.error = "引擎内部未知异常";
+            finish(std::move(result), generation);
         }
     }
 
@@ -250,7 +263,12 @@ private:
         curl_easy_setopt(easy, CURLOPT_WRITEDATA, &bodyCtx);
         curl_easy_setopt(easy, CURLOPT_HEADERFUNCTION, &onHeaderLine);
         curl_easy_setopt(easy, CURLOPT_HEADERDATA, &headerCtx);
-        curl_easy_setopt(easy, CURLOPT_TIMEOUT, static_cast<long>(spec.timeoutSec));
+        // timeoutSec 覆盖 DNS+连接+传输全程（含 threaded resolver 的解析等待）；
+        // CONNECTTIMEOUT 单独给连接段兜底。非法值（<=0 表示"无限"）一律钳制到
+        // 30s——引擎契约是"任何端点都在有限时间内返回"。
+        const long timeoutSec = spec.timeoutSec > 0 ? spec.timeoutSec : 30L;
+        curl_easy_setopt(easy, CURLOPT_TIMEOUT, timeoutSec);
+        curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, timeoutSec);
         curl_easy_setopt(easy, CURLOPT_NOSIGNAL, 1L);  // 多线程必须（禁用信号超时）
         curl_easy_setopt(easy, CURLOPT_USERAGENT, "apitab/0.1");
         curl_easy_setopt(easy, CURLOPT_ACCEPT_ENCODING, "");  // 自动解压 gzip/br
@@ -264,9 +282,7 @@ private:
             if (spec.bodyKind == api::BodyKind::FormUrlEncoded) {
                 body = serializeFormUrlEncoded(spec.bodyFields);
             }
-            if (spec.bodyKind == api::BodyKind::Json && spec.allowJsonComments) {
-                body = stripJsonComments(body);
-            }
+            // allowJsonComments 是 UI/编辑层关注点（发送前由上层剥离注释），引擎不处理。
             curl_easy_setopt(easy, CURLOPT_POSTFIELDS, body.data());
             curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE,
                              static_cast<long>(body.size()));
@@ -293,16 +309,10 @@ private:
 
         if (code == CURLE_OK) {
             result.ok = true;
-            double total = 0, dns = 0, connect = 0, tls = 0;
+            double total = 0;
             curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &result.status);
             curl_easy_getinfo(easy, CURLINFO_TOTAL_TIME, &total);
-            curl_easy_getinfo(easy, CURLINFO_NAMELOOKUP_TIME, &dns);
-            curl_easy_getinfo(easy, CURLINFO_CONNECT_TIME, &connect);
-            curl_easy_getinfo(easy, CURLINFO_APPCONNECT_TIME, &tls);
             result.totalMs = total * 1000.0;
-            result.dnsMs = dns * 1000.0;
-            result.connectMs = connect * 1000.0;
-            result.tlsMs = tls * 1000.0;
             curl_off_t size = 0;
             curl_easy_getinfo(easy, CURLINFO_SIZE_DOWNLOAD_T, &size);
             result.sizeBytes = static_cast<std::int64_t>(size);

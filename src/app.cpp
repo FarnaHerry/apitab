@@ -7,7 +7,7 @@
 
 // EUI 时代由框架提供的 UI 唤醒钩子。HuxerUI 是 State 驱动失效模型，
 // 引擎结果由 TaskScope 的轮询任务在 UI 线程取回并写 State，这里降级为 no-op。
-// 引擎实现单元（curl/k6/websocket/tcp_engine.cpp）经全局模块片段前向声明引用本符号。
+// 引擎实现单元（k6_engine.cpp）经全局模块片段前向声明引用本符号。
 namespace core::platform {
 void requestUiUpdate() {}
 } // namespace core::platform

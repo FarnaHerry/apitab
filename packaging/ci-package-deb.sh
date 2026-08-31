@@ -47,7 +47,7 @@ Architecture: ${debarch}
 Maintainer: FarnaHerry <farnaherry@users.noreply.github.com>
 Depends: libx11-6, libxrandr2, libxcursor1, libxinerama1, libxi6, libgl1
 Description: API testing and load testing tool
- Single-request API debugging (curl), WebSocket/TCP clients and k6 load
+ Single-request API debugging, WebSocket/TCP clients and k6 load
  testing with SQLite-backed collections and history.
 Installed-Size: $(du -sk "$stage/opt" | cut -f1)
 EOF

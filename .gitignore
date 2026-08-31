@@ -22,5 +22,12 @@ engines/
 # 会话目录
 .claude/
 
+# HuxerUI 上游源码 clone（存在时优先于 third_party/tarballs 的预编译 SDK）
+third_party/huxerui/
+# SweetEditor 组件库 clone（body/k6 脚本编辑器）
+third_party/huxerui-sweetedit/
+# 用当前 huxerui 源码本地构建的宿主工具（hcg/hrc；上游 linux 预置可能落后于源码）
+third_party/huxerui-tools/
+
 # huxerui_add_app 生成物
 .agents/

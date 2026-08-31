@@ -2,8 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-apitab 是一个 **C++23 模块化 GUI 工具**：API 测试（libcurl 单请求）+ k6 压测 +
-SQLite 存储，用 **CMake** 构建。前端为 **HuxerUI**（组件式声明 UI，官方预编译
+apitab 是一个 **C++23 模块化 GUI 工具**：API 测试（单次请求走 curl 引擎抽象
+`api::ApiEngine`）+ k6 压测 + SQLite 存储，用 **CMake** 构建。前端为 **HuxerUI**（组件式声明 UI，官方预编译
 SDK 接入）；迁移地图见 `docs/huxerui-migration.md`。分层：UI（src/ui/*.cpp +
 app_main.cpp，普通 C++ 源走 hcg codegen）/ 领域 store（apitab.* 模块）/ 引擎
 三层，引擎自保留在 store 单例中。
@@ -11,17 +11,127 @@ app_main.cpp，普通 C++ 源走 hcg codegen）/ 领域 store（apitab.* 模块�
 ## HuxerUI 开发参考
 
 UI 工作先读官方 skill：`.claude/skills/huxerui-app-development/SKILL.md`
-（从 HuxerUI 官方仓库同步；references/ 含 dsl-style、components、fundamentals、
-layout-and-ui、theme-animation-presentation、navigation-and-window 等分册）。
+（从 HuxerUI 官方仓库同步：`cp -a third_party/huxerui/skills/huxerui-app-development/
+.claude/skills/huxerui-app-development/`；references/ 含 dsl-style、components、
+fundamentals、layout-and-ui、theme-animation-presentation、navigation-and-window
+等分册）。注意三处 `apitab local addendum` 本地补充（重新同步上游后需
+保留/重放）：`references/gestures-and-drag-drop.md` 的 Hover 节（hover
+双通道语义与组合行配方）、`references/components.md` 的 Select 节
+（item 工厂 per-item Indication 定制）、`references/theme-animation-
+presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）。
 要点：
 
-- SDK truth：`find_package(HuxerUI CONFIG REQUIRED COMPONENTS shared)`，
-  `HuxerUI_DIR` 指向 third_party 解包产物（`build/vendor/huxerui/...`）。
+- HuxerUI 接入：优先 `third_party/huxerui` 源码（git clone 的上游仓库，
+  `add_subdirectory` 编译，跟踪上游更新 `git pull` 即可；不入库，.gitignore
+  已忽略）；目录不存在或 Linux 缺 gtk4/libsoup-3.0 开发包时自动回落
+  `third_party/tarballs` 的预编译 SDK（`find_package(HuxerUI CONFIG REQUIRED
+  COMPONENTS shared)`，`HuxerUI_DIR` 指向 `build/vendor/huxerui/...`）。
+  源码模式编译 Linux 后端需要 `sudo dnf install gtk4-devel libsoup3-devel`。
+  强制回落 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`。
+- 源码 clone 当前带三处本地补丁：① `platform/linux/linux_adapter.cpp` 在
+  gdkx.h 后 `#undef None`（上游 3eafb0b 引入的 `PointerButton::None` 与
+  X11 `None` 宏冲突，已向作者反馈口径见会话记录）。上游修复后 `git checkout
+  -- platform/linux/linux_adapter.cpp && git pull` 即可归位。
+  ② `tools/codegen/CMakeLists.txt` 与 `tools/resource_compiler/CMakeLists.txt`
+  的 Linux 静态链接改为可用 `-DAPITAB_HOST_TOOLS_DYNAMIC=ON` 关掉（本机无
+  libstdc++-static，免 sudo；仅影响本机自编译宿主工具）。
+  ③ 无其他源码改动。
+- **上游 linux 预置宿主工具可能落后于源码**：4a56daf 改了 svg 编译器/path
+  编码却只重发了 mac/windows/android 的预置 hrc/hcg，linux 预置仍是旧的
+  → 新运行时解旧资源包启动即抛 "unknown path operation"。对策：用当前
+  源码本地构建 hcg/hrc 到 `third_party/huxerui-tools/linux/x86_64/`
+  （已 gitignore）：
+  `cmake -S third_party/huxerui/tools/<codegen|resource_compiler> -B
+  build/host-tools-build/<...> -G Ninja -DCMAKE_BUILD_TYPE=Release
+  -DAPITAB_HOST_TOOLS_DYNAMIC=ON && cmake --build ... && cmake --install ...
+  --strip --prefix third_party/huxerui-tools/linux/x86_64`；
+  顶层 CMakeLists 检测到该目录即设 `HUXERUI_HOST_TOOL_ROOT` 优先使用。
+  **每次 pull 后都应重跑一次该流程**（并删除 build/hcg、
+  build/huxerui-resources 等旧工具产物缓存）。上游补齐 linux 预置后可删。
+- sweetedit 接入：`third_party/huxerui-sweetedit`（git clone，不入库，已
+  gitignore）提供 SweetEditor 代码编辑器（行号/语法高亮），经
+  `huxerui_use_library(apitab TARGET sweetedit_core ...)` 编译；其
+  3dparty/SweetEditor、SweetLine 是 gitlink 但上游无 .gitmodules，真实源为
+  github.com/FinalScave/SweetEditor(bd4330e)、FinalScave/SweetLine(64665d9)，
+  已手动 clone 固定提交。已用于请求页 body 编辑器（request_page.cpp
+  BodyTextEditor）和压测页 k6 脚本编辑器（loadtest_page.cpp）；语法 DSL 在
+  src/ui/syntax_grammars.h（kJsonSyntax/kJavaScriptSyntax/kXmlSyntax/
+  kGraphqlSyntax/kPlainSyntax）。body 文本按类型独立存档（RequestDraft::bodies
+  下标 = api::BodyKind 值，保存时全量落 db::SavedRequest::bodyContents）。
+  注意：SweetEditor **非受控组件**，外部改文本必须
+  `controller.LoadDocument(key, text, syntax)`，仅 document_key 变化才重载
+  initial_text。本地补丁（改动处均带 `NOTE(apitab local patch)` 注释，
+  **上游 pull 后需逐一核对/归位**）：① `include/sweetedit_core/sweet_editor.h`
+  的 11 个事件声明从旧式 `Event<Args...>`（面向 SDK 0.1.0）改为 HuxerUI
+  main 的函数签名式 `Event<void(Args...)>`，发射侧不受影响；②
+  `src/sweet_editor/sweet_editor.cpp` 的 8 处 StrokePath/DrawBorder 由
+  float 线宽改为 `StrokeStyle{.width=...}`、`Extension::OnKey` 返回类型
+  void→bool（跟进 81e8bbc 统一描边样式、a7d38c9 可消费键盘路由）；
+  ③ **调色板注入**：新增 `SweetEditorPalette`（约 60 个 ARGB 字段，
+  默认=原浅色）+ `SweetEditorOptions::palette`，sweet_editor.cpp /
+  sweetline_highlighter.cpp 全部颜色（含语法高亮与彩虹括号）改读 palette。
+  应用侧经 `EditorPalette(theme)`（common.cpp，深色=结构色从 ThemeSpec
+  派生 + VS Code Dark+ 语法色）在 BodyTextEditor 与压测页脚本编辑器接线。
+  均建议反馈作者：sweetedit 需跟进 HuxerUI main 的 Event/Stroke/键盘
+  API 变化，并支持官方主题配色入口。
 - UI 层是**普通 .cpp**（不要 .cppm：codegen 只扫 .cpp/.cc/.cxx）；composable
   函数不加 `inline`；入口/根写在 src/app_main.cpp + src/ui/app.cpp。
 - 主题从 MaterialTheme/MaterialDarkTheme 等内置主题定制；受控值以应用状态为
   权威；动态兄弟用稳定 Key。
 - 框架资源：resources.bin 拷到 `<exe>.resources/huxerui/`（POST_BUILD 完成）。
+- **SDK/源码版本更新时检索计划项**：HuxerUI 版本变化（tarball 换新或
+  `third_party/huxerui` git pull 升级）后，按 `docs/plans/` 里各计划的
+  「版本检索规则」检索新版能力（多窗口/跨窗口拖放等，见
+  `docs/plans/project-tab-tear-off-window.md`）；不更新则无需检索。
+- **已用上的 2026-08-30 新能力**（仅源码模式有，SDK 0.1.0 无；
+  `PointerEvent button 字段`计划项已落地）：右键事件
+  `ViewEvents::ContextMenuRequested` + `ShowPopupMenuAt`（请求树列表右键
+  菜单，自绘 PopupMenu）；官方 `Select` 下拉（设置页/历史页/压测页方法，
+  自绘 DropdownSelect 已删；组合栏内的方法/环境触发器因自带描边外观仍
+  手拼——方法触发器用 `ShowPopupMenu`，环境触发器仍用 UseMenu）；`PointerEvent.changed_button/pressed_buttons` 区分
+  左/右/中/前进/后退键；`SceneTransitionHandle.RunFromCurrentInteraction`
+  （主题切换动画从点击处展开，设置页）。
+- **hover 已换官方 API**（2026-08-31，487eeff `feat(events): add hover
+  lifecycle events`）：`ViewEvents::Hover`（Enter/Move/Leave，containment
+  语义——绑定 View 的子组件间移动不发 Leave，只挂 Hover 不进 pointer
+  route）。原 HoverTrack/HoverCell（ui.h 自研聚合扩展）已整体删除，行/标签
+  悬停显隐 = 最外层容器挂一个 `.On<ViewEvents::Hover>`。NodeExtension 的
+  hover 回调同步改名为 `OnHover(MountedNode&, const HoverEvent&)`。
+- **弹窗层捕获调用处环境**：`dialog.Show` 的层内容继承组合处的
+  Environment/Theme。AppRoot 在 MinimalThemed provider **之上**（自身
+  UseTheme 只拿到默认浅色 spec），所以关闭询问弹窗等需要主题的层必须
+  在 provider 之下的 composable 里 Show（关闭弹窗宿主 =
+  app.cpp `CloseGuard`，包在 MinimalThemed 内）。自定义内容弹窗统一走
+  `DialogCard`（common.cpp）包底板；布局统一：Column 加
+  `CrossAlign(Stretch)` + 固定宽，按钮行 `MainAlign(SpaceBetween)`。
+- **方法配色与危险颜色约定**（2026-08-31 起，两者**已分离**）：
+  ① HTTP 方法统一色表 `MethodColor(theme, method)`（ui.h）：GET 绿 /
+  POST 琥珀 / PUT 蓝 / PATCH 紫 / DELETE 玫红（**不是** error 红）/
+  HEAD 灰蓝 / OPTIONS 青 / CONNECT 棕 / TRACE 灰 / QUERY 靛蓝 /
+  PURGE 深橙，深浅主题各一套；WebDAV 长尾（PROPFIND 等）与 WS/TCP
+  徽标回落 on_surface_variant。方法列表 20 个（经典 7 + CONNECT/
+  TRACE/QUERY/PURGE + WebDAV 9 个；curl 走 CURLOPT_CUSTOMREQUEST、
+  k6 走 http.request 都接受任意方法名；框架 HttpClient 的 HttpMethod
+  枚举只有经典 7 个 → http_test_page 不扩充）。染色点 = 请求页徽标/
+  标签 chip/拖影、MethodUrlBar 触发器与自绘下拉项、压测页方法
+  Select（item 工厂按组合期快照着色，不按引用捕获 theme——工厂会被
+  菜单层稍后调用）。
+  ② **危险色 = `ThemeSpec::error`，专属危险操作**（删除/清空等），
+  方法 UI 一律不用。自绘弹出菜单统一走
+  `ShowPopupMenu`/`ShowPopupMenuAt`（common.cpp，UsePopup 承载，外观
+  对齐环境 MenuStyle；作者口径：MenuItem 无 per-item 配色 API，需要
+  定制就自己用 UsePopup 做菜单内容）。**选择列表选中项不用对钩，填充
+  比 hover 深一档的底色**（取 item_indication.press 填充色，兜底
+  surface_container_highest）。条目 `PopupMenuDanger`：
+  kHoverRed = 常态普通色、hover 变红（集合树 ⋮/右键与编辑器 ⋮ 的
+  "删除/删除分组"）；kAlwaysRed = 常驻红。`PopupMenuItem::label_color`
+  可逐条自定义文字色（方法下拉即用它按 MethodColor 着色）。官方
+  Select 下拉走 item 工厂：工厂里给单个 item 设
+  `Indication{.hover = ...}` 会覆盖默认悬停色（作者口径）。
+  ③ 确认弹窗里的危险操作按钮**直接显示危险色**：统一走
+  `ShowDangerConfirm`（common.cpp，DialogCard + ProvideEnvironment 局部
+  覆盖 ButtonStyle 为红底白字）；清空历史、删除环境、删除请求（集合树
+  ⋮/右键菜单与编辑器 ⋮ 菜单两处入口）等破坏性确认均已迁入。
 
 ## 构建 / 运行
 
@@ -46,11 +156,13 @@ ctest --test-dir build             # 冒烟测试（test_smoke）
   experimental：版本相关 UUID 表在 `cmake/CxxImportStdGate.cmake`）。
 - **依赖全部 vendor 在 `third_party/`**（tarball + SHA256，configure 期解包到
   `build/vendor/`，离线可复现；版本与原 mcpp.lock 一致，清单见
-  `third_party/README.md`）：HuxerUI 0.1.0 SDK（官方预编译，shared 组件）、
+  `third_party/README.md`）：HuxerUI（**优先 `third_party/huxerui` 源码
+  clone 编译**，缺该目录或缺 gtk4/libsoup 开发包时回落 0.1.0 预编译 SDK）、
   Asio 1.38.1（`import asio` 模块在 `cmake/asio.cppm`）、IXWebSocket 12.0.1
-  （client-only、无 TLS/zlib）、curl 8.21.0（OpenSSL 后端）、SQLiteCpp 3.3.3
+  （client-only、无 TLS/zlib）、SQLiteCpp 3.3.3
   （内置 amalgamation）、nlohmann::json 3.12.0（`import nlohmann.json` 模块在
-  `cmake/nlohmann.json.cppm`）。
+  `cmake/nlohmann.json.cppm`）。单次 HTTP 走 curl 引擎抽象 `api::ApiEngine`
+  （`apitab.curl_engine`，常驻工作线程实现），由领域 store 持有，便于替换。
 - OpenSSL：优先系统包；linux x86_64 找不到系统 OpenSSL 时回落到 vendor 的静态
   3.5.1（`third_party/tarballs/openssl-3.5.1-linux-x86_64.tar.gz`）。本机缺 X11
   开发头时，构建会借用 mcpp subos 视图的 X11/GL 子集（`third_party/CMakeLists.txt`
@@ -67,24 +179,29 @@ ctest --test-dir build             # 冒烟测试（test_smoke）
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `apitab.api_engine` | `src/api_engine.cppm` | 抽象接口 `ApiEngine` / `LoadEngine` / `WebSocketEngine` / `TcpEngine` + `RequestSpec` / `ResponseView` / `LoadOptions` / `LoadSummary` |
-| `apitab.curl_engine` | `src/curl_engine.cppm/.cpp` | 单请求引擎：常驻工作线程 + 条件变量队列，send 纯入队（UI 线程零阻塞，绝不 join）；代际结果槽 + `requestUiUpdate()` 唤醒；`CURLOPT_XFERINFOFUNCTION` 协作取消 |
+| `apitab.curl_engine` | `src/curl_engine.cppm/.cpp` | 单次请求引擎的 curl 实现（常驻工作线程；send 纯入队、代际丢弃、cancel 协作打断且丢弃排队请求、取消后结果不投递；run 全 try/catch 兜底填错误结果）；`makeCurlEngine()` 工厂，curl 头只进实现单元 |
 | `apitab.k6_engine` | `src/k6_engine.cppm/.cpp` | 压测引擎：生成 k6 脚本（`handleSummary` 打印 `K6SUMMARY {json}` 行）→ spawn 子进程 → 监视线程拆 `\r`/`\n` 行入队；stop=SIGINT，3s 宽限后 SIGKILL |
-| `apitab.websocket_engine` / `apitab.tcp_engine` | `src/*.cppm/.cpp` | IXWebSocket / Asio 实现，回调只投递事件 |
 | `apitab.db` | `src/db.cppm/.cpp` | SQLiteCpp：requests / history / load_tests 三表；KV 序列化为 JSON |
 | `apitab.config` | `src/config.cppm` | 数据目录（~/.local/share/apitab）/ k6 二进制解析 |
 | `apitab.utils` | `src/utils.cppm` | 纯 string/number 帮助函数 + percentEncode / appendQuery |
-| `apitab.store.requests` | `src/store/requests.cppm` | 领域 store：`g_requests` 持有 curl 引擎 + Db；组织/项目/集合 CRUD / send / pollResult（落历史） |
+| `apitab.store.requests` | `src/store/requests.cppm` | 领域 store：`g_requests` 持有 curl 引擎与 Db；组织/项目/集合 CRUD / finalizeSpec（{{var}} 环境变量替换 + 拼 URL + 合并全局 Cookie）/ sendViaEngine / takeResponse / recordHistory（落历史） |
 | `apitab.store.loadtest` | `src/store/loadtest.cppm` | 领域 store：`g_loadtest` 持有 k6 引擎；start/stop/drainOutput/pollSummary（落压测记录） |
 | `apitab.preferences` | `src/preferences.cppm` | 会话偏好（settings.ini 的 session.*），跨会话状态恢复 |
-| `apitab.ui.*`（普通 C++） | `src/ui/*.cpp` | HuxerUI 前端：app（导航壳）/ home_page / request_page / common |
+| `apitab.ui.*`（普通 C++） | `src/ui/*.cpp` | HuxerUI 前端：app（导航壳）/ home_page / request_page / common；ws_session/tcp_session（WS/TCP 会话，页面协程持有）、task_bridge.h（线程协程桥） |
 | `src/app_main.cpp` | 普通 TU | 入口：`Application{AppRoot, AppOptions}` + `RunApplication()`；`requestUiUpdate` no-op 钩子 |
 
 **入口**：`huxerui_add_app(apitab SOURCES ...)` 生成 app 目标并启用 hcg codegen；
 领域层模块经 FILE_SET 追加到同一目标，`main()` 在 `src/app_main.cpp`。
 
-**事件驱动**：HuxerUI 是 State 驱动失效模型。引擎异步结果由页面内
-`UseTaskScope().Launch` 协程轮询 `pollResult/pollSummary/drainOutput` 并直接写
-State（UI 线程调度）；旧 `requestUiUpdate` 唤醒钩子保留为 no-op。
+**事件驱动**：HuxerUI 是 State 驱动失效模型。UI 线程 ↔ 任务线程的分离由
+`src/ui/task_bridge.h` 的协程桥承担：单次 HTTP 请求由 store 持有的 curl 引擎
+传输（send 纯入队，UI 协程 `PollWhile` 轮询 `takeResponse` 取回结果，恢复点
+恒为 UI 线程）；WS/TCP 会话由
+页面协程直接持有（`ws_session`/`tcp_session`，应用侧不拥有线程：IX 自管线程，
+TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结果经
+`PollWhile` 轮询 `pollSummary/drainOutput` 并在 UI 线程写 State；阻塞/CPU
+重活经 `RunOnTaskThread` 派到任务线程池。旧 `requestUiUpdate` 唤醒钩子保留
+为 no-op（仅 k6 引擎仍引用）。
 
 ## 关键约定（改代码前必读）
 
@@ -99,16 +216,18 @@ State（UI 线程调度）；旧 `requestUiUpdate` 唤醒钩子保留为 no-op�
    （prefer/require/query 的 static_instance）在 GCC 下会重复定义。
 5. **受控值以应用状态为权威**（官方 skill：controlled values）；TextField 保留
    完整 TextEditingValue；动态兄弟用稳定 `.Key(...)`。
-6. **异步结果**：页面 `UseTaskScope().Launch` 协程轮询引擎并写 State；
-   `requestUiUpdate` 是 no-op 钩子（app_main.cpp），不要新加调用。
+6. **异步结果**：线程契约与协程桥在 `src/ui/task_bridge.h`——State 只在 UI
+   线程读写；引擎结果用 `PollWhile(interval, tick)` 按节拍取回（tick 内
+   drain/poll + 写 State）；阻塞/CPU 重活用 `co_await RunOnTaskThread(fn)`
+   派给任务线程池，结果/异常回 UI 线程恢复。`requestUiUpdate` 是 no-op
+   钩子（app_main.cpp），不要新加调用。
    **事件处理器内禁止同步写会导致点击节点被卸载的 State**（如切页/关标签/
    切主题）——pointer-up 处理中同步重组会卸载按钮子树，框架随后 erase
    PointerSession 段错误。必须经 `tasks.Launch` + `co_await Delay(0)` 推迟；
    组合体内也不要写 State（挂载路径重入），初始值在 UseState 之前算好。
 7. **k6 指标**：Trend 汇总默认只带 avg/min/med/max/p(90)/p(95)——脚本 options 里
    已声明 `summaryTrendStats` 加 p(99)，p50 用 `med` 键（没有 `p(50)`）。
-8. **curl_easy_setopt 多线程必须 `CURLOPT_NOSIGNAL=1`**（已设）。
-9. **Spacer 自带 Grow(1)**：零宽/零高占位绝不能用 `Spacer().With(Frame{...})`——
+8. **Spacer 自带 Grow(1)**：零宽/零高占位绝不能用 `Spacer().With(Frame{...})`——
    它会和兄弟平分剩余空间（曾把首页挤到右半屏）。占位用空 `Row{}`/`Column{}`；
    岛屿布局的根链必须层层有界：外壳根 Column 要 `CrossAlign(Stretch)`，页面根
    `Grow(1.0F)`，岛占满分区块、内容在岛内滚动（不要 ScrollView 套自包含岛）。

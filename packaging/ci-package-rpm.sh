@@ -41,7 +41,7 @@ AutoReqProv:    yes
 BuildArch:      ${rpmarch}
 
 %description
-Single-request API debugging (curl), WebSocket/TCP clients and k6 load
+Single-request API debugging, WebSocket/TCP clients and k6 load
 testing with SQLite-backed collections and history.
 
 %install

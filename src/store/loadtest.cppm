@@ -34,6 +34,11 @@ public:
     std::string binaryPath() const { return engine_->binaryPath(); }
     bool running() const { return engine_->running(); }
 
+    // 按请求参数生成 k6 脚本模板（压测页脚本编辑器的初始内容/重新生成）。
+    std::string scriptTemplate(const api::RequestSpec& spec, const api::LoadOptions& opts) const {
+        return api::BuildScript(spec, opts);
+    }
+
     // ---- 命令 ----
 
     // 拉起压测。finalUrl 由调用方拼好（与单次发送同一套 query 逻辑）。

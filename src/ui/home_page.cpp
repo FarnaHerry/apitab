@@ -23,29 +23,21 @@ namespace apitab::ui {
 
 namespace {
 
-// 组织列表行：名称区（点击选中）与 ✕ 删除区为兄弟节点（对齐 app.cpp ProjectTab 的
-// 写法），避免嵌套点击歧义；删除/切换都会重组卸载本行，故均推迟执行。
+// 组织列表行：OnClick 挂在整行 Row 上（框架点击不冒泡，最深绑定生效，行尾 ✕
+// 的点击仍只触发 ✕）。悬停反馈走 Hover 事件通道（非独占，悬停 ✕ 也触发）
+// 驱动整行底色；行自身压掉默认 Indication 避免双层叠加，✕ 保留自己的高亮。
+// 删除/切换都会重组卸载本行，故均推迟执行。
 [[huxerui::composable]] huxerui::View OrgRow(const db::Org& org, bool selected,
                                              huxerui::State<int> refresh) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
     auto tasks = huxerui::UseTaskScope();
+    auto hovered = huxerui::UseState(false);
     return huxerui::Row {
         huxerui::Text(org.name, huxerui::TextRole::Label)
             .With(huxerui::Grow(1.0F), huxerui::Padding(4.0F),
                   huxerui::Foreground(selected ? theme.colors.on_surface
-                                               : theme.colors.on_surface_variant))
-            .OnClick([tasks, toast, refresh, id = org.id] {
-                // 切组织会级联切项目并重载列表：重组卸载本行，推迟出指针事件路径
-                tasks.Launch([=]() -> huxerui::Task<void> {
-                    co_await huxerui::Delay(std::chrono::duration<double>{0});
-                    if (const std::string err = g_requests.selectOrg(id); !err.empty()) {
-                        toast.Show("切换组织失败: " + err);
-                        co_return;
-                    }
-                    refresh = refresh.Get() + 1;
-                });
-            }),
+                                               : theme.colors.on_surface_variant)),
         huxerui::Text("✕", huxerui::TextRole::Label)
             .With(huxerui::Padding(4.0F),
                   huxerui::Foreground(theme.colors.on_surface_variant))
@@ -59,17 +51,37 @@ namespace {
                     }
                     refresh = refresh.Get() + 1;
                 });
-            })
-            .On<huxerui::ViewEvents::PointerMove>([](const huxerui::PointerEvent&) {}),
+            }),
     }
         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
               huxerui::CornerRadius(theme.shapes.medium),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
               selected ? huxerui::Background(theme.colors.surface_container_highest)
-                       : huxerui::Background(huxerui::Color::Transparent()));
+                       : hovered.Get()
+                             ? huxerui::Background(theme.colors.surface_container)
+                             : huxerui::Background(huxerui::Color::Transparent()),
+              huxerui::Indication{})
+        .OnClick([tasks, toast, refresh, id = org.id] {
+            // 切组织会级联切项目并重载列表：重组卸载本行，推迟出指针事件路径
+            tasks.Launch([=]() -> huxerui::Task<void> {
+                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                if (const std::string err = g_requests.selectOrg(id); !err.empty()) {
+                    toast.Show("切换组织失败: " + err);
+                    co_return;
+                }
+                refresh = refresh.Get() + 1;
+            });
+        })
+        .On<huxerui::ViewEvents::Hover>([hovered](const huxerui::HoverEvent& e) {
+            if (e.type == huxerui::HoverEventType::Enter)
+                hovered = true;
+            else if (e.type == huxerui::HoverEventType::Leave)
+                hovered = false;
+        });
 }
 
 // 项目卡片：固定尺寸，Flow 内自动换行；点击打开 = 领域选择 + 标签页 + 跳请求页。
+// 已打开的项目用主色名称标记（原 ID/「点击打开」提示已按设计要求移除）。
 [[huxerui::composable]] huxerui::View ProjectCard(const db::Project& project,
                                                   huxerui::State<std::size_t> navPage,
                                                   huxerui::State<std::vector<std::int64_t>> tabs,
@@ -79,13 +91,9 @@ namespace {
     auto tasks = huxerui::UseTaskScope();
     const bool is_open = activeProject.Get() == project.id;
     return huxerui::Column {
-        huxerui::Text(project.name, huxerui::TextRole::Title),
-        huxerui::Text("ID: " + std::to_string(project.id), huxerui::TextRole::Body)
-            .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-        huxerui::Spacer(),
-        huxerui::Text(is_open ? "已打开" : "点击打开", huxerui::TextRole::Body)
+        huxerui::Text(project.name, huxerui::TextRole::Title)
             .With(huxerui::Foreground(is_open ? theme.colors.primary
-                                              : theme.colors.on_surface_variant)),
+                                              : theme.colors.on_surface)),
     }
         .With(huxerui::Frame{.width = 200.0F, .height = 96.0F},
               huxerui::Padding(theme.spacing.medium), huxerui::Spacing(4.0F),
@@ -164,7 +172,7 @@ namespace {
                 dialog.Show(
                     [tasks, toast, refresh, newOrgName](huxerui::DialogContext ctx)
                         -> huxerui::View {
-                        return huxerui::Column {
+                        return DialogCard(huxerui::Column {
                             huxerui::Text("新建组织", huxerui::TextRole::Title),
                             huxerui::TextField(newOrgName)
                                 .Label("组织名称")
@@ -196,10 +204,16 @@ namespace {
                                         });
                                     }),
                             }
-                                .With(huxerui::Spacing(8.0F)),
+                                // 两端对齐：取消在左、创建在右；内容列
+                                // CrossAlign(Stretch) 把按钮行拉到卡片整宽。
+                                .With(huxerui::Spacing(8.0F),
+                                      huxerui::MainAlign(
+                                          huxerui::MainAxisAlignment::SpaceBetween)),
                         }
-                            .With(huxerui::Padding(20.0F), huxerui::Spacing(12.0F),
-                                  huxerui::Frame{.width = 320.0F});
+                                            .With(huxerui::Spacing(12.0F),
+                                                  huxerui::Frame{.width = 320.0F},
+                                                  huxerui::CrossAlign(
+                                                      huxerui::CrossAxisAlignment::Stretch)));
                     },
                     huxerui::DialogOptions{});
             }),
@@ -230,7 +244,7 @@ namespace {
                     dialog.Show(
                         [tasks, toast, refresh, newProjectName](huxerui::DialogContext ctx)
                             -> huxerui::View {
-                            return huxerui::Column {
+                            return DialogCard(huxerui::Column {
                                 huxerui::Text("新建项目", huxerui::TextRole::Title),
                                 huxerui::TextField(newProjectName)
                                     .Label("项目名称")
@@ -264,10 +278,16 @@ namespace {
                                             });
                                         }),
                                 }
-                                    .With(huxerui::Spacing(8.0F)),
+                                    // 两端对齐：取消在左、创建在右；内容列
+                                    // CrossAlign(Stretch) 把按钮行拉到卡片整宽。
+                                    .With(huxerui::Spacing(8.0F),
+                                          huxerui::MainAlign(
+                                              huxerui::MainAxisAlignment::SpaceBetween)),
                             }
-                                .With(huxerui::Padding(20.0F), huxerui::Spacing(12.0F),
-                                      huxerui::Frame{.width = 320.0F});
+                                                .With(huxerui::Spacing(12.0F),
+                                                      huxerui::Frame{.width = 320.0F},
+                                                      huxerui::CrossAlign(
+                                                          huxerui::CrossAxisAlignment::Stretch)));
                         },
                         huxerui::DialogOptions{});
                 }),

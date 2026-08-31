@@ -208,7 +208,9 @@ public:
                 failFast("无法写入临时脚本: " + scriptPath_.string());
                 return;
             }
-            out << buildScript(spec, opts);
+            // opts.script 非空 = 用户在编辑器里自定义的脚本，原样跑；
+            // 空 = 按 spec 自动生成（与 BuildScript 模板同一份逻辑）。
+            out << (opts.script.empty() ? buildScript(spec, opts) : opts.script);
         }
 
         if (!spawn()) {
@@ -489,6 +491,14 @@ private:
 };
 
 } // namespace
+
+namespace api {
+
+std::string BuildScript(const RequestSpec& spec, const LoadOptions& opts) {
+    return buildScript(spec, opts);
+}
+
+} // namespace api
 
 std::unique_ptr<api::LoadEngine> makeK6Engine(std::string binaryPath) {
     return std::make_unique<K6Engine>(std::move(binaryPath));

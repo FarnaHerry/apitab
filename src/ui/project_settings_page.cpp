@@ -1,4 +1,4 @@
-// project_settings_page.cpp — 当前项目设置：项目信息与重命名。
+// project_settings_page.cpp — 当前项目设置：项目名称重命名（不展示内部 ID）。
 // 未选择项目的兜底已删：主页整宽覆盖侧栏后，未打开项目时本页不可达。
 #include <huxerui/huxerui.h>
 
@@ -38,10 +38,6 @@ namespace apitab::ui {
     return huxerui::Column {
         PageHeader("项目设置", "当前项目：" + project->name),
         huxerui::ScrollView{huxerui::Column {
-            huxerui::Text("项目 ID: " + std::to_string(project->id), huxerui::TextRole::Body)
-                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-            huxerui::Text("组织 ID: " + std::to_string(project->orgId), huxerui::TextRole::Body)
-                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
             huxerui::Row {
                 huxerui::TextField(name)
                     .Label("项目名称")

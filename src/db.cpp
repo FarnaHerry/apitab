@@ -1,5 +1,5 @@
 // db.cpp — apitab.db 实现单元（SQLiteCpp + nlohmann.json）。
-// params/headers 序列化成 JSON 数组：[{"k":..,"v":..,"on":true}, ...]。
+// params/headers/environments.variables 序列化成 JSON 数组：[{"k":..,"v":..,"on":true}, ...]。
 module;
 
 #include <ctime>  // std::time（created_at）
@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS environments (
     project_id INTEGER NOT NULL DEFAULT 0,
     name       TEXT NOT NULL,
     base_url   TEXT NOT NULL DEFAULT '',
+    variables  TEXT NOT NULL DEFAULT '[]',
     created_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS requests (
@@ -170,7 +171,8 @@ CREATE TABLE IF NOT EXISTS load_tests (
 );
 )SQL");
 
-        // 迁移：旧库的 requests 没有 group_id / body_kind，groups 没有 parent_id。
+        // 迁移：旧库的 requests 没有 group_id / body_kind，groups 没有 parent_id，
+        // environments 没有 variables。
         {
             bool hasGroupId = false;
             bool hasBodyKind = false;
@@ -182,6 +184,7 @@ CREATE TABLE IF NOT EXISTS load_tests (
             bool hasBodyContents = false;
             bool hasGlobalCookieProjectId = false;
             bool hasParentId = false;
+            bool hasEnvVariables = false;
             SQLite::Statement cookieInfo(db, "PRAGMA table_info(global_cookies)");
             while (cookieInfo.executeStep()) {
                 if (cookieInfo.getColumn(1).getString() == "project_id") hasGlobalCookieProjectId = true;
@@ -205,6 +208,10 @@ CREATE TABLE IF NOT EXISTS load_tests (
             SQLite::Statement groups(db, "PRAGMA table_info(groups)");
             while (groups.executeStep()) {
                 if (groups.getColumn(1).getString() == "parent_id") hasParentId = true;
+            }
+            SQLite::Statement envs(db, "PRAGMA table_info(environments)");
+            while (envs.executeStep()) {
+                if (envs.getColumn(1).getString() == "variables") hasEnvVariables = true;
             }
             if (!hasGroupId) {
                 db.exec("ALTER TABLE requests ADD COLUMN group_id INTEGER NOT NULL DEFAULT 0");
@@ -232,6 +239,9 @@ CREATE TABLE IF NOT EXISTS load_tests (
             }
             if (!hasParentId) {
                 db.exec("ALTER TABLE groups ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0");
+            }
+            if (!hasEnvVariables) {
+                db.exec("ALTER TABLE environments ADD COLUMN variables TEXT NOT NULL DEFAULT '[]'");
             }
         }
     }
@@ -392,12 +402,13 @@ std::int64_t Db::ensureDefaultProject() {
 
 std::vector<db::Environment> Db::listEnvironments(std::int64_t projectId) {
     SQLite::Statement q(impl_->db,
-        "SELECT id,project_id,name,base_url FROM environments WHERE project_id=? ORDER BY id ASC");
+        "SELECT id,project_id,name,base_url,variables FROM environments WHERE project_id=? ORDER BY id ASC");
     q.bind(1, projectId);
     std::vector<db::Environment> out;
     while (q.executeStep()) {
         out.push_back({q.getColumn(0).getInt64(), q.getColumn(1).getInt64(),
-                       q.getColumn(2).getString(), q.getColumn(3).getString()});
+                       q.getColumn(2).getString(), q.getColumn(3).getString(),
+                       kvFromJson(q.getColumn(4).getString())});
     }
     return out;
 }
@@ -424,6 +435,14 @@ void Db::renameEnvironment(std::int64_t id, const std::string& name) {
 void Db::setEnvironmentBaseUrl(std::int64_t id, const std::string& baseUrl) {
     SQLite::Statement q(impl_->db, "UPDATE environments SET base_url=? WHERE id=?");
     q.bind(1, baseUrl);
+    q.bind(2, id);
+    q.exec();
+}
+
+// variables 与 params/headers 同模式：KV 数组序列化成 JSON 存 TEXT 列。
+void Db::setEnvironmentVariables(std::int64_t id, const std::vector<api::KeyValue>& vars) {
+    SQLite::Statement q(impl_->db, "UPDATE environments SET variables=? WHERE id=?");
+    q.bind(1, kvToJson(vars));
     q.bind(2, id);
     q.exec();
 }
@@ -474,6 +493,13 @@ void Db::renameGroup(std::int64_t id, const std::string& name) {
 void Db::setGroupMode(std::int64_t id, GroupMode mode) {
     SQLite::Statement q(impl_->db, "UPDATE groups SET mode=? WHERE id=?");
     q.bind(1, static_cast<int>(mode));
+    q.bind(2, id);
+    q.exec();
+}
+
+void Db::setGroupParent(std::int64_t id, std::int64_t parentId) {
+    SQLite::Statement q(impl_->db, "UPDATE groups SET parent_id=? WHERE id=?");
+    q.bind(1, parentId);
     q.bind(2, id);
     q.exec();
 }

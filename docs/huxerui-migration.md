@@ -25,7 +25,7 @@ TaskScope 结构化并发）。领域层（src/store/*、引擎、DB、config）
 | EUI-NEO 时代 | HuxerUI 时代 |
 |---|---|
 | `app::compose()` 每事件帧全量重绘 | `AppRoot()` 组合树，State 驱动失效 |
-| `requestUiUpdate()` 唤醒 + poll* | `UseTaskScope` + `co_await Delay` 轮询引擎结果，直接写 State |
+| `requestUiUpdate()` 唤醒 + poll* | `UseTaskScope` + 协程桥（`src/ui/task_bridge.h`：`PollWhile` 轮询引擎结果写 State；`RunOnTaskThread` 阻塞活派任务线程池） |
 | ~~`store/ui.cppm` 全局视图状态~~（已删除） | 页面内 `UseState`；跨页会话走 preferences 模块（settings.ini 的 session.*） |
 | 绝对定位 stack/position | Column/Row/Spacing/Padding + ScrollView |
 | 自绘确认框/菜单 | 待评估（DrawerLayout / Anchored popup） |
@@ -34,7 +34,7 @@ TaskScope 结构化并发）。领域层（src/store/*、引擎、DB、config）
 
 - [x] 应用骨架：导航壳（NavigationPane：主页/请求/压测/历史/设置）+ 会话恢复
 - [x] 主页：项目列表 + 打开工作区 + 刷新
-- [x] 请求页（骨架）：方法/URL/发送/取消 + 响应文本（TaskScope 轮询 curl 引擎）
+- [x] 请求页（骨架）：方法/URL/发送/取消 + 响应文本（内置 HttpClient `co_await Send`）
 - [x] 删除：store/ui.cppm（旧视图状态机）、i18n 翻译表（改为 preferences 模块）、
       EUI 字体、eui-neo-compat 文档、eui-neo-ui-replicator skill、eui SDK tarball
 
