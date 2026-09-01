@@ -239,3 +239,11 @@ TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结
 - CI 的 linux job 用 ubuntu:26.04 容器 + clang-21/libc++（详见
   `.github/workflows/build.yml` 注释）。- 版本号唯一来源是顶层 `project(apitab VERSION ...)`；packaging 脚本与 NSIS 从
   CMakeLists 解析。
+
+## CLI（agent 可用）
+
+无 GUI 的命令行模式：`./build/apitab --cli <子命令> [参数]`（`help`/`orgs`/`projects`/
+`requests`/`show`/`send [--json]`/`history`）。与 GUI 共用 `~/.local/share/apitab` 的
+SQLite 与 settings.ini，同一套项目/组织/环境上下文；headless 可读状态、发请求。
+完整用法、退出码约定、`--json` 输出形状与实现备注见
+`docs/apitab-cli.md`（AI 批量操作前先读）。
