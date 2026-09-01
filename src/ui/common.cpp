@@ -327,9 +327,11 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
     huxerui::Color selectedFill = theme.colors.surface_container_highest;
     if (menuStyle.item_indication.press.has_value() &&
         menuStyle.item_indication.press->fill.has_value()) {
-        if (const huxerui::Color* c =
-                std::get_if<huxerui::Color>(&menuStyle.item_indication.press->fill->Get()))
-            selectedFill = *c;
+        // 0.2.0 起 Fill 统一为 VisualFill = variant<Brush, ImageFill>，纯色再下钻一层。
+        if (const huxerui::Brush* b =
+                std::get_if<huxerui::Brush>(&menuStyle.item_indication.press->fill->Get()))
+            if (const huxerui::Color* c = std::get_if<huxerui::Color>(&b->Get()))
+                selectedFill = *c;
     }
     std::vector<huxerui::View> rows;
     rows.reserve(items.size());

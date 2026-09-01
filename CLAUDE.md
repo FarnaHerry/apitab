@@ -91,6 +91,12 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   手拼——方法触发器用 `ShowPopupMenu`，环境触发器仍用 UseMenu）；`PointerEvent.changed_button/pressed_buttons` 区分
   左/右/中/前进/后退键；`SceneTransitionHandle.RunFromCurrentInteraction`
   （主题切换动画从点击处展开，设置页）。
+- **0.2.0 画笔统一**（2026-09-01，f4f369a `feat(paint): unify color and
+  gradient brushes`）：`Fill` 改为 `VisualFill = variant<Brush, ImageFill>`，
+  `Brush = variant<Color, LinearGradient, RadialGradient>`；取纯色需两层
+  下钻（common.cpp PopupMenu 选中底色即此模式）。渐变支持 path 填充/描边
+  与变换；SVG 编译器新增渐变支持。本批未发 linux 预置 hcg/hrc，本地自编译
+  宿主工具流程仍为必需（见上文）。
 - **hover 已换官方 API**（2026-08-31，487eeff `feat(events): add hover
   lifecycle events`）：`ViewEvents::Hover`（Enter/Move/Leave，containment
   语义——绑定 View 的子组件间移动不发 Leave，只挂 Hover 不进 pointer

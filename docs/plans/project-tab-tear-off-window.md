@@ -39,6 +39,6 @@
   SDK 版本字符串变化）时，检索新版 SDK 是否提供上述两项能力（查
   `include/huxerui/app.h` / `window.h` / `gesture.h` 与官方 changelog）。
 - **不更新不用检索**。
-- 最后检索版本：源码 main `4a56daf`（2026-08-31；两项均不支持。此前
-  0.1.0 时 PointerEvent 无 button 字段，现已落地并另有
-  `ViewEvents::ContextMenuRequested`）。
+- 最后检索版本：源码 main `63b7e0b`（2026-09-01，SDK 0.2.0；两项均不支持，
+  app.h/window.h/gesture.h 本批未动。此前 0.1.0 时 PointerEvent 无 button
+  字段，现已落地并另有 `ViewEvents::ContextMenuRequested`）。
