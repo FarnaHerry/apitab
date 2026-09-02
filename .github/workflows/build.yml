@@ -157,6 +157,28 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Probe stop_token availability (macOS debug)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set +e
+          cat > /tmp/stop_probe.mm <<'EOF'
+          #include <stop_token>
+          int main() { std::stop_source s; (void)s; return 0; }
+          EOF
+          /usr/bin/clang++ --version
+          for std in c++2a c++20 c++2b; do
+            for f in "" "-fexperimental-library"; do
+              out=$(/usr/bin/clang++ -x objective-c++ -std=$std -mmacosx-version-min=14.0 \
+                    $f /tmp/stop_probe.mm -o /tmp/stop_probe 2>&1); rc=$?
+              echo "std=$std flag=[$f] rc=$rc"
+              [ $rc -ne 0 ] && echo "$out" | head -3
+            done
+          done
+          echo "--- include search:"
+          /usr/bin/clang++ -x objective-c++ -std=c++2a -E -v /dev/null 2>&1 | \
+            sed -n '/search starts/,/End of search/p'
+
       - name: Configure (macOS)
         if: runner.os == 'macOS'
         shell: bash
