@@ -42,11 +42,21 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Fetch pinned HuxerUI libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
+          git -C third_party/huxerui checkout f85a94f
+          git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
+          git -C third_party/huxerui-sweetedit checkout 419f865
+          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-apitab.patch
+
       - name: Install dependencies
         run: |
           apt-get install -y --no-install-recommends \
             clang-21 libc++-21-dev ninja-build pkg-config file python3 python3-pip \
-            libssl-dev
+            libssl-dev libgtk-4-dev libsoup-3.0-dev
           # 26.04 的 apt cmake 是 3.31（无 GNU 发现模块且全局 token 不匹配），固定 pip 4.4.2
           python3 -m pip install --break-system-packages -q cmake==4.4.2
           cmake --version | head -1
@@ -104,6 +114,16 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Fetch pinned HuxerUI libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
+          git -C third_party/huxerui checkout f85a94f
+          git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
+          git -C third_party/huxerui-sweetedit checkout 419f865
+          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-apitab.patch
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
