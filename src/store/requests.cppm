@@ -359,6 +359,19 @@ public:
         });
     }
 
+    // 接口目录编辑必须原子同步显示名称、URL 路径和目录模式；旧 renameGroup
+    // 只改 name，会让 Path 目录继续使用过期 path。
+    std::string updateGroup(std::int64_t id, const std::string& name,
+                            const std::string& path) {
+        return guarded([&] {
+            if (!findGroup(id)) throw std::runtime_error("接口目录不存在");
+            db_->updateGroup(id, name,
+                             path.empty() ? db::GroupMode::Name : db::GroupMode::Path,
+                             path);
+            reloadGroups();
+        });
+    }
+
     std::string setGroupMode(std::int64_t id, db::GroupMode mode) {
         return guarded([&] {
             db_->setGroupMode(id, mode);

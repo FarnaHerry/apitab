@@ -190,6 +190,8 @@ public:
     std::int64_t createGroup(std::int64_t projectId, const std::string& name, GroupMode mode,
                              std::int64_t parentId = 0, const std::string& path = "");
     void renameGroup(std::int64_t id, const std::string& name);
+    void updateGroup(std::int64_t id, const std::string& name, GroupMode mode,
+                     const std::string& path);
     void setGroupMode(std::int64_t id, GroupMode mode);
     void setGroupParent(std::int64_t id, std::int64_t parentId);  // 换父（0 = 根目录）
     void deleteGroup(std::int64_t id);                           // 其请求置为未分组

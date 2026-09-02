@@ -194,9 +194,9 @@ std::string InferKvType(const std::string& raw) {
                     })
                     .With(huxerui::Grow(1.0F)),
                 phantom
-                    ? huxerui::View{huxerui::Text("", huxerui::TextRole::Label)
-                                        .With(huxerui::Padding(4.0F))}
-                    : huxerui::View{huxerui::Button("✕").OnClick([tasks, rows, i, onChanged] {
+                    ? huxerui::View{huxerui::Row{}.With(
+                          huxerui::Frame{.width = 28.0F, .height = 28.0F})}
+                    : AppIconButton("✕", "删除此行", [tasks, rows, i, onChanged] {
                         // 删除会移除本按钮所在行：推迟出指针事件路径
                         tasks.Launch([=]() -> huxerui::Task<void> {
                             co_await huxerui::Delay(std::chrono::duration<double>{0});
@@ -204,7 +204,7 @@ std::string InferKvType(const std::string& raw) {
                             if (i < copy.size()) copy.erase(copy.begin() + static_cast<long>(i));
                             onChanged(std::move(copy));
                         });
-                    })},
+                    }, AppIconButtonShape::Bare),
             }
                 .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
@@ -523,11 +523,7 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
                 huxerui::Text(e.name.empty() ? "（未命名）" : e.name, huxerui::TextRole::Body)
                     .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
                 // ✎ 重命名：弹输入框小弹窗（renameValue 寄宿本弹窗作用域）。
-                huxerui::Text("✎", huxerui::TextRole::Label)
-                    .Style(huxerui::TextStyle{.font = huxerui::Font::System(font_size::kCaption),
-                                              .foreground = theme.colors.on_surface_variant})
-                    .With(huxerui::Padding(4.0F))
-                    .OnClick([dialog, tasks, toast, renameValue, envVersion, id,
+                AppIconButton("✎", "重命名环境", [dialog, tasks, toast, renameValue, envVersion, id,
                               name = e.name] {
                         renameValue = huxerui::TextEditingValue{name};
                         dialog.Show(
@@ -578,13 +574,10 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
                                                                 huxerui::CrossAxisAlignment::Stretch)));
                             },
                             huxerui::DialogOptions{});
-                    }),
+                    }, AppIconButtonShape::Bare),
                 // ✕ 删除：危险确认框（共享 helper，确认按钮染红）；删除重组本弹窗 → 推迟。
-                huxerui::Text("✕", huxerui::TextRole::Label)
-                    .Style(huxerui::TextStyle{.font = huxerui::Font::System(font_size::kCaption),
-                                              .foreground = theme.colors.on_surface_variant})
-                    .With(huxerui::Padding(4.0F))
-                    .OnClick([dialog, tasks, selectedId, envVersion, id, name = e.name] {
+                AppIconButton("✕", "删除环境", [dialog, tasks, selectedId, envVersion, id,
+                                                      name = e.name] {
                         ShowDangerConfirm(dialog, "删除环境",
                                           "确定删除环境「" + name + "」吗？此操作不可恢复。",
                                           "删除",
@@ -598,7 +591,7 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
                                                   envVersion = envVersion.Get() + 1;
                                               });
                                           });
-                    }),
+                    }, AppIconButtonShape::Bare),
             }
                 .With(huxerui::Spacing(0.0F),
                       huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
@@ -648,7 +641,8 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
                     huxerui::Text("环境", huxerui::TextRole::Label)
                         .With(huxerui::Grow(1.0F)),
                     // ＋ 新建：store 建默认名的环境并选中，随后可在右侧表单改名。
-                    CircleButton("+", [tasks, toast, selectedId, envVersion] {
+                    // 独立浮动 "+"：保持 Circular + compact 档（28pt），视觉不变。
+                    AppIconButton("+", "新建环境", [tasks, toast, selectedId, envVersion] {
                         tasks.Launch([=]() -> huxerui::Task<void> {
                             co_await huxerui::Delay(std::chrono::duration<double>{0});
                             if (const std::string err =
@@ -660,7 +654,7 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
                             selectedId = g_requests.currentEnvId();
                             envVersion = envVersion.Get() + 1;
                         });
-                    }, /*accent=*/false),
+                    }, AppIconButtonShape::Circular, 28.0F, /*accent=*/false),
                 }
                     .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
                 huxerui::ScrollView{huxerui::Column(std::move(rows))
@@ -690,6 +684,7 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
     auto toast = huxerui::UseToast();
+    auto envSearching = huxerui::UseState(false);
     (void)envVersion.Get(); // 订阅环境版本：环境增删改/切换后重组本条
     const auto chipFont = huxerui::Font::System(font_size::kChip);
     const auto badgeFont =
@@ -802,13 +797,7 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
                 huxerui::Spacer{},
                 // 关闭钮：常驻、透明占位，悬停才显示（Opacity 只改绘制不动结构，
                 // 避免悬停重组换子节点类型引起抖动）。透明时点击空转。
-                huxerui::Text("✕", huxerui::TextRole::Label)
-                    .Style(huxerui::TextStyle{.font = chipFont, .foreground = foreground})
-                    .With(huxerui::Padding(4.0F),
-                          huxerui::Opacity(hoveredChip.Get() == snapshot[i].uid ? 1.0F : 0.0F))
-                    .OnClick([tasks, drafts, activeTab, i,
-                              visible = hoveredChip.Get() == snapshot[i].uid] {
-                        if (!visible) return; // 透明占位不响应点击
+                AppIconButton("✕", "关闭请求标签", [tasks, drafts, activeTab, i] {
                         // 关闭会卸载本 ✕ 所在标签：推迟出指针事件路径
                         tasks.Launch([=]() -> huxerui::Task<void> {
                             co_await huxerui::Delay(std::chrono::duration<double>{0});
@@ -819,12 +808,13 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
                             if (!copy.empty() && activeTab.Get() >= copy.size())
                                 activeTab = copy.size() - 1;
                         });
-                    }),
+                    }, AppIconButtonShape::Bare, 28.0F, false, chipHovered)
+                    .With(huxerui::Opacity(chipHovered ? 1.0F : 0.0F)),
             }
                 .With(huxerui::Spacing(0.0F), huxerui::Background(fill),
                       huxerui::CornerRadius(theme.shapes.small),
                       huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
-                      huxerui::Frame{.width = kChipDragWidth, .height = 26.0F},
+                      huxerui::Frame{.width = kChipDragWidth, .height = 28.0F},
                       huxerui::ClipChildren(),
                       // 拖动时本体变透明占位：保留布局槽位与拖拽会话，
                       // 视觉由覆盖层克隆接管。
@@ -909,18 +899,12 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
         }
     }
     // 末尾 "＋"：新建草稿标签（不卸载任何节点，同步写即可）。
-    chips.push_back(huxerui::Text("+", huxerui::TextRole::Label)
-                        .Style(huxerui::TextStyle{.font = chipFont,
-                                                  .foreground = theme.colors.on_surface_variant})
-                        .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
-                              huxerui::Background(theme.colors.surface_container),
-                              huxerui::CornerRadius(theme.shapes.small))
-                        .OnClick([drafts, activeTab] {
+    chips.push_back(AppIconButton("+", "新建请求标签", [drafts, activeTab] {
                             std::vector<RequestDraft> copy = drafts.Get();
                             copy.push_back(RequestDraft{});
                             drafts = copy;
                             activeTab = copy.size() - 1;
-                        }));
+                        }, AppIconButtonShape::Circular));
 
     // 拖拽覆盖层：被拖 chip 的视觉克隆（纯展示，无事件/悬停 handler——命中
     // 测试穿透到下方静止 chip）。Stack 中最后声明 = 绘制最上层（充当
@@ -959,7 +943,7 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
                     .With(huxerui::Spacing(0.0F), huxerui::Background(overlayFill),
                           huxerui::CornerRadius(theme.shapes.small),
                           huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
-                          huxerui::Frame{.width = kChipDragWidth, .height = 26.0F},
+                          huxerui::Frame{.width = kChipDragWidth, .height = 28.0F},
                           huxerui::ClipChildren(),
                           huxerui::Offset(huxerui::Point{
                               static_cast<float>(dragOrig.Get()) * chipStride + dragDx.Get(),
@@ -980,61 +964,131 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
     }
 
     // 环境选择 + ☰ 合并控件（同 MethodUrlBar 思路）：一个共用描边圆角外框 +
-    // Spacing(0)，左侧环境选择扁平触发器（文本"环境名 ▾"弹自绘下拉，选中项
+    // Spacing(0)，左侧环境选择扁平触发器（环境名 + 统一无尾箭头弹自绘下拉，选中项
     // 深色填充底色、无对钩；保持自绘而非官方 Select——Select 触发器自带描边
-    // 外观，塞不进共用外框），中间 1pt 竖分隔线，右侧扁平 ☰（环境配置弹窗
-    // 入口，去 CircleButton 的圆底）。外层 Row 交叉轴 Stretch 让分隔线拉满
-    // 全高，两个触发器各自 CrossAlign(Center) 垂直居中。
-    auto envMenu = huxerui::UsePopup();
-    huxerui::View envTrigger =
-        huxerui::Row {
-            huxerui::Text(envNames.at(currentEnv) + " ▾", huxerui::TextRole::Body)
-                .With(huxerui::Foreground(theme.colors.on_surface)),
-        }
-            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 6.0F)),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
-            .OnClick([envMenu, envNames = std::move(envNames), currentEnv, envVersion, toast,
-                      envs] {
-                std::vector<PopupMenuItem> items;
-                items.reserve(envNames.size());
-                for (std::size_t i = 0; i < envNames.size(); ++i) {
-                    // 切换环境不卸载任何节点（菜单项回调在菜单层关闭后执行，
-                    // 已脱离指针事件路径）：同步写即可。
-                    items.push_back(PopupMenuItem{
-                        .label = envNames[i],
-                        .on_click = [envVersion, toast, envs, i] {
-                            const std::int64_t id = i == 0 ? 0 : envs.at(i - 1).id;
-                            if (const std::string err = g_requests.selectEnv(id);
-                                !err.empty()) {
-                                toast.Show("切换环境失败: " + err);
-                                return;
-                            }
-                            envVersion = envVersion.Get() + 1;
-                        },
-                        .checked = i == currentEnv});
-                }
-                ShowPopupMenu(envMenu, std::move(items),
-                              huxerui::PopupOptions{
-                                  .placement = {huxerui::AnchorSide::Below,
-                                                huxerui::AnchorAlignment::Start}});
-            });
-    envTrigger = std::move(envTrigger).With(envMenu.Anchor());
+    // 外观，塞不进共用外框），中间 1pt 竖分隔线，右侧 ☰ 为 Bare AppIconButton
+    // （环境配置弹窗入口；常态透明、hover 才显统一圆角方形底——与左侧触发器
+    // 同一"框内扁平段"视觉）。外层 Row 交叉轴 Stretch 让分隔线拉满全高，
+    // 左触发器与右侧按钮各自 CrossAlign(Center) 垂直居中。
+    // 外框圆角取几何令牌 control_radius（P1-A3：不再散落 shapes.small 字面量）。
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    struct EnvChoice {
+        std::int64_t id = 0;
+        std::string label;
+    };
+    std::vector<EnvChoice> allChoices{{.id = 0, .label = "无"}};
+    for (const db::Environment& env : envs)
+        allChoices.push_back(EnvChoice{.id = env.id,
+                                       .label = env.name.empty() ? "（未命名）" : env.name});
 
+    // 官方 ComboBox：受控输入只用于搜索过滤，选中建议才真正切换环境。
+    // 初始化为当前环境名称；选择后同步回写完整 TextEditingValue。
+    auto envQuery = huxerui::UseState(
+        huxerui::TextEditingValue{envNames.at(currentEnv)});
+    const std::string needle = envQuery.Get().text;
+    auto containsFolded = [](const std::string& value, const std::string& query) {
+        std::string lhs = value;
+        std::string rhs = query;
+        std::ranges::transform(lhs, lhs.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        std::ranges::transform(rhs, rhs.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return rhs.empty() || lhs.find(rhs) != std::string::npos;
+    };
+    std::vector<EnvChoice> matchingChoices;
+    for (const EnvChoice& choice : allChoices)
+        if (containsFolded(choice.label, needle)) matchingChoices.push_back(choice);
+
+    huxerui::View envSearch =
+        huxerui::ComboBox(
+            envQuery, matchingChoices,
+            [](const EnvChoice& choice) { return choice.label; },
+            [](const EnvChoice& choice) { return huxerui::Text(choice.label); })
+            .Placeholder("搜索环境")
+            .Variant(huxerui::TextFieldVariant::Standard)
+            .EmptyContent([] {
+                return huxerui::Text("没有匹配的环境", huxerui::TextRole::Label)
+                    .With(huxerui::Padding(10.0F));
+            })
+            .OnChanged([envQuery](const huxerui::TextEditingValue& value) {
+                envQuery = value;
+            })
+            .OnSelected([tasks, envQuery, envSearching, matchingChoices, envVersion, toast](
+                            std::size_t selected, const huxerui::TextEditingValue& value) {
+                if (selected >= matchingChoices.size()) return;
+                if (const std::string err =
+                        g_requests.selectEnv(matchingChoices[selected].id);
+                    !err.empty()) {
+                    toast.Show("切换环境失败: " + err);
+                    return;
+                }
+                envQuery = value;
+                envVersion = envVersion.Get() + 1;
+                tasks.Launch([envSearching]() -> huxerui::Task<void> {
+                    co_await huxerui::Delay(std::chrono::duration<double>{0});
+                    envSearching = false;
+                });
+            })
+            // 搜索态原位替换紧凑按钮，不能改变标题栏的占位尺寸。
+            // 不再用失焦关闭：只有完成选择才恢复为紧凑按钮，避免点击候选项时闪烁。
+            .With(huxerui::Frame{.width = 136.0F, .height = islands.control_height},
+                  huxerui::ClipChildren());
+
+    huxerui::View envCompact = huxerui::Row {
+        huxerui::Row{huxerui::Text(envNames.at(currentEnv), huxerui::TextRole::Body)
+                          .With(huxerui::Foreground(theme.colors.on_surface),
+                                huxerui::ClipChildren())}
+            .With(huxerui::Frame{.width = 112.0F, .height = islands.control_height},
+                  huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 0.0F)),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        huxerui::Row{huxerui::Image(app::images::chevron_down)
+                          .Fit(huxerui::ImageFit::Contain)
+                          .Align(huxerui::HorizontalAlignment::Center,
+                                 huxerui::VerticalAlignment::Center)
+                          .Tint(theme.colors.on_surface_variant)
+                          .With(huxerui::Frame{.width = 12.0F, .height = 12.0F})}
+            .With(huxerui::Frame{.width = 24.0F, .height = islands.control_height},
+                  huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                  huxerui::Focusable(false)),
+    }.With(huxerui::Frame{.width = 136.0F, .height = islands.control_height},
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+           huxerui::Semantics{.role = huxerui::SemanticRole::Button,
+                               .label = "搜索并选择环境"},
+           huxerui::Focusable(true))
+        .OnClick([tasks, envSearching, envQuery, currentName = envNames.at(currentEnv)] {
+            tasks.Launch([=]() -> huxerui::Task<void> {
+                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                // 搜索框的默认值必须是点击前正在使用的环境，而不是空查询。
+                envQuery = huxerui::TextEditingValue{currentName};
+                envSearching = true;
+            });
+        });
+
+    huxerui::View envTrigger = envSearching.Get() ? std::move(envSearch)
+                                                  : std::move(envCompact);
+
+    // ☰：环境配置弹窗（自定义内容层，DialogFactory）。P1-A4 收口：原
+    // Text("☰")+Padding 热区不足 28pt 且无语义标签/Tooltip，迁为统一 Bare
+    // AppIconButton——semanticLabel"环境配置"兼作可访问名称与 Tooltip，hover/
+    // press indication 覆盖整个 28×28 命中区。外包垂直居中容器：外层 Row 交叉
+    // 轴 Stretch 会把固定高子项拉到行高，包一层 CrossAlign(Center) 保住
+    // 28×28 命中区与方形 hover 底。
     huxerui::View envSettingsTrigger =
         huxerui::Row {
-            huxerui::Text("☰", huxerui::TextRole::Body)
-                .With(huxerui::Foreground(theme.colors.on_surface)),
+            AppIconButton("☰", "环境配置",
+                          [dialog, envVersion] {
+                              dialog.Show(
+                                  [envVersion](huxerui::DialogContext ctx) -> huxerui::View {
+                                      return EnvironmentDialog(ctx, envVersion);
+                                  },
+                                  huxerui::DialogOptions{});
+                          },
+                          AppIconButtonShape::Bare, 28.0F),
         }
-            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 6.0F)),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
-            // ☰：环境配置弹窗（自定义内容层，DialogFactory）。
-            .OnClick([dialog, envVersion] {
-                dialog.Show(
-                    [envVersion](huxerui::DialogContext ctx) -> huxerui::View {
-                        return EnvironmentDialog(ctx, envVersion);
-                    },
-                    huxerui::DialogOptions{});
-            });
+            .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 
     return huxerui::Row {
         // 标签 chips 占满剩余宽度（Grow 把环境区推到最右），溢出裁剪。
@@ -1055,7 +1109,7 @@ std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& he
         }
             .With(huxerui::Spacing(0.0F),
                   huxerui::Border(theme.colors.outline, 1.0F),
-                  huxerui::CornerRadius(theme.shapes.small), huxerui::ClipChildren(),
+                  huxerui::CornerRadius(islands.control_radius), huxerui::ClipChildren(),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
     }
         .With(huxerui::Spacing(theme.spacing.small),
@@ -1251,6 +1305,10 @@ std::string PrettyXml(const std::string& input) {
 // （选择行/操作栏/分区切换/Body 类型行）不滚动；分区内容（KV 表或 Body 编辑器）
 // 在内部 ScrollView 里滚动并带垂直滚动条——所有 Body 类型输入框（含 Form 类
 // KV 表）都有滚动条。响应区已拆为独立下岛（见 RequestPage，仅调试页显示）。
+huxerui::View SplitActionButton(
+    std::string label, std::function<void(bool)> onAction, std::string alternateLabel,
+    bool alternateEnabled);
+
 [[huxerui::composable]] huxerui::View RequestEditor(
     huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
     huxerui::State<std::size_t> activeTab,
@@ -1264,6 +1322,15 @@ std::string PrettyXml(const std::string& input) {
     auto toast = huxerui::UseToast();
     auto overflow = huxerui::UsePopup(); // ⋮ 溢出菜单（删除当前请求；自绘 PopupMenu）
     auto dialog = huxerui::UseDialog(); // 删除确认弹窗（危险确认，确认按钮染红）
+    std::shared_ptr<huxerui::FilePicker> filePicker;
+    std::shared_ptr<huxerui::FileSystem> fileSystem;
+    try {
+        filePicker = huxerui::UseService<huxerui::FilePicker>();
+        fileSystem = huxerui::UseService<huxerui::FileSystem>();
+    } catch (const std::exception&) {
+        filePicker = nullptr;
+        fileSystem = nullptr;
+    }
     auto section = huxerui::UseState<std::size_t>(0); // 0=Params 1=Headers 2=Cookies 3=Body
     auto sendSeq = huxerui::UseState<std::uint64_t>(0); // 发送代际：取消/取代使旧结果失效
     auto sendTask = huxerui::UseState<huxerui::TaskHandle>(huxerui::TaskHandle{});
@@ -1278,6 +1345,37 @@ std::string PrettyXml(const std::string& input) {
             .With(huxerui::Foreground(theme.colors.on_surface_variant));
     }
     const RequestDraft snapshot = all[index];
+
+    // “发送并下载”：传输完成后把原始响应体写入应用临时目录，再交给系统保存选择器。
+    // 临时文件无论保存/取消都会清理；文件服务不可用时给出明确提示。
+    const auto downloadResponse =
+        [filePicker, fileSystem, toast](std::string body,
+                                        std::string suggestedStem) -> huxerui::Task<void> {
+            if (!filePicker || !fileSystem || !filePicker->CanSaveFiles()) {
+                toast.Show("当前平台不支持保存响应文件");
+                co_return;
+            }
+            for (char& ch : suggestedStem) {
+                if (ch == '/' || ch == '\\' || ch == ':' || ch == '*' || ch == '?' ||
+                    ch == '"' || ch == '<' || ch == '>' || ch == '|')
+                    ch = '_';
+            }
+            if (suggestedStem.empty()) suggestedStem = "response";
+            const huxerui::File temporary = fileSystem->Directories().temporary_directory.Child(
+                "apitab-response-" + std::to_string(NextDraftUid()) + ".txt");
+            if (!co_await temporary.WriteStringAsync(std::move(body))) {
+                toast.Show("准备响应下载文件失败");
+                co_return;
+            }
+            const bool saved = co_await filePicker->SaveFileAsync(
+                temporary,
+                huxerui::SaveFileOptions{
+                    .suggested_name = suggestedStem + ".txt",
+                    .filter = huxerui::FilePickerFilter{.name = "响应文件",
+                                                        .extensions = {"txt", "json"}}});
+            (void)co_await temporary.DeleteAsync();
+            toast.Show(saved ? "响应已下载" : "已取消下载");
+        };
 
     std::vector<huxerui::View> children;
     // 当前环境的基础 URL（操作栏 baseUrl 显示段与文档页组合 URL 用；无环境/为空时
@@ -1432,7 +1530,80 @@ std::string PrettyXml(const std::string& input) {
         }
     }
 
-    // 操作栏：方法+URL 合并控件（占满）+ 发送/取消 + 保存 + ⋮（删除）。
+    // 保存入口共用一条持久化路径。asCase=true 时，从最近成功响应捕获 HTTP 状态码，
+    // 追加成测试用例后与请求整体落库；当前测试用例模型表达响应断言，不复制请求快照。
+    const auto saveDraft = [=](bool asCase) {
+        const std::vector<RequestDraft> current = drafts.Get();
+        if (index >= current.size()) return;
+        RequestDraft draft = current[index];
+        if (draft.name.text.empty()) {
+            toast.Show("请先在“名称”里填写请求名");
+            return;
+        }
+
+        if (asCase) {
+            // 正常与 Mock 响应头分别是 "HTTP …" / "MOCK · HTTP …"，都从 HTTP
+            // 标记后读取首个整数。失败、取消、在途或尚未发送均不会生成空用例。
+            const std::string response = responseBody.Get();
+            const std::size_t marker = response.find("HTTP ");
+            if (marker == std::string::npos) {
+                toast.Show("请先发送请求并获得成功响应");
+                return;
+            }
+            const std::size_t statusBegin = marker + 5;
+            const std::size_t statusEnd = response.find_first_not_of("0123456789", statusBegin);
+            int status = 0;
+            const char* begin = response.data() + statusBegin;
+            const char* end = response.data() +
+                              (statusEnd == std::string::npos ? response.size() : statusEnd);
+            const auto parsed = std::from_chars(begin, end, status);
+            if (parsed.ec != std::errc{} || status <= 0) {
+                toast.Show("当前响应状态不可用于创建用例");
+                return;
+            }
+            TestCaseDraft captured;
+            captured.name = huxerui::TextEditingValue{draft.name.text + " · 状态 " +
+                                                       std::to_string(status)};
+            captured.expectStatus = huxerui::TextEditingValue{std::to_string(status)};
+            draft.cases.push_back(std::move(captured));
+        }
+
+        db::SavedRequest saved;
+        saved.id = draft.savedId; // 0 = 新建；非 0 = 更新原集合项
+        saved.name = draft.name.text;
+        api::RequestSpec spec = SpecFromDraft(draft);
+        saved.method = spec.method;
+        saved.url = spec.url;
+        saved.params = spec.params;
+        saved.headers = spec.headers;
+        saved.cookies = spec.cookies;
+        saved.bodyKind = spec.bodyKind;
+        saved.body = spec.body;
+        for (std::size_t i = 0; i < saved.bodyContents.size(); ++i)
+            saved.bodyContents[i].text = draft.bodies[i].text;
+        const std::size_t bodyIndex = static_cast<std::size_t>(spec.bodyKind);
+        if (bodyIndex < saved.bodyContents.size())
+            saved.bodyContents[bodyIndex].fields = spec.bodyFields;
+        for (const TestCaseDraft& c : draft.cases) saved.testCases.push_back(CaseToDb(c));
+        saved.mock = MockToDb(draft.mock);
+        if (const std::string err = g_requests.save(saved); !err.empty()) {
+            toast.Show("保存失败: " + err);
+            return;
+        }
+        toast.Show(asCase ? "已保存当前状态为用例" : "已保存到集合");
+        // 新草稿拿到持久化 id；捕获用例时同步回写新增项；左岛列表刷新。
+        MutateDraft(drafts, index, [&](RequestDraft& d) {
+            d.savedId = saved.id;
+            if (asCase) d.cases = draft.cases;
+        });
+        listVersion = listVersion.Get() + 1;
+    };
+
+    // 操作栏：方法+URL 合并控件（占满）+ 发送/取消 + 保存⌄ + ⋮（删除）。
+    // Compact 窄宽度契约：Row 布局里非 Grow 子元素按自然宽度保留（HuxerUI
+    // 只把剩余宽度以紧约束分给 Grow 子元素，不足时钳到 0），故发送/取消/保存
+    // 永远完整可见；MethodUrlBar 是唯一 Grow 子元素且自带 ClipChildren，宽度
+    // 不足时先收缩 URL 字段、再裁剪 baseUrl 段，不会遮挡右侧动作。
     children.push_back(huxerui::Row {
             MethodUrlBar(
                 std::vector<std::string>(kMethodNames.begin(), kMethodNames.end()),
@@ -1452,7 +1623,7 @@ std::string PrettyXml(const std::string& input) {
             // PollWhile 轮询 takeResponse 取回结果（恢复点恒为 UI 线程，见
             // task_bridge.h）。取消 = sendSeq 代际作废在途结果 + 引擎协作打断 +
             // 轮询协程 Cancel。
-            huxerui::Button(inFlight.Get() ? "取消" : "发送").OnClick([=] {
+            SplitActionButton(inFlight.Get() ? "取消" : "发送", [=](bool download) {
                 // 发送/取消都会翻转被点按钮的文案（重组本子树），State 写入与
                 // 引擎操作整体推迟出指针事件路径（CLAUDE.md 约定 6；同步写曾在
                 // pointer-up 处理中引发事件循环卡死/段错误）。
@@ -1513,6 +1684,8 @@ std::string PrettyXml(const std::string& input) {
                         responseHeaders = lines;
                         responseCookies = CookiesFromHeaders(view.headers);
                         inFlight = false;
+                        if (download)
+                            co_await downloadResponse(view.body, current[index].name.text);
                         co_return;
                     }
                     const std::int64_t requestId = current[index].savedId;
@@ -1544,54 +1717,18 @@ std::string PrettyXml(const std::string& input) {
                             responseBody = "请求失败: " + view.error;
                         }
                         inFlight = false;
+                        if (download && view.ok)
+                            co_await downloadResponse(view.body, current[index].name.text);
                     });
                 });
-            }),
-            huxerui::Button("保存").OnClick([=] {
-                const std::vector<RequestDraft> current = drafts.Get();
-                if (index >= current.size()) return;
-                const RequestDraft& draft = current[index];
-                if (draft.name.text.empty()) {
-                    toast.Show("请先在“名称”里填写请求名");
-                    return;
-                }
-                db::SavedRequest saved;
-                saved.id = draft.savedId; // 0 = 新建；非 0 = 更新原集合项
-                saved.name = draft.name.text;
-                api::RequestSpec spec = SpecFromDraft(draft);
-                saved.method = spec.method;
-                saved.url = spec.url;
-                saved.params = spec.params;
-                saved.headers = spec.headers;
-                saved.cookies = spec.cookies;
-                saved.bodyKind = spec.bodyKind;
-                saved.body = spec.body;
-                // 文本类 body 各自归档（JSON/Text/XML/GraphQL 独立编辑互不影响），
-                // form 类 body 的结构化字段按当前类型落进 bodyContents。
-                for (std::size_t i = 0; i < saved.bodyContents.size(); ++i)
-                    saved.bodyContents[i].text = draft.bodies[i].text;
-                const std::size_t bodyIndex = static_cast<std::size_t>(spec.bodyKind);
-                if (bodyIndex < saved.bodyContents.size())
-                    saved.bodyContents[bodyIndex].fields = spec.bodyFields;
-                // 测试用例 / Mock 随请求一起落库（保存按钮是全量覆盖语义）。
-                for (const TestCaseDraft& c : draft.cases) saved.testCases.push_back(CaseToDb(c));
-                saved.mock = MockToDb(draft.mock);
-                if (const std::string err = g_requests.save(saved); !err.empty()) {
-                    toast.Show("保存失败: " + err);
-                } else {
-                    toast.Show("已保存到集合");
-                    // 新草稿拿到持久化 id；左岛列表刷新。
-                    MutateDraft(drafts, index,
-                                [&](RequestDraft& d) { d.savedId = saved.id; });
-                    listVersion = listVersion.Get() + 1;
-                }
-            }),
+            }, "发送并下载", !inFlight.Get()),
+            SplitActionButton("保存", saveDraft, "保存当前状态为用例", true),
             // ⋮ 溢出菜单：删除当前请求条（自绘 PopupMenu，删除项 hover 才显红；
             // 点击先弹危险确认框；已保存的连集合一起删，并关掉本标签）。
             // 删除会卸载本编辑器 → 确认回调里推迟出指针事件路径。
-            CircleButton(
-                "⋮",
-                [overflow, dialog, tasks, drafts, activeTab, listVersion, index] {
+            // OverflowButton = "⋮"/"更多操作" 语义（Bare 28pt，工具栏溢出动作），
+            // 回调体与菜单内容保持原样。
+            OverflowButton([overflow, dialog, tasks, drafts, activeTab, listVersion, index] {
                     std::vector<RequestDraft> snapshot = drafts.Get();
                     if (index >= snapshot.size()) return;
                     const bool saved = snapshot[index].savedId != 0;
@@ -1630,8 +1767,7 @@ std::string PrettyXml(const std::string& input) {
                         huxerui::PopupOptions{
                             .placement = {huxerui::AnchorSide::Below,
                                           huxerui::AnchorAlignment::End}});
-                },
-                /*accent=*/false)
+                })
                 .With(overflow.Anchor()),
         }
             .With(huxerui::Spacing(theme.spacing.small),
@@ -1662,21 +1798,83 @@ struct GroupDragPayload {
 // mounted on only one View"），每个按钮实例需要在自己的作用域里 UsePopup 拿独立锚点。
 // 菜单用自绘 PopupMenu（危险项 hover 才显红）。
 [[huxerui::composable]] huxerui::View RowMenuButton(bool visible,
-                                                    std::vector<PopupMenuItem> items) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+                                                    std::vector<AppMenuItem> items) {
     auto popup = huxerui::UsePopup();
-    return huxerui::Text("⋮", huxerui::TextRole::Label)
-        .Style(huxerui::TextStyle{.font = huxerui::Font::System(font_size::kCaption),
-                                  .foreground = theme.colors.on_surface_variant})
-        .With(huxerui::Padding(4.0F), popup.Anchor(),
-              huxerui::Opacity(visible ? 1.0F : 0.0F))
-        .OnClick([popup, items = std::move(items), visible] {
-            if (!visible) return; // 透明占位不响应点击
-            ShowPopupMenu(popup, std::move(items),
+    // OverflowButton：AppIconButton("⋮", "更多操作", Bare, 28) 的语义封装，第 2 参
+    // = enabled（原第 7 参同义）——不可见时点击空转；菜单内容/弹出行为零变化。
+    return OverflowButton([popup, items = std::move(items)] {
+              ShowAppMenu(popup, std::move(items),
                           huxerui::PopupOptions{
                               .placement = {huxerui::AnchorSide::Below,
                                             huxerui::AnchorAlignment::Start}});
-        });
+          }, visible)
+        .With(popup.Anchor(), huxerui::Opacity(visible ? 1.0F : 0.0F));
+}
+
+// 分裂动作按钮：左区执行默认动作，右侧固定 24pt 的无尾箭头在 hover-enter 或点击时
+// 展开替代动作。箭头使用 12×12 SVG 并在 32pt 热区内双轴居中，不受文字基线影响。
+[[huxerui::composable]] huxerui::View SplitActionButton(
+    std::string label, std::function<void(bool)> onAction, std::string alternateLabel,
+    bool alternateEnabled) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    auto popup = huxerui::UsePopup();
+    struct HoverMenuState {
+        huxerui::LayerId layer = 0;
+    };
+    // 非响应式状态只记录当前层；Enter 只 Show 一次，Leave 立即 Dismiss，按钮不重组。
+    auto hover = huxerui::UseState(std::make_shared<HoverMenuState>()).Get();
+    auto showAlternates = [popup, alternateLabel, onAction, alternateEnabled, hover] {
+        if (!alternateEnabled) return;
+        if (hover->layer != 0) return; // 同一次 hover 只挂一层，避免重复 Show 闪烁
+        hover->layer = ShowHoverAppMenu(
+            popup,
+            {AppMenuItem{.label = alternateLabel,
+                         .onClick = [onAction, hover] {
+                             hover->layer = 0;
+                             onAction(true);
+                         }}},
+            [](bool) {},
+            huxerui::PopupOptions{
+                .placement = {huxerui::AnchorSide::Below,
+                              huxerui::AnchorAlignment::End}});
+    };
+    return huxerui::Row {
+        huxerui::Row{huxerui::Text(std::move(label), huxerui::TextRole::Label)
+                          .With(huxerui::Foreground(theme.colors.on_primary))}
+            .With(huxerui::Frame{.width = 60.0F, .height = islands.control_height},
+                  huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                  huxerui::Focusable(true))
+            .OnClick([onAction] { onAction(false); }),
+        huxerui::Row{huxerui::Image(app::images::chevron_down)
+                          .Fit(huxerui::ImageFit::Contain)
+                          .Align(huxerui::HorizontalAlignment::Center,
+                                 huxerui::VerticalAlignment::Center)
+                          .Tint(theme.colors.on_primary)
+                          .With(huxerui::Frame{.width = 12.0F, .height = 12.0F})}
+            .With(huxerui::Frame{.width = 24.0F, .height = islands.control_height},
+                  huxerui::Background(huxerui::Color::Transparent()),
+                  huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                  huxerui::Focusable(true), huxerui::Enabled(alternateEnabled), popup.Anchor(),
+                  huxerui::Opacity(alternateEnabled ? 1.0F : 0.4F))
+            .OnClick(showAlternates)
+            .On<huxerui::ViewEvents::Hover>(
+                [popup, hover, showAlternates](const huxerui::HoverEvent& event) {
+                    if (event.type == huxerui::HoverEventType::Enter) {
+                        showAlternates();
+                    } else if (event.type == huxerui::HoverEventType::Leave) {
+                        if (hover->layer != 0) popup.Dismiss(hover->layer);
+                        hover->layer = 0;
+                    }
+                }),
+    }.With(huxerui::Background(theme.colors.primary),
+           huxerui::CornerRadius(islands.control_radius), huxerui::ClipChildren(),
+           // 分裂按钮必须是固定自然宽度；若不钳制，外层 Row 会把它当可扩张
+           // 容器吞掉操作栏余量，后面的“保存”被挤出屏幕。URL 栏才是唯一 Grow 项。
+           huxerui::Frame{.width = 84.0F, .height = islands.control_height},
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
 // ---- 导入接口弹窗（"+" 菜单 → 导入接口…）----
@@ -1929,6 +2127,9 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     auto hoveredRow = huxerui::UseState<std::int64_t>(0);
     // 重命名弹窗的输入值（打开前预填当前名称）。
     auto renameValue = huxerui::UseState(huxerui::TextEditingValue{});
+    // 接口目录编辑是名称 + 路径双字段；不能再复用上面的单字段请求重命名状态。
+    auto groupNameValue = huxerui::UseState(huxerui::TextEditingValue{});
+    auto groupPathValue = huxerui::UseState(huxerui::TextEditingValue{});
 
     const auto methodFont =
         huxerui::Font::Monospace(font_size::kCaption).WithWeight(huxerui::FontWeight::SemiBold);
@@ -1994,15 +2195,74 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
                 huxerui::DialogOptions{});
         };
 
+    // 接口目录编辑：与“新建接口目录”保持同一名称/路径契约。路径为空即仅名称目录，
+    // 非空即 Path 目录；一次提交原子更新 name/mode/path，避免 URL 仍拼旧路径。
+    auto showGroupEditDialog =
+        [dialog, tasks, toast, listVersion, groupNameValue,
+         groupPathValue](const db::Group& group) {
+            groupNameValue = huxerui::TextEditingValue{group.name};
+            groupPathValue = huxerui::TextEditingValue{group.path};
+            const std::int64_t gid = group.id;
+            dialog.Show(
+                [tasks, toast, listVersion, groupNameValue, groupPathValue,
+                 gid](huxerui::DialogContext ctx) -> huxerui::View {
+                    return DialogCard(huxerui::Column {
+                        huxerui::Text("编辑接口目录", huxerui::TextRole::Title),
+                        huxerui::TextField(groupNameValue.Get())
+                            .Label("名称")
+                            .Placeholder("接口目录名称")
+                            .Variant(huxerui::TextFieldVariant::Outlined)
+                            .OnChanged([groupNameValue](const huxerui::TextEditingValue& value) {
+                                groupNameValue = value;
+                            }),
+                        huxerui::TextField(groupPathValue.Get())
+                            .Label("路径")
+                            .Placeholder("api/v1（留空则仅作名称）")
+                            .Variant(huxerui::TextFieldVariant::Outlined)
+                            .OnChanged([groupPathValue](const huxerui::TextEditingValue& value) {
+                                groupPathValue = value;
+                            }),
+                        huxerui::Row {
+                            huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+                            huxerui::Button("保存").OnClick(
+                                [ctx, tasks, toast, listVersion, groupNameValue,
+                                 groupPathValue, gid] {
+                                    const std::string name = trim(groupNameValue.Get().text);
+                                    const std::string path = trim(groupPathValue.Get().text);
+                                    if (name.empty()) {
+                                        toast.Show("名称不能为空");
+                                        return;
+                                    }
+                                    ctx.Dismiss();
+                                    tasks.Launch([=]() -> huxerui::Task<void> {
+                                        co_await huxerui::Delay(
+                                            std::chrono::duration<double>{0});
+                                        if (const std::string err =
+                                                g_requests.updateGroup(gid, name, path);
+                                            !err.empty()) {
+                                            toast.Show("保存接口目录失败: " + err);
+                                            co_return;
+                                        }
+                                        toast.Show("接口目录已更新");
+                                        listVersion = listVersion.Get() + 1;
+                                    });
+                                }),
+                        }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
+                    }.With(huxerui::Spacing(12.0F), huxerui::Frame{.width = 320.0F},
+                           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+                },
+                huxerui::DialogOptions{});
+        };
+
     // 请求行的菜单条目（重命名/删除）：行尾 ⋮ 按钮与右键菜单共用，
     // 按行现场构造，避免两处逻辑分叉。自绘 PopupMenu：删除项 hover 才显红。
     auto requestEntries = [showRenameDialog, dialog, tasks, drafts, activeTab,
                            listVersion](const db::SavedRequest& r) {
         const std::int64_t id = r.id;
-        return std::vector<PopupMenuItem>{
-            PopupMenuItem{
+        return std::vector<AppMenuItem>{
+            AppMenuItem{
                 .label = "重命名",
-                .on_click = [showRenameDialog, drafts, id, currentName = r.name] {
+                .onClick = [showRenameDialog, drafts, id, currentName = r.name] {
                     // 重命名后同步已打开标签的名字。
                     showRenameDialog(currentName, [drafts, id](const std::string& name) {
                         const std::string err = g_requests.renameRequest(id, name);
@@ -2016,10 +2276,10 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
                         return err;
                     });
                 }},
-            PopupMenuItem{
+            AppMenuItem{
                 .label = "删除",
-                .on_click = [dialog, tasks, drafts, activeTab, listVersion, id,
-                             name = r.name] {
+                .onClick = [dialog, tasks, drafts, activeTab, listVersion, id,
+                            name = r.name] {
                     // 删除前先弹危险确认框（确认按钮染红）；真正删行仍在确认回调里
                     // 推迟出指针事件路径。
                     ShowDangerConfirm(dialog, "删除请求",
@@ -2046,35 +2306,31 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
                                           });
                                       });
                 },
-                .danger = PopupMenuDanger::kHoverRed}};
+                .tone = AppMenuTone::DangerHover}};
     };
 
-    // 分组行的菜单条目（重命名分组/删除分组）：行尾 ⋮ 按钮与右键菜单共用。
-    auto groupEntries = [showRenameDialog, tasks, toast, listVersion](const db::Group& g) {
+    // 接口目录菜单：行尾 ⋮ 与右键共用同一条目模型和双字段编辑流程。
+    auto groupEntries = [showGroupEditDialog, tasks, toast, listVersion](const db::Group& g) {
         const std::int64_t gid = g.id;
-        return std::vector<PopupMenuItem>{
-            PopupMenuItem{
-                .label = "重命名分组",
-                .on_click = [showRenameDialog, gid, currentName = g.name] {
-                    showRenameDialog(currentName, [gid](const std::string& name) {
-                        return g_requests.renameGroup(gid, name);
-                    });
-                }},
-            PopupMenuItem{
-                .label = "删除分组",
-                .on_click = [tasks, toast, listVersion, gid] {
-                    // 删除分组会重组本岛：推迟出指针事件路径
+        return std::vector<AppMenuItem>{
+            AppMenuItem{
+                .label = "编辑接口目录",
+                .onClick = [showGroupEditDialog, g] { showGroupEditDialog(g); }},
+            AppMenuItem{
+                .label = "删除接口目录",
+                .onClick = [tasks, toast, listVersion, gid] {
+                    // 删除接口目录会重组本岛：推迟出指针事件路径
                     // （组内请求移到未分组，子分组一并删除）。
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         co_await huxerui::Delay(std::chrono::duration<double>{0});
                         if (const std::string err = g_requests.deleteGroup(gid); !err.empty()) {
-                            toast.Show("删除分组失败: " + err);
+                            toast.Show("删除接口目录失败: " + err);
                             co_return;
                         }
                         listVersion = listVersion.Get() + 1;
                     });
                 },
-                .danger = PopupMenuDanger::kHoverRed}};
+                .tone = AppMenuTone::DangerHover}};
     };
 
     // 请求行（叶子）：徽标 + 名称 + 行尾 ⋮ 菜单（重命名/删除）；depth 只影响左侧缩进。
@@ -2166,15 +2422,15 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
             // 命中链最深绑定生效，分组内嵌套的请求行仍弹本菜单。
             .On<huxerui::ViewEvents::ContextMenuRequested>(
                 [ctxMenu, requestEntries, r](huxerui::Point pos) {
-                    ShowPopupMenuAt(ctxMenu, pos, requestEntries(r));
+                    ShowAppMenuAt(ctxMenu, pos, requestEntries(r));
                 })
             // 稳定 Key：悬停重组（整张列表重建 rows）时按 Key 保留挂载节点
             // 与其扩展实例，避免节点替换引起的 hover 抖动。
             .Key(id);
     };
 
-    // 分组行（内部节点）：折叠箭头 + 名称；点击切换折叠。行尾 ⋮（悬停才显示）
-    // 收 重命名分组/删除分组 菜单。
+    // 接口目录行（内部节点）：折叠箭头 + 名称；点击切换折叠。行尾 ⋮（悬停才显示）
+    // 与右键共享“编辑接口目录 / 删除接口目录”统一菜单。
     auto groupRow = [&](const db::Group& g, int depth, bool isCollapsed) -> huxerui::View {
         return huxerui::Row {
                    huxerui::Text(isCollapsed ? "▸" : "▾", huxerui::TextRole::Label)
@@ -2184,7 +2440,7 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
                        .With(huxerui::Frame{.min_width = 14.0F}),
                    huxerui::Text(g.name, huxerui::TextRole::Body)
                        .With(huxerui::ClipChildren(), huxerui::Grow(1.0F)),
-                   // 行尾 ⋮ 菜单（悬停显隐；重命名分组/删除分组）。锚点在按钮自己的
+                   // 行尾 ⋮ 菜单（悬停显隐；编辑/删除接口目录）。锚点在按钮自己的
                    // composable 作用域里（一个 LayerAnchor 只能挂一个 View）。
                    RowMenuButton(hoveredRow.Get() == -g.id, groupEntries(g)),
                }
@@ -2265,7 +2521,7 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
                    // 右键菜单：条目同 ⋮ 按钮，跟随点击位置弹出（理由同请求行）。
                    .On<huxerui::ViewEvents::ContextMenuRequested>(
                        [ctxMenu, groupEntries, g](huxerui::Point pos) {
-                           ShowPopupMenuAt(ctxMenu, pos, groupEntries(g));
+                           ShowAppMenuAt(ctxMenu, pos, groupEntries(g));
                        })
                    // 稳定 Key：理由同请求行（悬停重组时保留节点与其扩展实例）。
                    // 取负与请求行 Key 区分。
@@ -2297,13 +2553,15 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     // 统一；官方 menu.Show 已弃用）。不再显示项目名——顶级标签条已标识当前
     // 项目。菜单项回调在菜单层关闭后执行，不卸载被点按钮（按钮在本岛，菜单
     // 在层上），可直接写 State。
+    // 独立浮动 "+"：保持 Circular + compact 档（28pt）+ accent 底，视觉不变。
     huxerui::View island = huxerui::Column {
                                huxerui::Row {
                                    huxerui::Text("请求", huxerui::TextRole::Title)
                                        .With(huxerui::Grow(1.0F)),
-                                   CircleButton("+", [addPopup, dialog, tasks, toast, drafts,
-                                                     activeTab, listVersion, newGroupName,
-                                                     newGroupPath] {
+                                   AppIconButton("+", "新建请求",
+                                                 [addPopup, dialog, tasks, toast, drafts,
+                                                  activeTab, listVersion, newGroupName,
+                                                  newGroupPath] {
                                        auto pushDraft = [drafts, activeTab](int kind) {
                                            std::vector<RequestDraft> copy = drafts.Get();
                                            copy.push_back(RequestDraft{.kind = kind});
@@ -2427,7 +2685,9 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
                                                      huxerui::PopupOptions{
                                                          .placement = {huxerui::AnchorSide::Below,
                                                                        huxerui::AnchorAlignment::Start}});
-                                   }).With(addPopup.Anchor()),
+                                   },
+                                   AppIconButtonShape::Circular, 28.0F, /*accent=*/true)
+                                       .With(addPopup.Anchor()),
                                }
                                    .With(huxerui::CrossAlign(
                                        huxerui::CrossAxisAlignment::Center)),

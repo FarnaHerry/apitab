@@ -77,9 +77,9 @@ namespace {
                     })
                     .With(huxerui::Grow(1.0F)),
                 phantom
-                    ? huxerui::View{huxerui::Text("", huxerui::TextRole::Label)
-                                        .With(huxerui::Padding(4.0F))}
-                    : huxerui::View{huxerui::Button("✕").OnClick([tasks, rows, i] {
+                    ? huxerui::View{huxerui::Row{}.With(
+                          huxerui::Frame{.width = 28.0F, .height = 28.0F})}
+                    : AppIconButton("✕", "删除此行", [tasks, rows, i] {
                         // 删除会卸载本按钮所在行：推迟出指针事件路径
                         tasks.Launch([=]() -> huxerui::Task<void> {
                             co_await huxerui::Delay(std::chrono::duration<double>{0});
@@ -87,7 +87,7 @@ namespace {
                             if (i < copy.size()) copy.erase(copy.begin() + static_cast<long>(i));
                             rows = copy;
                         });
-                    })},
+                    }, AppIconButtonShape::Bare),
             }
                 .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));

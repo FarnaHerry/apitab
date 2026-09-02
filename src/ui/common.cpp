@@ -1,4 +1,4 @@
-// common.cpp — HuxerUI 前端公共小组件（页面标题、状态文本、空状态页、圆形按钮、
+// common.cpp — HuxerUI 前端公共小组件（页面标题、状态文本、空状态页、图标按钮、
 // 方法+地址组合栏）。下拉选择一律用官方 Select（view.h），不再自拼菜单触发器。
 #include <huxerui/huxerui.h>
 
@@ -16,24 +16,260 @@ import apitab.utils;
 
 namespace apitab::ui {
 
-// 纯圆形单符号按钮：无文字标签（框架 Button 是长胶囊且有内建最小宽度，做不出
-// 纯圆）。accent=true 主色底（主动作），false 中性容器底（次动作）。符号用
-// Text 渲染，点击区 = 整个圆。
-[[huxerui::composable]] huxerui::View CircleButton(std::string glyph,
-                                                   std::function<void()> onClick, bool accent) {
+IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
+    return IslandTheme{
+        .page_gap = theme.spacing.medium,
+        // 一级岛与请求页/主页一致使用 medium 内边距；设置页不能另起一套更厚卡片。
+        .island_padding = theme.spacing.medium,
+        .island_radius = 16.0F,
+        .nested_radius = 8.0F,
+        // 几何令牌（ui.h IslandTheme 中段字段）：全项目唯一圆角/图标按钮尺寸
+        // 来源，页面不得再散落魔法数字。control/large_control 从主题 ShapeScheme
+        // 派生（small=8 / medium=12），命中区两档与控件高为固定常量。
+        .control_radius = theme.shapes.small,           // 8pt：普通按钮/选择器/局部控件
+        .large_control_radius = theme.shapes.medium,    // 12pt：大输入行/请求组合栏
+        .icon_button_compact = 28.0F,                   // 图标按钮紧凑命中区（正方形）
+        .icon_button_regular = 32.0F,                   // 图标按钮舒适命中区（正方形）
+        .control_height = 32.0F,                        // 普通控件统一高度
+        .rail_width = 48.0F,
+        .ocean = theme.colors.background,
+        .base = theme.colors.surface_container_low,
+        .raised = theme.colors.surface_container,
+        .active = theme.colors.surface_container_high,
+        .overlay = theme.colors.surface_container_highest,
+        .outline_soft = theme.colors.outline,
+    };
+}
+
+float ConcentricRadius(float outer_radius, float inset) {
+    // 内层半径 = 外层半径 − inset，保下限 4pt：更小的半径在视觉上与父级
+    // 圆角几乎相切，出现反同心（子角比父角"尖"）。
+    constexpr float kMinRadius = 4.0F;
+    return std::max(outer_radius - inset, kMinRadius);
+}
+
+static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::ThemeSpec& theme,
+                                  IslandLevel level) {
+    switch (level) {
+    case IslandLevel::Base: return islands.base;
+    case IslandLevel::Raised: return islands.raised;
+    case IslandLevel::Active: return islands.active;
+    case IslandLevel::Overlay: return islands.overlay;
+    case IslandLevel::Danger: {
+        huxerui::Color danger = theme.colors.error;
+        danger.alpha = 0.10F;
+        return danger;
+    }
+    }
+    return islands.base;
+}
+
+[[huxerui::composable]] huxerui::View IslandSurface(huxerui::View content, IslandLevel level) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    huxerui::View surface = content;
+    return std::move(surface).With(huxerui::Background(IslandColor(islands, theme, level)),
+                                   huxerui::CornerRadius(islands.island_radius),
+                                   huxerui::Padding(islands.island_padding));
+}
+
+[[huxerui::composable]] huxerui::View IslandSection(std::string title,
+                                                    std::string description,
+                                                    huxerui::View content) {
+    std::vector<huxerui::View> children;
+    children.reserve(description.empty() ? 2 : 3);
+    children.push_back(huxerui::Text(std::move(title), huxerui::TextRole::Title));
+    if (!description.empty())
+        children.push_back(huxerui::Text(std::move(description), huxerui::TextRole::Body)
+                               .With(huxerui::Foreground(
+                                   huxerui::UseTheme().colors.on_surface_variant)));
+    children.push_back(content);
+    return IslandSurface(
+        huxerui::Column(std::move(children))
+            .With(huxerui::Spacing(12.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+        IslandLevel::Base);
+}
+
+[[huxerui::composable]] huxerui::View IslandDialog(huxerui::View content) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    huxerui::View card = content;
+    return std::move(card).With(
+        huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.24F), {}, 24.0F, 0.0F},
+        huxerui::Background(islands.overlay), huxerui::CornerRadius(islands.island_radius),
+        huxerui::Border(islands.outline_soft, 1.0F), huxerui::Padding(islands.island_padding));
+}
+
+// 统一图标动作：glyph 只负责绘制（固定 kIconGlyph 字号，不反向决定按钮大小），
+// 命中区固定 icon_button_compact/icon_button_regular 两档（size 只认 28/32，
+// 其他值就近收敛：>=30 归 regular，否则 compact）；圆形/圆角方形由 shape 显式
+// 选择。所有形状（含 Bare）的 hover/press indication 都覆盖整个命中区——
+// indication 以按钮 View 为宿主，fill 按 host corner radii 裁剪，天然是整块命中
+// 区，不是字形本身。实现统一挂显式 indication：tint = accent ? on_primary :
+// on_surface（6% hover / 12% press，深浅主题自动适配）——不依赖 OnClick 自动
+// 追加的 DefaultIndication（其回落到主题 MaterialIndication 按 primary 取色，
+// 在 accent=true 的 primary 底上不可见）。注意 SDK 替换规则（view.cpp
+// AddModifier）：显式 Indication 会擦除 DefaultIndication、DefaultIndication 遇
+// 任何已有 indication 即跳过——**不能用空 Indication{} 表达"用默认"**，那等于
+// 整体关掉反馈（P1-A4 审计修正：原先非 Bare 传 Indication{} 导致圆形/圆角方形
+// 无 hover/press 反馈）。
+// Tooltip（§5.4）：semanticLabel 同时作为 Tooltip 文本，官方 Tooltip modifier
+// 挂在按钮 View 上即整块命中区触发；服务在框架根自动装配，TooltipStyle 随主题
+// （inverse_surface 底）自动解析，无需调用方接线。禁用态 Tooltip 仍可悬停查看
+// （官方 gallery 同款用法），"更多操作"等语义标签即悬浮说明。
+[[huxerui::composable]] huxerui::View AppIconButton(std::string glyph,
+                                                    std::string semanticLabel,
+                                                    std::function<void()> onClick,
+                                                    AppIconButtonShape shape, float size,
+                                                    bool accent, bool enabled) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    const bool regular = size >= (islands.icon_button_compact + islands.icon_button_regular) / 2.0F;
+    const float target = regular ? islands.icon_button_regular : islands.icon_button_compact;
+    const bool bare = shape == AppIconButtonShape::Bare;
+    const float radius = shape == AppIconButtonShape::Circular ? theme.shapes.full
+                                                               : islands.control_radius;
+    // 交互反馈：hover/press 覆盖整块命中区；tint 随底色角色取色（accent=主色底
+    // 配 on_primary 叠加，其余配 on_surface 叠加），Bare 常态透明同 tint。
+    huxerui::Color tint = accent ? theme.colors.on_primary : theme.colors.on_surface;
+    huxerui::Color hoverTint = tint;
+    hoverTint.alpha = 0.06F;
+    huxerui::Color pressTint = tint;
+    pressTint.alpha = 0.12F;
+    huxerui::Indication hitIndication;
+    hitIndication.hover = huxerui::IndicationLayer{
+        .fill = huxerui::VisualFill{huxerui::Brush{hoverTint}}};
+    hitIndication.press = huxerui::IndicationLayer{
+        .fill = huxerui::VisualFill{huxerui::Brush{pressTint}}};
     return huxerui::Row {
         huxerui::Text(std::move(glyph), huxerui::TextRole::Label)
-            .With(huxerui::Foreground(accent ? theme.colors.on_primary
+            .With(huxerui::FontSize(font_size::kIconGlyph),
+                  huxerui::Foreground(accent ? theme.colors.on_primary
                                              : theme.colors.on_surface)),
     }
-        .With(huxerui::Frame{.width = 28.0F, .height = 28.0F},
-              huxerui::Background(accent ? theme.colors.primary
-                                         : theme.colors.surface_container_highest),
-              huxerui::CornerRadius(theme.shapes.full),
+        .With(huxerui::Frame{.width = target, .height = target},
+              huxerui::Background(bare ? huxerui::Color::Transparent()
+                                       : accent ? theme.colors.primary
+                                                : theme.colors.surface_container_highest),
+              huxerui::CornerRadius(radius),
+              std::move(hitIndication),
               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+              huxerui::Semantics{.role = huxerui::SemanticRole::Button,
+                                  .label = semanticLabel},
+              huxerui::Tooltip(semanticLabel),
+              // 键盘焦点（P1-B0.4，island-structure-theme.md §13.6）：自定义 Row
+              // 默认不可聚焦（仅 Button/IconButton/Chip 等内置 spec 自带
+              // focusable=true，view.cpp Make*Spec），Enter/Space 激活要求节点
+              // 可聚焦且有 Click 绑定（runtime.cpp IsActivatable +
+              // CollectFocusableNodes 收集 enabled && focusable）。补上本修饰符
+              // 后 enabled 的图标按钮进入 Tab 序、键盘可激活——补齐 §十
+              // "图标按钮…均具有…焦点态" 的最后一项。注意 disabled 节点仍不
+              // 参与遍历（如顶级标签 ✕ 的悬停门控，见 app.cpp TopTab）。
+              huxerui::Focusable(true),
+              huxerui::Enabled(enabled))
         .OnClick(std::move(onClick));
+}
+
+// 列表行尾部固定动作区：槽位固定 icon_button_regular 档（32×32 正方形）、
+// 间距 4pt；固定 Frame 宽 = 右对齐且槽宽不随 glyph/标签内容抖动。
+// 空 actions 返回零宽占位（调用方按列表整体决定是否保留占位）。
+[[huxerui::composable]] huxerui::View TrailingActionGroup(std::vector<huxerui::View> actions) {
+    const IslandTheme islands = ResolveIslandTheme(huxerui::UseTheme());
+    constexpr float kSlotGap = 4.0F; // 槽间距（图标按钮共享 32pt 节奏，留 4pt 视觉缝）
+    if (actions.empty()) return huxerui::Row{};
+    const float groupWidth = static_cast<float>(actions.size()) * islands.icon_button_regular +
+                             static_cast<float>(actions.size() - 1) * kSlotGap;
+    return huxerui::Row(std::move(actions))
+        .With(huxerui::Spacing(kSlotGap),
+              huxerui::Frame{.width = groupWidth, .height = islands.control_height},
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+}
+
+// "⋮" 语义图标按钮：AppIconButton Bare + compact 档，只封装菜单触发回调，
+// 不引入新菜单数据模型（菜单内容/弹出方式由调用方决定，request_page 的
+// RowMenuButton 是参照实现）。禁用时点击空转、整体降透明提示不可用。
+[[huxerui::composable]] huxerui::View OverflowButton(std::function<void()> onOpenMenu,
+                                                     bool enabled) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    return AppIconButton("⋮", "更多操作", std::move(onOpenMenu), AppIconButtonShape::Bare,
+                         28.0F, false, enabled)
+        .With(huxerui::Opacity(enabled ? 1.0F : 0.4F),
+              huxerui::Foreground(theme.colors.on_surface_variant));
+}
+
+// 大型自适应输入表面（契约见 ui.h）。实现要点：
+// - 单行↔多行的唯一几何差异是圆角（full capsule ↔ large_control_radius）；
+//   Padding/Spacing/尾部动作锚点/ScrollView 结构两态完全一致 → 零跳动。
+// - 焦点自动跟踪：把 ViewEvents::FocusChanged 挂在 body 上（body 直接是输入
+//   控件时生效；聚焦态写 State 只改描边色，子树结构不变、不会卸载焦点节点）。
+//   body 无法上报焦点时由调用方传 InputSurfaceTone::Focused 显式点亮。
+// - 正文包在垂直 ScrollView 里并用 Frame 钳制 [min, max] 高度：内容不足按内容
+//   收缩、超过 max 后仅正文滚动（ScrollView 内容不足时收缩的语义与菜单层一致，
+//   见上方 PopupMenuContent 注释）。单行态同样包 ScrollView（内容恒不足视口，
+//   不会滚动），保证切换时树结构稳定。
+// - 修饰符顺序 = 由外到内：Background/CornerRadius/Border/ClipChildren 在外，
+//   Padding 最内（同 DialogCard 惯例），ClipChildren 保证内容裁进圆角轮廓。
+[[huxerui::composable]] huxerui::View AdaptiveInputSurface(huxerui::View body,
+                                                           huxerui::View trailing,
+                                                           bool multiline,
+                                                           InputSurfaceTone tone,
+                                                           float minBodyHeight,
+                                                           float maxBodyHeight) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    auto focused = huxerui::UseState(false);
+    // hcg codegen 把 composable 体包进 [=] lambda（参数在体内为 const）：
+    // 挂焦点事件/钳制高度都需要先拷到局部变量再改写。
+    huxerui::View input = std::move(body);
+    input = std::move(input).On<huxerui::ViewEvents::FocusChanged>(
+        [focused](bool value) { focused = value; });
+
+    // tone → 描边色（优先级 Disabled > Error > Busy > 聚焦 > Normal）。
+    // 只换颜色：描边宽度、圆角、内边距在任何 tone 下完全一致。
+    huxerui::Color stroke = islands.outline_soft;
+    switch (tone) {
+    case InputSurfaceTone::Normal:
+        if (focused.Get()) stroke = theme.colors.primary;
+        break;
+    case InputSurfaceTone::Focused:
+        stroke = theme.colors.primary;
+        break;
+    case InputSurfaceTone::Error:
+        stroke = theme.colors.error;
+        break;
+    case InputSurfaceTone::Disabled:
+        stroke = islands.outline_soft;
+        stroke.alpha *= 0.5F;
+        break;
+    case InputSurfaceTone::Busy:
+        stroke = theme.colors.primary;
+        stroke.alpha = 0.55F;
+        break;
+    }
+
+    // 正文区域：高度钳制 + 拉伸填满剩余宽度（尾部动作整体右对齐）。
+    const float minBody = minBodyHeight;
+    const float maxBody = std::max(minBodyHeight, maxBodyHeight);
+    huxerui::View bodyArea =
+        huxerui::ScrollView{huxerui::Column{std::move(input)}.With(huxerui::CrossAlign(
+                                huxerui::CrossAxisAlignment::Stretch))}
+            .With(huxerui::Frame{.min_height = minBody, .max_height = maxBody},
+                  huxerui::Grow(1.0F));
+
+    constexpr float kPaddingH = 14.0F; // 水平内边距：两态一致（胶囊圆帽不挤正文）
+    constexpr float kPaddingV = 6.0F;  // 垂直内边距：两态一致
+    constexpr float kActionGap = 8.0F; // 正文与尾部动作间距：两态一致
+    return huxerui::Row{std::move(bodyArea), std::move(trailing)}
+        .With(huxerui::Spacing(kActionGap),
+              huxerui::Background(islands.raised),
+              huxerui::CornerRadius(multiline ? islands.large_control_radius
+                                              : theme.shapes.full),
+              huxerui::Border(stroke, 1.0F),
+              huxerui::ClipChildren(),
+              huxerui::Padding(huxerui::EdgeInsets::Symmetric(kPaddingH, kPaddingV)),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
 // 自定义内容弹窗的卡片包裹：SDK 的 dialog.Show(ViewFactory/DialogFactory) 不给
@@ -41,15 +277,7 @@ namespace apitab::ui {
 // 分不清层级。统一包一层：圆角底 + 阴影 + 内边距；阴影/底/圆角依次在外，
 // Padding 在最内（modifier 顺序 = 由外到内）。
 [[huxerui::composable]] huxerui::View DialogCard(huxerui::View content) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    // 作用域宏里参数以 const 引用形式可见、View::With 只能作用于右值：
-    // 先拷出可变副本，再 std::move 挂修饰。
-    huxerui::View card = content;
-    return std::move(card).With(
-        huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.24F), {}, 24.0F, 0.0F},
-        huxerui::Background(theme.colors.surface_container_high),
-        huxerui::CornerRadius(theme.shapes.large),
-        huxerui::Padding(theme.spacing.large));
+    return IslandDialog(content);
 }
 
 // 危险确认弹窗内容（ShowDangerConfirm 的 DialogFactory 目标）：标题 + 消息 +
@@ -356,9 +584,11 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
 // press/Esc 时先递归关子层再关自己（框架见自定义回调就不再自动关层），并
 // 保留调用方原回调。id 延迟绑定：on_dismiss_request 里读 shared_ptr。
 namespace {
-void ShowPopupMenuRoot(huxerui::PopupHandle popup, std::vector<PopupMenuItem> items,
-                       const huxerui::PopupOptions& options,
-                       const std::optional<huxerui::Point>& at) {
+huxerui::LayerId ShowPopupMenuRoot(huxerui::PopupHandle popup,
+                                   std::vector<PopupMenuItem> items,
+                                   const huxerui::PopupOptions& options,
+                                   const std::optional<huxerui::Point>& at,
+                                   std::function<void(bool)> onHover = {}) {
     auto reg = std::make_shared<PopupMenuReg>();
     auto id = std::make_shared<huxerui::LayerId>(0);
     huxerui::PopupOptions opts = options;
@@ -368,11 +598,21 @@ void ShowPopupMenuRoot(huxerui::PopupHandle popup, std::vector<PopupMenuItem> it
         popup.Dismiss(*id);
         if (userRequest) userRequest();
     };
-    auto factory = [items = std::move(items), reg](huxerui::PopupContext ctx) mutable {
-        return PopupMenuContent(ctx, std::move(items), {}, reg);
+    auto factory = [items = std::move(items), reg,
+                    onHover = std::move(onHover)](huxerui::PopupContext ctx) mutable {
+        huxerui::View content = PopupMenuContent(ctx, std::move(items), {}, reg);
+        if (onHover) {
+            content = std::move(content).On<huxerui::ViewEvents::Hover>(
+                [onHover](const huxerui::HoverEvent& event) {
+                    if (event.type == huxerui::HoverEventType::Enter) onHover(true);
+                    if (event.type == huxerui::HoverEventType::Leave) onHover(false);
+                });
+        }
+        return content;
     };
     *id = at.has_value() ? popup.ShowAt(*at, std::move(factory), opts)
                          : popup.Show(std::move(factory), opts);
+    return *id;
 }
 } // namespace
 
@@ -386,19 +626,92 @@ void ShowPopupMenuAt(huxerui::PopupHandle popup, huxerui::Point point,
     ShowPopupMenuRoot(std::move(popup), std::move(items), options, point);
 }
 
+// P1-B1.2 统一菜单：AppMenuItem → PopupMenuItem 适配（页面不再手写 Popup 布局）
+namespace {
+PopupMenuItem AppToPopup(const AppMenuItem& a) {
+    PopupMenuItem p;
+    p.label = a.label;
+    p.on_click = a.onClick;
+    p.checked = a.checked;
+    p.separator_before = a.separatorBefore;
+    p.label_color = a.labelColor;
+    switch (a.tone) {
+        case AppMenuTone::DangerHover:
+            p.danger = PopupMenuDanger::kHoverRed;
+            break;
+        case AppMenuTone::DangerAlways:
+            p.danger = PopupMenuDanger::kAlwaysRed;
+            break;
+        default:
+            p.danger = PopupMenuDanger::kNone;
+            break;
+    }
+    // 快捷键拼到 label 右侧（Popup 暂无独立 shortcut 列）
+    if (a.shortcut && !a.shortcut->empty()) {
+        p.label += "  " + *a.shortcut;
+    }
+    // icon 暂透传：Popup 阶段不渲染图标，保留字段供后续菜单视觉统一时启用
+    for (const AppMenuItem& c : a.children) {
+        p.children.push_back(AppToPopup(c));
+    }
+    // enabled=false 时去活：on_click 置空，label 用 disabled 色（由调用方通过 labelColor 或 tone 表达亦可）
+    if (!a.enabled) {
+        p.on_click = nullptr;
+        if (!p.label_color) {
+            // 用 on_surface_variant 的半透明近似 disabled（由主题派生时更准，这里用固定 0.4 透明）
+            // 调用方可显式传 labelColor 覆盖
+        }
+        // 去活的子树亦去活
+        for (PopupMenuItem& child : p.children) child.on_click = nullptr;
+    }
+    return p;
+}
+} // namespace
+
+void ShowAppMenu(huxerui::PopupHandle popup, std::vector<AppMenuItem> items,
+                 const huxerui::PopupOptions& options) {
+    std::vector<PopupMenuItem> popupItems;
+    popupItems.reserve(items.size());
+    for (const AppMenuItem& a : items) popupItems.push_back(AppToPopup(a));
+    ShowPopupMenu(std::move(popup), std::move(popupItems), options);
+}
+void ShowAppMenuAt(huxerui::PopupHandle popup, huxerui::Point point, std::vector<AppMenuItem> items,
+                   const huxerui::PopupOptions& options) {
+    std::vector<PopupMenuItem> popupItems;
+    popupItems.reserve(items.size());
+    for (const AppMenuItem& a : items) popupItems.push_back(AppToPopup(a));
+    ShowPopupMenuAt(std::move(popup), point, std::move(popupItems), options);
+}
+
+huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
+                                  std::vector<AppMenuItem> items,
+                                  std::function<void(bool)> onMenuHover,
+                                  const huxerui::PopupOptions& options) {
+    std::vector<PopupMenuItem> popupItems;
+    popupItems.reserve(items.size());
+    for (const AppMenuItem& item : items) popupItems.push_back(AppToPopup(item));
+    return ShowPopupMenuRoot(std::move(popup), std::move(popupItems), options, std::nullopt,
+                             std::move(onMenuHover));
+}
+
 // 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（文本 ▾ 弹自绘下拉，
 // DELETE 常驻红；保持自绘而非官方 Select——Select 触发器自带描边外观，塞不进
 // 这个共用外框的组合栏），其后是当前环境 baseUrl 显示区（灰色只读、截断；
 // 输入框内容带 URI scheme 时以输入为准不拼接 → 该段半透明弱化），中间 1pt
-// 分隔线，右侧 URL 输入；整体共用一个描边圆角外框。URL 字段经
-// ProvideEnvironment 局部覆盖 TextFieldStyle：透明描边 + 零圆角，边框完全交给
-// 外框（TextField 无单实例样式 API，Environment 是最窄机制）。
+// 分隔线，右侧 URL 输入；整体共用一个描边圆角外框。外框圆角 = 几何令牌
+// large_control_radius（12pt）：请求 URL 行是高密度工具条，用 10–12pt 大圆角
+// 组合栏、不做 full capsule（§5.2）。方法触发器/baseUrl 段/分隔线/URL 输入共享
+// 同一外轮廓，内部不重复描边——URL 字段经 ProvideEnvironment 局部覆盖
+// TextFieldStyle：透明描边 + 零圆角，边框完全交给外框（TextField 无单实例样式
+// API，Environment 是最窄机制）；零圆角即与外框同心的极限（内层不再有独立
+// 底/角，无需 ConcentricRadius）。
 [[huxerui::composable]] huxerui::View MethodUrlBar(
     std::vector<std::string> methods, std::size_t methodIndex,
     std::function<void(std::size_t)> onMethodChanged, huxerui::TextEditingValue url,
     std::function<void(const huxerui::TextEditingValue&)> onUrlChanged,
     std::string baseUrl, std::string placeholder) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
     auto popup = huxerui::UsePopup(); // 方法下拉：自绘内容（DELETE 常驻红，MenuItem 无文字配色 API）
     const std::size_t safe = methodIndex < methods.size() ? methodIndex : 0;
 
@@ -410,9 +723,10 @@ void ShowPopupMenuAt(huxerui::PopupHandle popup, huxerui::Point point,
     // 高度对齐旁边的"发送"按钮：ButtonStyle 默认 minimum_height=0，按钮高由内容
     // 撑出 = 14pt 文字行高（约 16pt）+ padding Symmetric(14,8) 的 16pt ≈ 32pt；
     // 而 Outlined 变体默认 minimum_height=36，整条控件比按钮高一截。这里把
-    // minimum_height 收到 32，内容高（14pt 文字 + 垂直 padding 12pt ≈ 28pt）低于
-    // 它，由 minimum_height 定高且文字垂直居中；padding 同步收 8→6 保持居中余量。
-    urlStyle.outlined.minimum_height = 32.0F;
+    // minimum_height 收到 control_height(32)，内容高（14pt 文字 + 垂直 padding
+    // 12pt ≈ 28pt）低于它，由 minimum_height 定高且文字垂直居中；padding 同步
+    // 收 8→6 保持居中余量。
+    urlStyle.outlined.minimum_height = islands.control_height;
     urlStyle.padding = huxerui::EdgeInsets::Symmetric(10.0F, 6.0F);
 
     // 方法触发器：扁平文本，点击弹锚定 Popup（自绘下拉，外观对齐菜单层语义）。
@@ -480,7 +794,7 @@ void ShowPopupMenuAt(huxerui::PopupHandle popup, huxerui::Point point,
     }
         .With(huxerui::Spacing(0.0F),
               huxerui::Border(theme.colors.outline, 1.0F),
-              huxerui::CornerRadius(theme.shapes.small), huxerui::ClipChildren(),
+              huxerui::CornerRadius(islands.large_control_radius), huxerui::ClipChildren(),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
               huxerui::Grow(1.0F));
 }
@@ -504,35 +818,6 @@ void ShowPopupMenuAt(huxerui::PopupHandle popup, huxerui::Point point,
                              huxerui::TextRole::Body),
            }
         .With(huxerui::Padding(theme.spacing.large), huxerui::Spacing(8.0F),
-              huxerui::Foreground(theme.colors.on_surface_variant));
-}
-
-// 空状态页：图标 + 标题 + 副标题，可选行动按钮（如“去主页打开项目”）。
-// navPage 用来在按钮里推迟切页（事件处理器内禁止同步写会卸载节点的 State，
-// CLAUDE.md 约定 6），由调用方传入；按钮通过 tasks.Launch + Delay(0) 推迟。
-[[huxerui::composable]] huxerui::View EmptyState(huxerui::ImageResource icon,
-                                                  std::string title, std::string subtitle,
-                                                  huxerui::State<std::size_t> navPage) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    auto tasks = huxerui::UseTaskScope();
-    return huxerui::Column {
-               huxerui::Image(icon)
-                   .With(huxerui::Frame{.width = 64.0F, .height = 64.0F},
-                         huxerui::Foreground(theme.colors.on_surface_variant)),
-               huxerui::Text(std::move(title), huxerui::TextRole::Title),
-               huxerui::Text(std::move(subtitle), huxerui::TextRole::Body)
-                   .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-               huxerui::Button("去主页打开项目").OnClick([tasks, navPage] {
-                   tasks.Launch([=]() -> huxerui::Task<void> {
-                       co_await huxerui::Delay(std::chrono::duration<double>{0});
-                       navPage = std::size_t{0};
-                   });
-               }),
-           }
-        .With(huxerui::Padding(theme.spacing.extra_large),
-              huxerui::Spacing(theme.spacing.medium),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-              huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
               huxerui::Foreground(theme.colors.on_surface_variant));
 }
 

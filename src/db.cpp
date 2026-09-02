@@ -602,6 +602,16 @@ void Db::renameGroup(std::int64_t id, const std::string& name) {
     q.exec();
 }
 
+void Db::updateGroup(std::int64_t id, const std::string& name, GroupMode mode,
+                     const std::string& path) {
+    SQLite::Statement q(impl_->db, "UPDATE groups SET name=?,mode=?,path=? WHERE id=?");
+    q.bind(1, name);
+    q.bind(2, static_cast<int>(mode));
+    q.bind(3, path);
+    q.bind(4, id);
+    q.exec();
+}
+
 void Db::setGroupMode(std::int64_t id, GroupMode mode) {
     SQLite::Statement q(impl_->db, "UPDATE groups SET mode=? WHERE id=?");
     q.bind(1, static_cast<int>(mode));

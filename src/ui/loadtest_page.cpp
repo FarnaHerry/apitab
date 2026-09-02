@@ -19,6 +19,22 @@ import apitab.store.requests;
 namespace apitab::ui {
 
 namespace {
+#ifdef APITAB_HAS_COMBOBOX
+[[huxerui::composable]] huxerui::View DurationField(huxerui::State<huxerui::TextEditingValue> duration) {
+    return huxerui::ComboBox(duration.Get(), std::vector<std::string>{"10s", "30s", "1m", "5m"})
+        .Label("时长")
+        .Variant(huxerui::TextFieldVariant::Outlined)
+        .OnChanged([duration](const huxerui::TextEditingValue& value) { duration = value; })
+        .OnSelected([duration](std::size_t, const huxerui::TextEditingValue& value) { duration = value; });
+}
+#else
+[[huxerui::composable]] huxerui::View DurationField(huxerui::State<huxerui::TextEditingValue> duration) {
+    return huxerui::TextField(duration)
+        .Label("时长")
+        .Variant(huxerui::TextFieldVariant::Outlined)
+        .OnChanged([duration](const huxerui::TextEditingValue& value) { duration = value; });
+}
+#endif
 // kMethodNames 用 draft.h 共享表（curl/k6 都接受任意方法名；框架 HttpClient
 // 的 HttpMethod 枚举只有经典 7 个，故 http_test_page 是例外）。
 constexpr std::size_t kOutputCap = 300;
@@ -106,10 +122,7 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
                     .Label("VUs")
                     .Variant(huxerui::TextFieldVariant::Outlined)
                     .OnChanged([vus](const huxerui::TextEditingValue& value) { vus = value; }),
-                huxerui::TextField(duration)
-                    .Label("时长")
-                    .Variant(huxerui::TextFieldVariant::Outlined)
-                    .OnChanged([duration](const huxerui::TextEditingValue& value) { duration = value; }),
+                DurationField(duration),
             }
                 .With(huxerui::Spacing(theme.spacing.medium)),
             huxerui::Row {

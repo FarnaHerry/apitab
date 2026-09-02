@@ -1,8 +1,9 @@
-// home_page.cpp — 主页面：两栏岛屿布局。
+// home_page.cpp — 主页面（顶级 Home 标签内容，全宽无侧栏）：两栏岛屿布局。
 //   左岛（固定宽）：组织列表（选中高亮），标题行加号按钮弹窗新建组织；
 //   右岛（Grow）：当前组织的项目卡片（Flow 自动换行），标题行加号按钮弹窗新建项目。
-// 打开项目 = selectProjectInOrg（领域状态）+ 新增/激活顶级项目标签页 + 跳转请求页；
-// 未打开前，依赖项目的页面（请求集合等）一律不可用。
+// 打开项目 = selectProjectInOrg（领域状态）+ onOpenProject 回调（AppRoot 注入：
+// 新增/激活顶级项目标签 + tabs/activeTopTab/lastProjectTab 写回 + open_projects
+// 按需持久化，见 app.cpp）；未打开前，依赖项目的页面（请求集合等）一律不可用。
 // 所有会触发重组卸载被点击节点的写 State / 领域变更（切组织、新建、删除、打开项目）
 // 一律经 tasks.Launch + Delay(0) 推迟出指针事件路径（CLAUDE.md 约定 6）。
 #include <huxerui/huxerui.h>
@@ -23,9 +24,13 @@ namespace apitab::ui {
 
 namespace {
 
-// 组织列表行：OnClick 挂在整行 Row 上（框架点击不冒泡，最深绑定生效，行尾 ✕
-// 的点击仍只触发 ✕）。悬停反馈走 Hover 事件通道（非独占，悬停 ✕ 也触发）
-// 驱动整行底色；行自身压掉默认 Indication 避免双层叠加，✕ 保留自己的高亮。
+// 组织列表行（P1-A2 布局契约：[前置区] [主内容 Grow] [尾部信息] [固定动作区]）：
+// 组织行无前置图标与尾部元信息——主内容 = 组织名（左对齐、Grow 撑开），尾部 =
+// TrailingActionGroup 固定动作区（32pt 槽位整列等宽，窗口宽度变化时右缘不抖动）。
+// OnClick 挂在整行 Row 上（框架点击不冒泡，最深绑定生效，动作区内 ✕ 的点击
+// 仍只触发 ✕，行选择与删除是独立事件目标）。悬停反馈走 Hover 事件通道（非独占，
+// 悬停 ✕ 也触发）驱动整行底色；行自身压掉默认 Indication 避免双层叠加，✕ 保留
+// 自己的高亮。子节点按声明顺序即焦点序（文本 → 动作区），无打乱顺序的包装。
 // 删除/切换都会重组卸载本行，故均推迟执行。
 [[huxerui::composable]] huxerui::View OrgRow(const db::Org& org, bool selected,
                                              huxerui::State<int> refresh) {
@@ -34,14 +39,13 @@ namespace {
     auto tasks = huxerui::UseTaskScope();
     auto hovered = huxerui::UseState(false);
     return huxerui::Row {
+        // 主内容：组织名，左对齐 Grow 撑开，把固定动作区推到行右缘。
         huxerui::Text(org.name, huxerui::TextRole::Label)
             .With(huxerui::Grow(1.0F), huxerui::Padding(4.0F),
                   huxerui::Foreground(selected ? theme.colors.on_surface
                                                : theme.colors.on_surface_variant)),
-        huxerui::Text("✕", huxerui::TextRole::Label)
-            .With(huxerui::Padding(4.0F),
-                  huxerui::Foreground(theme.colors.on_surface_variant))
-            .OnClick([tasks, toast, refresh, id = org.id] {
+        // 固定动作区：删除组织 ✕（Bare 28pt，保留自身 hover/press 高亮）。
+        TrailingActionGroup({AppIconButton("✕", "删除组织", [tasks, toast, refresh, id = org.id] {
                 // 删除组织级联删项目与请求，并卸载本行：推迟出指针事件路径
                 tasks.Launch([=]() -> huxerui::Task<void> {
                     co_await huxerui::Delay(std::chrono::duration<double>{0});
@@ -51,7 +55,7 @@ namespace {
                     }
                     refresh = refresh.Get() + 1;
                 });
-            }),
+            }, AppIconButtonShape::Bare)}),
     }
         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
               huxerui::CornerRadius(theme.shapes.medium),
@@ -80,12 +84,12 @@ namespace {
         });
 }
 
-// 项目卡片：固定尺寸，Flow 内自动换行；点击打开 = 领域选择 + 标签页 + 跳请求页。
-// 已打开的项目用主色名称标记（原 ID/「点击打开」提示已按设计要求移除）。
-[[huxerui::composable]] huxerui::View ProjectCard(const db::Project& project,
-                                                  huxerui::State<std::size_t> navPage,
-                                                  huxerui::State<std::vector<std::int64_t>> tabs,
-                                                  huxerui::State<std::int64_t> activeProject) {
+// 项目卡片：固定尺寸，Flow 内自动换行；点击打开 = 领域选择 + onOpenProject
+//（AppRoot：顶级项目标签新增/激活）。已打开的项目用主色名称标记（is_open 用
+// activeProject 领域打开态判定，原 ID/「点击打开」提示已按设计要求移除）。
+[[huxerui::composable]] huxerui::View ProjectCard(
+    const db::Project& project, huxerui::State<std::int64_t> activeProject,
+    const std::function<void(std::int64_t)>& onOpenProject) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
     auto tasks = huxerui::UseTaskScope();
@@ -98,12 +102,18 @@ namespace {
         .With(huxerui::Frame{.width = 200.0F, .height = 96.0F},
               huxerui::Padding(theme.spacing.medium), huxerui::Spacing(4.0F),
               huxerui::Background(theme.colors.surface_container),
-              huxerui::CornerRadius(theme.shapes.medium))
+              huxerui::CornerRadius(theme.shapes.medium),
+              // 键盘/语义（P1-B0.4，§13.6 键盘要求）：卡片可聚焦 + Button 语义，
+              // 键盘 Tab 后 Enter/Space 打开项目（模式同 settings_page 左分类行）。
+              huxerui::Focusable(true),
+              huxerui::Semantics{.role = huxerui::SemanticRole::Button,
+                                 .label = "打开项目 " + project.name})
         .OnClick([=] {
-            // 推迟出指针事件路径：本点击会切页（卸载本卡片子树），
+            // 推迟出指针事件路径：本点击会切顶级标签（卸载本卡片子树），
             // 在 pointer-up 处理中同步写 State 会触发框架段错误。
             tasks.Launch([=]() -> huxerui::Task<void> {
                 co_await huxerui::Delay(std::chrono::duration<double>{0});
+                // 领域写入先行（§13.2 不变量 1：领域同步完成后才渲染项目工作区）。
                 if (const std::string err = g_requests.selectProjectInOrg(
                         g_requests.currentOrgId(), project.id);
                     !err.empty()) {
@@ -112,29 +122,18 @@ namespace {
                 }
                 g_loadtest.setProject(project.id);
                 saveSessionPreference("active_project", std::to_string(project.id));
-                // 新增（或激活）顶级项目标签页，并持久化标签列表
-                std::vector<std::int64_t> open = tabs.Get();
-                if (!std::ranges::contains(open, project.id)) {
-                    open.push_back(project.id);
-                    std::string csv;
-                    for (std::size_t i = 0; i < open.size(); ++i) {
-                        csv += (i ? "," : "");
-                        csv += std::to_string(open[i]);
-                    }
-                    saveSessionPreference("open_projects", csv);
-                }
-                tabs = open;
-                activeProject = project.id;
-                navPage = 1; // 请求页
+                // 顶级标签新增/激活 + State 写回 + open_projects 按需持久化由
+                // AppRoot 的 onOpenProject 完成；同一推迟任务内执行，重组无中间帧。
+                onOpenProject(project.id);
             });
         });
 }
 
 } // namespace
 
-[[huxerui::composable]] huxerui::View HomePage(huxerui::State<std::size_t> navPage,
-                                               huxerui::State<std::vector<std::int64_t>> tabs,
-                                               huxerui::State<std::int64_t> activeProject) {
+[[huxerui::composable]] huxerui::View HomePage(
+    std::function<void(std::int64_t)> onOpenProject,
+    huxerui::State<std::int64_t> activeProject) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
     auto tasks = huxerui::UseTaskScope();
@@ -168,7 +167,8 @@ namespace {
         huxerui::Column {
             huxerui::Row {
                 huxerui::Text("组织", huxerui::TextRole::Title).With(huxerui::Grow(1.0F)),
-                CircleButton("+", [dialog, tasks, toast, refresh, newOrgName] {
+                // 独立浮动 + 动作：圆形 + 主色底（28pt 命中区），语义标签"新建组织"。
+                AppIconButton("+", "新建组织", [dialog, tasks, toast, refresh, newOrgName] {
                 dialog.Show(
                     [tasks, toast, refresh, newOrgName](huxerui::DialogContext ctx)
                         -> huxerui::View {
@@ -216,7 +216,7 @@ namespace {
                                                       huxerui::CrossAxisAlignment::Stretch)));
                     },
                     huxerui::DialogOptions{});
-            }),
+            }, AppIconButtonShape::Circular, 28.0F, true),
             }
                 .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             huxerui::ScrollView{huxerui::Column(std::move(orgRows))
@@ -232,7 +232,7 @@ namespace {
     // ---- 右岛：当前组织的项目卡片 + 新建项目 ----
     std::vector<huxerui::View> cards;
     for (const db::Project& project : projects) {
-        cards.push_back(ProjectCard(project, navPage, tabs, activeProject).Key(project.id));
+        cards.push_back(ProjectCard(project, activeProject, onOpenProject).Key(project.id));
     }
     huxerui::View projectIsland =
         huxerui::Column {
@@ -240,7 +240,8 @@ namespace {
                 PageHeader("项目",
                            orgName.empty() ? "当前组织的项目" : "当前组织：" + orgName)
                     .With(huxerui::Grow(1.0F)),
-                CircleButton("+", [dialog, tasks, toast, refresh, newProjectName] {
+                // 独立浮动 + 动作：圆形 + 主色底（28pt 命中区），语义标签"新建项目"。
+                AppIconButton("+", "新建项目", [dialog, tasks, toast, refresh, newProjectName] {
                     dialog.Show(
                         [tasks, toast, refresh, newProjectName](huxerui::DialogContext ctx)
                             -> huxerui::View {
@@ -290,7 +291,7 @@ namespace {
                                                           huxerui::CrossAxisAlignment::Stretch)));
                         },
                         huxerui::DialogOptions{});
-                }),
+                }, AppIconButtonShape::Circular, 28.0F, true),
             }
                 .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             huxerui::ScrollView{

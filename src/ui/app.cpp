@@ -1,10 +1,14 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 托盘）：
-//   标题栏岛：Logo(AT) + 顶级项目标签条（主页钉在最左，项目标签横向滚动）+ 齿轮
-//     (全局设置) + 框架窗口按钮；收窄为 32px 高、去背景直接融入窗口底色，
+//   标题栏岛：Logo(AT) + 顶级标签条（TopTabStrip：主页钉在最左、项目标签横向滚动、
+//     设置单例标签固定追加在所有项目标签之后）+ 闪电（遗留 HttpTest 入口）+ 齿轮
+//     (全局设置单例标签) + 框架窗口按钮；收窄为 24px 高、去背景直接融入窗口底色，
 //     主题为极简 AI 黑白风（MinimalDark/MinimalLightThemeSpec，对齐 tinynext 配色）。
 //   下方：左侧图标侧边栏（无岛屿包裹，直接落在窗口背景上）｜内容区（页面自己的
 //   一级岛屿划分区域，外壳不再套岛）。根节点刷整窗底色（rootSpec.colors.background——
 //   AppRoot 在主题 provider 之上，UseTheme 只能拿到默认浅色 spec，须按 dark 自选）。
+//   顶级位置模型（island-structure-theme.md §13.1，P1-B0.1）：主页/项目/全局设置
+//   统一为同一套顶级标签（TopTabId/TopTabState 见 ui.h），内容区按 activeTopTab
+//   切换；navPage 只表达项目工作区内部页，不再包含 kHome/kAppSettings 等顶级目的地。
 //   响应式：UseViewportClass() Compact 时收窄侧栏宽度与各处间距。
 // 托盘：托盘图标/菜单（显示主窗口/退出）；关闭行为三选（每次询问/直接关闭/
 //   最小化到托盘），未配置时第一次关闭弹窗询问并把选择写入配置。
@@ -14,6 +18,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -32,41 +37,33 @@ namespace apitab::ui {
 
 namespace pages {
 
+// 项目工作区内部页（navPage 只表达项目工作区内的页面；顶级目的地由 activeTopTab
+// 表达——island-structure-theme.md §13.1，P1-B0.1）。旧 kHome/kAppSettings 已删除
+//（不再有双状态竞争路径），kWebSocket/kTcp 本就不可达（已并入请求页内部标签）
+// 一并清理；kHttpTest 为遗留全宽顶级入口（见 AppRoot 内容区与闪电按钮注释）。
 enum PageIndex : std::size_t {
-    kHome = 0,
-    kRequest = 1,
-    kLoad = 2,
-    kWebSocket = 3,
-    kTcp = 4,
-    kHistory = 5,
-    kProjectSettings = 6,
-    kAppSettings = 7,
-    kHttpTest = 8, // 框架 HTTP 协程压测实验页（标题栏闪电图标进入）
+    kRequest = 0,
+    kLoad = 1,
+    kHistory = 2,
+    kProjectSettings = 3,
+    kHttpTest = 4, // 遗留：框架 HTTP 协程压测实验页（标题栏闪电图标进入，全宽显示）
 };
 
 [[huxerui::composable]] huxerui::View PageFor(std::size_t index,
-                                              huxerui::State<std::size_t> navPage,
-                                              huxerui::State<std::vector<std::int64_t>> tabs,
-                                              huxerui::State<std::int64_t> activeProject,
-                                              huxerui::State<int> themeMode,
-                                              huxerui::State<int> closeBehavior) {
+                                              huxerui::State<std::int64_t> activeProject) {
     switch (index) {
-        case kHome:
-            return HomePage(navPage, tabs, activeProject);
-        case kRequest:
-            // 主页已整宽覆盖侧栏：未打开项目时本页不可达，无需兜底。
-            return RequestPage(activeProject);
         case kLoad:
             return LoadTestPage();
-        // kWebSocket/kTcp 不再可达：已并入请求页内部标签（PageIndex 枚举值保留）。
         case kHistory:
             return HistoryPage();
         case kProjectSettings:
             return ProjectSettingsPage();
-        case kHttpTest:
-            return HttpTestPage();
+        // kHttpTest 不走本函数：它是遗留的全宽顶级入口，由 AppRoot 内容区直接渲染
+        //（§13.1：P1-B1 项 4 评估其顶级身份），不属于项目工作区页面。
+        case kRequest:
         default:
-            return GlobalSettingsPage(themeMode, closeBehavior);
+            // 主页已整宽覆盖侧栏：未打开项目时本页不可达，无需兜底。
+            return RequestPage(activeProject);
     }
 }
 } // namespace pages
@@ -79,8 +76,26 @@ namespace {
 // Logo、齿轮与标题栏等高撑满，文字行高（System 12 ≈ 16pt）不再被 20pt 框裁掉。
 constexpr float kTitleBarContentHeight = 24.0F;
 // 项目标签固定宽度：拖拽换位/边缘钳制需要已知步进（宽 + 间距），同 Chrome
-// 固定宽标签。主页图标标签不在此列（32pt 见 ProjectTab）。
+// 固定宽标签。主页图标标签不在此列（32pt 见 TopTab）；设置单例标签与其同宽。
 constexpr float kProjectTabWidth = 140.0F;
+// 设置单例标签的条内显示 key（.Key/hoveredTab/dragId 的条内比较用）：仅作显示
+// key，绝不进入 open_projects/持久化数据；领域/状态模型里设置由
+// TopTabKind::GlobalSettings 表达（§13.4 B0.1：不允许用负数 project id 充当设置）。
+constexpr std::int64_t kSettingsTabDisplayKey = std::numeric_limits<std::int64_t>::max();
+
+// 条内显示 key：主页 0（沿用旧「activeProject==0 = 主页」的条内约定）、项目 =
+// 项目 id、设置 = kSettingsTabDisplayKey。
+std::int64_t TopTabDisplayKey(TopTabId tab) {
+    switch (tab.kind) {
+        case TopTabKind::Project:
+            return tab.project_id;
+        case TopTabKind::GlobalSettings:
+            return kSettingsTabDisplayKey;
+        case TopTabKind::Home:
+            break;
+    }
+    return 0;
+}
 
 // 极简 AI 黑白风主题（对齐 tinynext 的 heibu geekBlack/geekWhite 配色）：
 // 深色 = 近纯黑底 + 纯白主色（主色控件白底黑字）；浅色 = 近白底 + 纯黑主色。
@@ -109,24 +124,25 @@ huxerui::ThemeSpec MinimalDarkThemeSpec() {
 }
 
 huxerui::ThemeSpec MinimalLightThemeSpec() {
-    huxerui::ThemeSpec spec; // 默认值即内置浅色方案
-    spec.colors.primary = huxerui::Color::Rgb(0, 0, 0);            // 纯黑主色
-    spec.colors.on_primary = huxerui::Color::Rgb(255, 255, 255);   // 黑底上翻白
-    spec.colors.secondary = huxerui::Color::Rgb(69, 69, 71);
-    spec.colors.on_secondary = huxerui::Color::Rgb(255, 255, 255);
-    spec.colors.secondary_container = huxerui::Color::Rgb(229, 229, 232);
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(31, 31, 31);
-    spec.colors.background = huxerui::Color::Rgb(244, 244, 245);   // #F4F4F5 近白
-    spec.colors.surface = huxerui::Color::Rgb(255, 255, 255);
-    spec.colors.surface_container_low = huxerui::Color::Rgb(255, 255, 255);
-    spec.colors.surface_container = huxerui::Color::Rgb(240, 240, 241);
-    spec.colors.surface_container_high = huxerui::Color::Rgb(231, 231, 233);
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(222, 222, 225);
-    spec.colors.on_surface = huxerui::Color::Rgb(31, 31, 31);      // 0.12 近黑
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(115, 115, 120); // 0.45 灰
-    spec.colors.outline = huxerui::Color::Rgb(201, 201, 204);
-    spec.colors.inverse_surface = huxerui::Color::Rgb(31, 31, 31);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(255, 255, 255);
+    huxerui::ThemeSpec spec = huxerui::MaterialLightThemeSpec();
+    // 冷中性灰白：保留柔和层级，但去掉上一版米白中过强的黄/棕分量。
+    spec.colors.primary = huxerui::Color::Rgb(37, 40, 45);         // #25282D
+    spec.colors.on_primary = huxerui::Color::Rgb(250, 250, 251);   // #FAFAFB
+    spec.colors.secondary = huxerui::Color::Rgb(104, 112, 124);    // #68707C
+    spec.colors.on_secondary = huxerui::Color::Rgb(250, 250, 251);
+    spec.colors.secondary_container = huxerui::Color::Rgb(231, 234, 240);
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(37, 40, 45);
+    spec.colors.background = huxerui::Color::Rgb(243, 244, 246);   // #F3F4F6 海面
+    spec.colors.surface = huxerui::Color::Rgb(250, 250, 251);      // #FAFAFB
+    spec.colors.surface_container_low = huxerui::Color::Rgb(248, 249, 250);
+    spec.colors.surface_container = huxerui::Color::Rgb(241, 243, 245);
+    spec.colors.surface_container_high = huxerui::Color::Rgb(231, 234, 238);
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(255, 255, 255);
+    spec.colors.on_surface = huxerui::Color::Rgb(36, 39, 44);      // #24272C
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(107, 114, 128); // #6B7280
+    spec.colors.outline = huxerui::Color::Rgb(216, 220, 226);      // #D8DCE2
+    spec.colors.inverse_surface = huxerui::Color::Rgb(36, 39, 44);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(250, 250, 251);
     spec.colors.error = huxerui::Color::Rgb(204, 64, 51);
     return spec;
 }
@@ -226,50 +242,70 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     return huxerui::Theme(std::move(definition), content);
 }
 
-// 软件徽标：字母 AT 合成的圆角块。与标题栏所有控件统一 24pt 高（kTitleBarHeight）。
+// 软件徽标：两个圆角岛由请求路径连接的 apitab 标记，不再使用字母 AT。
+// SVG 保持单色并由 Tint(on_primary) 适配主题；外层色块沿用主题 primary，保证
+// 24pt 标题栏和深浅主题下都有稳定对比度。
 [[huxerui::composable]] huxerui::View LogoBadge() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    return huxerui::Text("AT", huxerui::TextRole::Title)
+    return huxerui::Image(app::images::apitab_mark)
+        .Fit(huxerui::ImageFit::Contain)
+        .Align(huxerui::HorizontalAlignment::Center,
+               huxerui::VerticalAlignment::Center)
+        .Tint(theme.colors.on_primary)
         .With(huxerui::Frame{.width = 32.0F, .height = kTitleBarContentHeight},
               huxerui::Background(theme.colors.primary),
               huxerui::CornerRadius(theme.shapes.small),
-              huxerui::Foreground(theme.colors.on_primary),
-              huxerui::Align{.horizontal = huxerui::HorizontalAlignment::Center,
-                             .vertical = huxerui::VerticalAlignment::Center});
+              huxerui::Padding(4.0F));
 }
 
-// 顶级标签拖拽载荷：按项目 id 定位源/目标标签（主页标签 id=0 不参与拖拽，
-// 位置恒定最左）。
+// 顶级标签拖拽载荷：按项目 id 定位源/目标标签。只接受项目——主页标签（固定最左）
+// 与设置单例标签（不参与排序、不写入 open_projects，§13.4 B0.1）不挂 DragSource。
 struct ProjectTabDragPayload {
     std::int64_t projectId = 0;
 };
 
-// 单个标签页：激活态 = 最高层级容器底 + 主文字色；未激活 = 略深容器底 + 次级文字色。
-// 整块外层只负责激活与切换（点击卸载内容子树，推迟出指针事件路径，CLAUDE.md 约定 6）；
-// 内层用两个兄弟节点分别承载“切换”与“关闭”，避免各自做一次整标签的背景重绘。
-// 项目标签（id != 0）另挂拖拽换位；主页标签（id == 0）不挂，位置恒定最左。
-// 拖拽的 strip 级状态（dragId/dragDx/dragOrig）与几何（index/count/stride）
-// 由 ProjectTabStrip 传入：拖动时本标签变透明占位，视觉由条内覆盖层克隆接管。
-[[huxerui::composable]] huxerui::View ProjectTab(
-    huxerui::State<std::size_t> navPage, huxerui::State<std::vector<std::int64_t>> tabs,
-    huxerui::State<std::int64_t> activeProject, std::int64_t id, huxerui::View leading,
-    std::string name, huxerui::State<std::int64_t> dragId, huxerui::State<float> dragDx,
+// 顶级标签条 → AppRoot 的操作入口：activate/close 的实现由 AppRoot 提供（推迟任务
+// 里完成 TopTabState helper 计算、领域写入与 State 写回，TopTab/TopTabStrip 不直接
+// 持有顶级状态写入）。
+struct TopTabActions {
+    std::function<void(TopTabId)> activate;
+    std::function<void(TopTabId)> close;
+};
+
+// 单个顶级标签：激活态 = 最高层级容器底 + 主文字色；未激活 = 略深容器底 + 次级文字色。
+// 整块外层只负责激活与切换（点击会卸载内容子树，切换统一经 actions.activate 的
+// AppRoot 推迟任务执行，CLAUDE.md 约定 6）；内层用两个兄弟节点分别承载「切换」与
+// 「关闭」，避免各自做一次整标签的背景重绘。主页标签（kind=Home）不可关闭、不挂
+// 拖拽，位置恒定最左；项目标签（kind=Project）可关闭、挂拖拽换位；设置单例标签
+// （kind=GlobalSettings）可关闭、不挂拖拽——拖拽 payload 只接受项目，设置不参与
+// 拖拽排序、不写入 open_projects（§13.4 B0.1）。拖拽的 strip 级状态（dragId/dragDx/
+// dragOrig）与几何（index/count/stride）由 TopTabStrip 传入：拖动时本标签变透明
+// 占位，视觉由条内覆盖层克隆接管。
+[[huxerui::composable]] huxerui::View TopTab(
+    TopTabId tab, std::string name, huxerui::View leading, bool active, bool draggable,
+    const TopTabActions& actions, huxerui::State<std::vector<std::int64_t>> tabs,
+    huxerui::State<std::int64_t> dragId, huxerui::State<float> dragDx,
     huxerui::State<int> dragOrig, std::size_t index, std::size_t count, float stride,
     huxerui::State<std::shared_ptr<SlideCell>> slideCell,
     huxerui::State<std::uint64_t> slideTick,
     huxerui::State<std::int64_t> hoveredTab) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
-    const bool active = activeProject.Get() == id;
+    // 条内显示 key（TopTabDisplayKey，见上）：悬停/hoveredTab 与分隔竖线显隐用。
+    const std::int64_t key = TopTabDisplayKey(tab);
     // 悬停才显示 ✕ 与背景。官方 view 级 Hover 事件（containment 生命周期）：
     // 指针进入标签呈现边界 Enter、真正离开才 Leave，在子组件（切换区/✕）之间
     // 移动不触发 Leave，天然等价于原来三个 HoverTrack 共享 cell 的聚合语义。
-    // 同步写 strip 级 hoveredTab（分隔竖线显隐要用；-1 = 无，0 是主页 id）。
+    // 同步写 strip 级 hoveredTab（分隔竖线显隐要用；-1 = 无）。
     auto hovered = huxerui::UseState(false);
+    // P1-B0.5 键盘关闭：关闭按钮始终 enabled/focusable，hover∪focus 控制可见。
+    auto closeFocused = huxerui::UseState(false);
     // 拖动中（仅本标签被拖时）变透明占位：保留布局槽位与拖拽会话，视觉由
-    // ProjectTabStrip 的覆盖层克隆接管——覆盖层无任何事件 handler，命中测试
-    // 穿透到下方静止标签。
-    const bool dragging = id != 0 && dragId.Get() == id;
+    // TopTabStrip 的覆盖层克隆接管——覆盖层无任何事件 handler，命中测试
+    // 穿透到下方静止标签。dragId 只会持有项目 id（主页/设置标签不挂 DragSource）。
+    const bool dragging = draggable && dragId.Get() == tab.project_id;
+    // 可关闭：主页标签固定不可关；项目标签与设置单例标签可关。
+    const bool closable = tab.kind != TopTabKind::Home;
 
     // 标题栏已无底色（融入窗口背景）；标签背景默认也不显示（透明）——
     // 激活 = surface_container_highest 提亮，悬停 = surface_container 浮起，
@@ -281,49 +317,25 @@ struct ProjectTabDragPayload {
     const huxerui::Color tabForeground =
         active ? theme.colors.on_surface : theme.colors.on_surface_variant;
 
-    auto activateProject = [tasks, activeProject, tabs, navPage](std::int64_t tabId) {
-        tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            if (tabId != 0) {
-                g_requests.selectProject(tabId);
-                g_loadtest.setProject(tabId);
-                saveSessionPreference("active_project", std::to_string(tabId));
-                if (navPage.Get() == pages::kHome) navPage = pages::kRequest; // 进入工作区
-            } else {
-                navPage = pages::kHome; // 主页标签
-            }
-            activeProject = tabId;
-        });
-    };
-    auto closeTab = [tasks, activeProject, tabs, navPage](std::int64_t tabId) {
-        tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            std::vector<std::int64_t> rest = tabs.Get();
-            std::erase(rest, tabId);
-            tabs = rest;
-            if (activeProject.Get() == tabId) {
-                g_requests.selectProject(0);
-                g_loadtest.setProject(0);
-                saveSessionPreference("active_project", "0");
-                activeProject = 0;
-                navPage = pages::kHome;
-            }
-        });
-    };
+    // 激活/关闭统一走 AppRoot 注入的 actions（推迟任务里完成顶级标签状态写回与
+    // 领域同步）；本项目不再直接持有任何顶级状态写入。
+    const auto activate = [actions, tab] { actions.activate(tab); };
 
     const auto badgeFont =
         huxerui::Font::System(font_size::kChip).WithWeight(huxerui::FontWeight::SemiBold);
-    // ✕ 用常规字重（与请求页 chip、行内操作符一致）；badgeFont 的 SemiBold
-    // 只留给标签名称，粗体叉笔画糊成一团难看。
-    const auto closeFont = huxerui::Font::System(font_size::kChip);
     // 主页标签只放图标：省略文字、收窄边距并固定窄宽，避免挤占项目标签空间；
     // 限宽与裁剪只压内部「切换区」（图标+文字），长项目名截断而行尾 ✕ 永远完整显示。
     // 所有标签统一 kTitleBarContentHeight 高；内外两层 Row 都交叉轴居中，
     // 图标/文字/✕ 不会在 24pt 条里各自顶格漂移。
     const bool iconOnly = name.empty();
-    huxerui::View tab = huxerui::Row {
+    // 键盘/语义（P1-B0.4，§13.6 键盘要求）：切换区可聚焦 + Button 语义，Tab 到
+    // 标签后 Enter/Space 激活 = 切换顶级标签（普通 Row 默认不可聚焦，仅内置
+    // Button/Chip 等自带 focusable，模式同 settings_page 左分类行）。主页标签
+    // 无文字，语义名固定"主页"；项目/设置标签用条内文字。
+    const std::string switchLabel = iconOnly ? std::string{"主页"} : name;
+    huxerui::View tabView = huxerui::Row {
         // 切换区：点击 = 激活本标签。max_width 给行尾 ✕ 留出位置
-        // （固定宽 140 内：切换区 ≤120 + ✕ ≈16 + 间隙）。
+        // （固定宽 140 内：切换区 ≤100 + 28pt ✕ 命中区 + 间隙）。
         huxerui::Row {std::move(leading),
                       iconOnly
                           ? huxerui::View{huxerui::Row{}}
@@ -333,30 +345,40 @@ struct ProjectTabDragPayload {
                                                   .foreground = tabForeground})}}
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
                   huxerui::Spacing(4.0F),
-                  huxerui::Frame{.max_width = kProjectTabWidth - 20.0F},
+                  huxerui::Frame{.max_width = kProjectTabWidth - 40.0F},
                   huxerui::ClipChildren(),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                   // 整标签的悬停/选中反馈由外层 tabFill 承担；显式空 Indication
                   // 压掉 OnClick 的默认高亮，避免名称区再叠一层。
-                  huxerui::Indication{})
-            .OnClick([activateProject, id] { activateProject(id); }),
+                  huxerui::Indication{},
+                  huxerui::Focusable(true),
+                  huxerui::Semantics{.role = huxerui::SemanticRole::Button,
+                                     .label = switchLabel})
+            .OnClick(activate),
         // 弹性占位把 ✕ 顶到固定宽标签的右缘（Spacer 自带 Grow(1)）。
-        id != 0 ? huxerui::View{huxerui::Spacer{}} : huxerui::View{huxerui::Row{}},
-        // 关闭区（仅项目标签）：常驻、透明占位，悬停（本标签任一部分）才显示；
-        // Opacity 只改绘制不动结构，避免悬停重组换子节点类型引起抖动。
-        // 透明时点击空转。
-        id != 0
-            ? huxerui::View{huxerui::Text("✕", huxerui::TextRole::Label)
-                                .Style(huxerui::TextStyle{
-                                    .font = closeFont,
-                                    .foreground = tabForeground,
-                                })
-                                .With(huxerui::Padding(4.0F),
-                                      huxerui::Opacity(hovered.Get() ? 1.0F : 0.0F))
-                                .OnClick([closeTab, id, visible = hovered.Get()] {
-                                    if (!visible) return; // 透明占位不响应点击
-                                    closeTab(id);
-                                })}
+        closable ? huxerui::View{huxerui::Spacer{}} : huxerui::View{huxerui::Row{}},
+        // 关闭区（可关标签）：常驻、透明占位，悬停（本标签任一部分）才显示。
+        // ✕ 已从 Text+OnClick 迁为 Bare AppIconButton（§13.4 B0.3 中归 B0.1 shell
+        // agent 的部分）：固定 28pt 命中区在 24pt 标题栏里上下各溢出 2pt——允许
+        // （Bare hover 底轻微出血可接受），不回退成文本按钮。Opacity 只改绘制不动
+        // 结构，避免悬停重组换子节点类型引起抖动；enabled=hovered 门控透明占位的
+        // 点击（关闭会卸载本标签，AppRoot 侧再经推迟任务执行，约定 6）。
+        // 键盘缺口（P1-B0.4 如实记录）：enabled=hovered 使未悬停的 ✕ 为 disabled，
+        // disabled 节点不参与 Tab 遍历（runtime.cpp CollectFocusableNodes 要求
+        // enabled && focusable）→ 键盘无法到达 ✕，关设置/项目标签暂只能鼠标完成
+        //（§13.6 键盘要求中唯一缺口；改门控会变更指针行为，留 P1-B1 顶部导航岛
+        // 收束时统一决策，如 hover∪focus 门控或键盘快捷键）。
+        closable
+            ? huxerui::View{AppIconButton(
+                                  "✕",
+                                  tab.kind == TopTabKind::GlobalSettings ? "关闭设置标签"
+                                                                         : "关闭项目标签",
+                                  [actions, tab] { actions.close(tab); },
+                                  AppIconButtonShape::Bare, 28.0F, false, true)
+                                  .With(huxerui::Opacity((hovered.Get() || closeFocused.Get()) ? 1.0F
+                                                                                               : 0.0F))
+                                  .On<huxerui::ViewEvents::FocusChanged>(
+                                      [closeFocused](bool focused) { closeFocused = focused; })}
             : huxerui::View{huxerui::Row{}},
     }
         .With(huxerui::Spacing(0.0F), huxerui::Background(tabFill),
@@ -371,124 +393,131 @@ struct ProjectTabDragPayload {
               // 拖动时本体透明占位（布局槽位不变），视觉走覆盖层克隆。
               huxerui::Opacity(dragging ? 0.0F : 1.0F),
               // 让位滑动残量（非换位标签恒 0）：实时换位时邻居从旧槽位滑入。
-              huxerui::Offset(huxerui::Point{SlideOffsetOf(slideCell.Get(), id), 0.0F}),
+              huxerui::Offset(huxerui::Point{SlideOffsetOf(slideCell.Get(), key), 0.0F}),
               // 外层压掉默认 Indication：热区兜底点击（见下）不再叠一层按压高亮。
               huxerui::Indication{})
         // 整标签热区兜底：点击不冒泡（最深绑定生效），切换区（图标+文字）与 ✕
         // 之间的 Spacer/边距没有任何子绑定，点这里原本无响应——外层挂
         // activate，只会在无更深绑定的空白处命中。
-        .OnClick([activateProject, id] { activateProject(id); })
+        .OnClick(activate)
         // 悬停（containment）：进入边界置位，真正离开才清除；Leave 仅当
         // hoveredTab 仍是本标签才清 -1，避免竞态清掉邻居刚写入的 Enter。
         .On<huxerui::ViewEvents::Hover>(
-            [hovered, hoveredTab, id](const huxerui::HoverEvent& e) {
+            [hovered, hoveredTab, key](const huxerui::HoverEvent& e) {
                 if (e.type == huxerui::HoverEventType::Enter) {
                     hovered = true;
-                    hoveredTab = id;
+                    hoveredTab = key;
                 } else if (e.type == huxerui::HoverEventType::Leave) {
                     hovered = false;
-                    if (hoveredTab.Get() == id) hoveredTab = -1;
+                    if (hoveredTab.Get() == key) hoveredTab = -1;
                 }
             });
 
-    // 项目标签拖拽换位（主页标签 id==0 不挂任何拖拽修饰符，位置恒定最左）。
+    // 项目标签拖拽换位（主页/设置标签不挂任何拖拽修饰符：主页位置恒定最左，
+    // 设置不参与排序且不写入 open_projects，§13.4 B0.1）。
     // 限水平轴（axis=Horizontal）：标签只在标签条行内移动，竖向拖出不进拖拽。
     // Chrome 式贴条滑动：无悬浮拖影；Changed 回写钳制后的 X 位移（范围 =
     // 本标签到条内容两端，拖到容器外贴边停住而不是被裁掉），驱动
-    // ProjectTabStrip 的覆盖层克隆。重排后持久化 open_projects。
-    // 注：设计上预留「竖向拖出 = 拆成独立窗口、可拖回」，但 SDK 0.1.0 是单窗口
+    // TopTabStrip 的覆盖层克隆。重排后持久化 open_projects。
+    // 注：设计上预留「竖向拖出 = 拆成独立窗口、可拖回」，但 SDK 0.2.0 仍是单窗口
     // 模型（UseWindow 只有主窗口命令，无新建窗口 API；拖放是单视图树内
     // in-process），待 SDK 支持多窗口后把这里改回二维拖拽并加拆出逻辑。
     // 完整方案与检索规则见 docs/plans/project-tab-tear-off-window.md。
-    if (id != 0) {
-        tab = std::move(tab)
-                  .With(huxerui::DragSource(
-                      ProjectTabDragPayload{id},
-                      huxerui::DragGesture{.axis = huxerui::Axis::Horizontal}))
-                  // 拖拽开始：记录被拖标签与起点槽位。
-                  .On<huxerui::DragSourceEvents::Started>(
-                      [dragId, dragOrig, id, index](const huxerui::DragEvent&) {
-                          dragId = id;
-                          dragOrig = static_cast<int>(index);
-                      })
-                  // 拖动中每帧：钳制后的累计 X 位移写入 dragDx（驱动覆盖层，
-                  // axis=Horizontal 时 translation 已被约束到 X），并按"经过
-                  // 即换位"实时移动 tabs 顺序——目标槽位 = 起点 +
-                  // round(位移/步进)；每次换位顺带持久化 open_projects。
-                  // 钳制范围 = 起点槽位到条内容两端，拖到容器外贴边停住。
-                  // keyed 重排不卸载节点，同步写即可。
-                  .On<huxerui::DragSourceEvents::Changed>(
-                      [dragId, dragDx, dragOrig, tabs, tasks, slideCell, slideTick, id, count,
-                       stride](const huxerui::DragEvent& e) {
-                          dragId = id;
-                          const float orig = static_cast<float>(dragOrig.Get());
-                          const float hi =
-                              static_cast<float>(count > 0 ? count - 1 : 0) * stride -
-                              orig * stride;
-                          const float t = std::clamp(e.translation.x, -orig * stride, hi);
-                          dragDx = t;
-                          long desired =
-                              static_cast<long>(orig) + std::lround(t / stride);
-                          desired = std::clamp<long>(
-                              desired, 0, static_cast<long>(count > 0 ? count - 1 : 0));
-                          std::vector<std::int64_t> copy = tabs.Get();
-                          const auto fromIt = std::ranges::find(copy, id);
-                          if (fromIt == copy.end()) return;
-                          const auto from =
-                              static_cast<std::size_t>(std::distance(copy.begin(), fromIt));
-                          const auto target = static_cast<std::size_t>(desired);
-                          if (from == target || target >= copy.size()) return;
-                          // 邻居让位滑动：from<target 时 (from,target] 左移一格
-                          // （残量 +stride），反之 [target,from) 右移（-stride）。
-                          if (from < target) {
-                              for (std::size_t k = from + 1; k <= target; ++k)
-                                  StartSlide(tasks, slideCell, slideTick, copy[k], stride);
-                          } else {
-                              for (std::size_t k = target; k < from; ++k)
-                                  StartSlide(tasks, slideCell, slideTick, copy[k], -stride);
-                          }
-                          const std::int64_t moved = *fromIt;
-                          copy.erase(fromIt);
-                          copy.insert(copy.begin() + static_cast<long>(target), moved);
-                          tabs = copy;
-                          std::string csv;
-                          for (std::size_t i = 0; i < copy.size(); ++i) {
-                              csv += (i ? "," : "");
-                              csv += std::to_string(copy[i]);
-                          }
-                          saveSessionPreference("open_projects", csv);
-                      })
-                  // 结束/取消：归零会移除覆盖层节点（卸载），推迟出指针事件路径。
-                  .On<huxerui::DragSourceEvents::Ended>(
-                      [tasks, dragId, dragDx](const huxerui::DragDropResult&) {
-                          tasks.Launch([=]() -> huxerui::Task<void> {
-                              co_await huxerui::Delay(std::chrono::duration<double>{0});
-                              dragId = 0;
-                              dragDx = 0.0F;
+    if (draggable) {
+        tabView = std::move(tabView)
+                      .With(huxerui::DragSource(
+                          ProjectTabDragPayload{tab.project_id},
+                          huxerui::DragGesture{.axis = huxerui::Axis::Horizontal}))
+                      // 拖拽开始：记录被拖标签与起点槽位。
+                      .On<huxerui::DragSourceEvents::Started>(
+                          [dragId, dragOrig, id = tab.project_id,
+                           index](const huxerui::DragEvent&) {
+                              dragId = id;
+                              dragOrig = static_cast<int>(index);
+                          })
+                      // 拖动中每帧：钳制后的累计 X 位移写入 dragDx（驱动覆盖层，
+                      // axis=Horizontal 时 translation 已被约束到 X），并按"经过
+                      // 即换位"实时移动 tabs 顺序——目标槽位 = 起点 +
+                      // round(位移/步进)；每次换位顺带持久化 open_projects。
+                      // 钳制范围 = 起点槽位到条内容两端，拖到容器外贴边停住。
+                      // keyed 重排不卸载节点，同步写即可。
+                      .On<huxerui::DragSourceEvents::Changed>(
+                          [dragId, dragDx, dragOrig, tabs, tasks, slideCell, slideTick,
+                           id = tab.project_id, count,
+                           stride](const huxerui::DragEvent& e) {
+                              dragId = id;
+                              const float orig = static_cast<float>(dragOrig.Get());
+                              const float hi =
+                                  static_cast<float>(count > 0 ? count - 1 : 0) * stride -
+                                  orig * stride;
+                              const float t = std::clamp(e.translation.x, -orig * stride, hi);
+                              dragDx = t;
+                              long desired =
+                                  static_cast<long>(orig) + std::lround(t / stride);
+                              desired = std::clamp<long>(
+                                  desired, 0, static_cast<long>(count > 0 ? count - 1 : 0));
+                              std::vector<std::int64_t> copy = tabs.Get();
+                              const auto fromIt = std::ranges::find(copy, id);
+                              if (fromIt == copy.end()) return;
+                              const auto from = static_cast<std::size_t>(
+                                  std::distance(copy.begin(), fromIt));
+                              const auto target = static_cast<std::size_t>(desired);
+                              if (from == target || target >= copy.size()) return;
+                              // 邻居让位滑动：from<target 时 (from,target] 左移一格
+                              // （残量 +stride），反之 [target,from) 右移（-stride）。
+                              if (from < target) {
+                                  for (std::size_t k = from + 1; k <= target; ++k)
+                                      StartSlide(tasks, slideCell, slideTick, copy[k], stride);
+                              } else {
+                                  for (std::size_t k = target; k < from; ++k)
+                                      StartSlide(tasks, slideCell, slideTick, copy[k], -stride);
+                              }
+                              const std::int64_t moved = *fromIt;
+                              copy.erase(fromIt);
+                              copy.insert(copy.begin() + static_cast<long>(target), moved);
+                              tabs = copy;
+                              std::string csv;
+                              for (std::size_t i = 0; i < copy.size(); ++i) {
+                                  csv += (i ? "," : "");
+                                  csv += std::to_string(copy[i]);
+                              }
+                              saveSessionPreference("open_projects", csv);
+                          })
+                      // 结束/取消：归零会移除覆盖层节点（卸载），推迟出指针事件路径。
+                      .On<huxerui::DragSourceEvents::Ended>(
+                          [tasks, dragId, dragDx](const huxerui::DragDropResult&) {
+                              tasks.Launch([=]() -> huxerui::Task<void> {
+                                  co_await huxerui::Delay(std::chrono::duration<double>{0});
+                                  dragId = 0;
+                                  dragDx = 0.0F;
+                              });
+                          })
+                      .On<huxerui::DragSourceEvents::Canceled>(
+                          [tasks, dragId, dragDx](const huxerui::DragEvent&) {
+                              tasks.Launch([=]() -> huxerui::Task<void> {
+                                  co_await huxerui::Delay(std::chrono::duration<double>{0});
+                                  dragId = 0;
+                                  dragDx = 0.0F;
+                              });
                           });
-                      })
-                  .On<huxerui::DragSourceEvents::Canceled>(
-                      [tasks, dragId, dragDx](const huxerui::DragEvent&) {
-                          tasks.Launch([=]() -> huxerui::Task<void> {
-                              co_await huxerui::Delay(std::chrono::duration<double>{0});
-                              dragId = 0;
-                              dragDx = 0.0F;
-                          });
-                      });
     }
-    return tab;
+    return tabView;
 }
 
-// 顶级标签条：主页标签（房子图标，固定不可关）钉在最左不参与滚动；
-// 其余每个打开的项目一个可关标签，放进横向 ScrollView，溢出时滚动而不是挤变形。
-[[huxerui::composable]] huxerui::View ProjectTabStrip(
-    huxerui::State<std::size_t> navPage, huxerui::State<std::vector<std::int64_t>> tabs,
-    huxerui::State<std::int64_t> activeProject) {
+// 顶级标签条（P1-B0.1，由 ProjectTabStrip 泛化为通用顶级标签条）：主页标签
+// （房子图标，固定不可关）钉在最左不参与滚动；其余每个打开的项目一个可关、可拖
+// 标签，放进横向 ScrollView，溢出时滚动而不是挤变形；设置单例标签（打开时）固定
+// 追加在所有项目标签之后——布局决定：主页恒最左、设置恒队尾，两者都不参与项目
+// 拖拽排序与 open_projects 持久化（§13.1）。
+[[huxerui::composable]] huxerui::View TopTabStrip(
+    huxerui::State<std::vector<std::int64_t>> tabs, huxerui::State<bool> settingsOpen,
+    huxerui::State<TopTabId> activeTopTab, const TopTabActions& actions) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    // 拖拽中的 strip 级状态：被拖标签 id + 钳制后的累计 X 位移 + 起点槽位
-    // （见 ProjectTab）。拖动时被拖标签本体透明占位，视觉由下方覆盖层克隆
-    // 接管（Stack 最后声明 = 绘制最上层；克隆无事件 handler，命中测试穿透
-    // 到下方静止标签）。
+    // 拖拽中的 strip 级状态：被拖标签显示 key + 钳制后的累计 X 位移 + 起点槽位
+    // （见 TopTab）。dragId 只会持有项目 id（主页/设置标签不挂 DragSource），
+    // kSettingsTabDisplayKey 仅作显示 key、绝不进入 open_projects/持久化数据。
+    // 拖动时被拖标签本体透明占位，视觉由下方覆盖层克隆接管（Stack 最后声明 =
+    // 绘制最上层；克隆无事件 handler，命中测试穿透到下方静止标签）。
     auto dragId = huxerui::UseState<std::int64_t>(0);
     auto dragDx = huxerui::UseState(0.0F);
     // 拖动起点槽位（Started 时记录）：覆盖层 X = 起点槽位 + 累计位移，
@@ -498,7 +527,8 @@ struct ProjectTabDragPayload {
     auto slideCell = huxerui::UseState(std::make_shared<SlideCell>());
     auto slideTick = huxerui::UseState<std::uint64_t>(0);
     (void)slideTick.Get(); // 订阅：tween 每步 bump 触发重组
-    // 悬停标签 id（-1 = 无；主页 id=0 也会写入）：分隔竖线显隐用。
+    // 悬停标签显示 key（-1 = 无；主页 0、设置 = kSettingsTabDisplayKey 也会写入）：
+    // 分隔竖线显隐用。
     auto hoveredTab = huxerui::UseState<std::int64_t>(-1);
     // 步进 = 标签宽 + 分隔竖线(1pt) + 两侧间距（竖线作为 Row 子节点占布局，
     // 用 Opacity 显隐避免悬停时回流抖动）。
@@ -512,23 +542,22 @@ struct ProjectTabDragPayload {
                                    huxerui::Opacity(visible ? 1.0F : 0.0F))};
     };
 
-    // 主页标签：图标 only，无文字。home.svg 是固定 fill 的矢量资源，
-    // 须用 Image::Tint 着色（同下方齿轮），否则深/浅模式下都是写死的黑色；
+    const TopTabId activeTab = activeTopTab.Get();
+
+    // 主页标签 leading：home.svg 是固定 fill 的矢量资源，须用 Image::Tint 着色
+    // （同下方齿轮/设置标签图标），否则深/浅模式下都是写死的黑色；
     // Fit(Contain)+Align 居中，避免画布大于 Frame 时从边缘锚定。
     // 未激活时用次级文字色，与文字标签的激活/未激活配色规则一致。
-    const bool homeActive = activeProject.Get() == 0;
-    huxerui::View homeTab =
-        ProjectTab(navPage, tabs, activeProject, 0,
-                   huxerui::View{huxerui::Image(app::images::home)
-                                     .Fit(huxerui::ImageFit::Contain)
-                                     .Align(huxerui::HorizontalAlignment::Center,
-                                            huxerui::VerticalAlignment::Center)
-                                     .Tint(homeActive ? theme.colors.on_surface
-                                                      : theme.colors.on_surface_variant)
-                                     .With(huxerui::Frame{.width = 16.0F, .height = 16.0F})},
-                   "", dragId, dragDx, dragOrig, 0, 1, tabStride, slideCell, slideTick,
-                   hoveredTab)
-            .Key(std::int64_t{0});
+    const bool homeActive = activeTab == TopTabId{};
+    const auto iconLeading = [&theme](const huxerui::ImageResource& resource, bool isActive) {
+        return huxerui::View{huxerui::Image(resource)
+                                 .Fit(huxerui::ImageFit::Contain)
+                                 .Align(huxerui::HorizontalAlignment::Center,
+                                        huxerui::VerticalAlignment::Center)
+                                 .Tint(isActive ? theme.colors.on_surface
+                                                : theme.colors.on_surface_variant)
+                                 .With(huxerui::Frame{.width = 16.0F, .height = 16.0F})};
+    };
 
     // 标签条内项目标签的渲染顺序 = tabs 顺序（打开顺序）；g_requests 只用于
     // 取名，已不存在的项目 id 跳过（与原逻辑一致）。
@@ -541,38 +570,68 @@ struct ProjectTabDragPayload {
             }
         }
     }
-    // 覆盖层克隆所需：被拖标签的名称 / 配色，在构建 chips 时一并记录
-    // （位置用 dragOrig，不用实时下标——换位后下标变化但视觉要连续）。
-    std::string dragName;
-    bool dragActive = false;
+
+    // 条内标签描述（项目 + [设置单例]）；主页标签在 ScrollView 之外单独构建。
+    struct Entry {
+        TopTabId tab;
+        std::int64_t key;  // 条内显示 key（TopTabDisplayKey）
+        std::string name;  // 空 = 图标 only（本条内不会出现）
+        huxerui::View leading;
+        bool active;
+        bool draggable;
+    };
+    std::vector<Entry> entries;
+    for (const auto& [id, name] : visibleTabs) {
+        const TopTabId tab{TopTabKind::Project, id};
+        entries.push_back(Entry{tab, id, name, huxerui::View{huxerui::Row{}},
+                                activeTab == tab, true});
+    }
+    // 设置单例标签：打开时渲染在项目标签条末尾（追加在所有项目标签之后，见函数
+    // 头部布局决定）。外观与项目标签一致：齿轮图标 leading（Image::Tint 着色同
+    // 主页图标）+ 文字「设置」+ 悬停显隐 ✕；可关闭；不持久化、不参与拖拽。
+    const TopTabId settingsTab{TopTabKind::GlobalSettings, 0};
+    if (settingsOpen.Get()) {
+        entries.push_back(Entry{settingsTab, kSettingsTabDisplayKey, "设置",
+                                iconLeading(app::images::gear, activeTab == settingsTab),
+                                activeTab == settingsTab, false});
+    }
+
     std::vector<huxerui::View> chips;
-    for (std::size_t index = 0; index < visibleTabs.size(); ++index) {
-        const auto& [id, name] = visibleTabs[index];
-        if (dragId.Get() == id) {
-            dragName = name;
-            dragActive = activeProject.Get() == id;
-        }
-        chips.push_back(ProjectTab(navPage, tabs, activeProject, id,
-                                   huxerui::View{huxerui::Row{}}, name, dragId, dragDx,
-                                   dragOrig, index, visibleTabs.size(), tabStride, slideCell,
-                                   slideTick, hoveredTab)
-                            .Key(id));
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const Entry& entry = entries[i];
+        // 拖拽几何（index/count）只对项目标签有意义：取项目标签在条内的下标/总数；
+        // 主页/设置标签传 0/1（不挂 DragSource，不会被使用）。
+        const bool isProject = entry.tab.kind == TopTabKind::Project;
+        const std::size_t dragIndex = i;
+        const std::size_t dragCount = visibleTabs.size();
+        chips.push_back(
+            TopTab(entry.tab, entry.name, entry.leading, entry.active, entry.draggable,
+                   actions, tabs, dragId, dragDx, dragOrig, isProject ? dragIndex : 0,
+                   isProject ? dragCount : 1, tabStride, slideCell, slideTick, hoveredTab)
+                .Key(entry.key));
         // 标签间分隔竖线（最后一个不加）：相邻标签激活/悬停/被拖时隐藏，
         // 始终占布局（Opacity 显隐，不回流）。
-        if (index + 1 < visibleTabs.size()) {
-            const std::int64_t nextId = visibleTabs[index + 1].first;
-            const bool sepVisible = activeProject.Get() != id &&
-                                    activeProject.Get() != nextId &&
-                                    hoveredTab.Get() != id && hoveredTab.Get() != nextId &&
-                                    dragId.Get() != id && dragId.Get() != nextId;
+        if (i + 1 < entries.size()) {
+            const Entry& next = entries[i + 1];
+            const bool sepVisible = !entry.active && !next.active &&
+                                    hoveredTab.Get() != entry.key &&
+                                    hoveredTab.Get() != next.key &&
+                                    dragId.Get() != entry.key && dragId.Get() != next.key;
             chips.push_back(tabDivider(sepVisible));
         }
     }
 
     // 拖拽覆盖层：被拖标签的视觉克隆（纯展示，无 handler），X = 拖拽起点
-    // 槽位 + 钳制后的累计位移，Y 恒 0。
+    // 槽位 + 钳制后的累计位移，Y 恒 0。仅项目标签可拖（dragId 只含项目 id），
+    // 覆盖层 ✕ 保持纯展示 Text（业务特例，与本体 AppIconButton 不同）。
     huxerui::View overlayTab = huxerui::Row{};
     if (dragId.Get() != 0 && !visibleTabs.empty()) {
+        std::string dragName;
+        for (const auto& [id, name] : visibleTabs) {
+            if (id == dragId.Get()) dragName = name;
+        }
+        const bool dragActive =
+            activeTab == TopTabId{TopTabKind::Project, dragId.Get()};
         const huxerui::Color overlayFill =
             dragActive ? theme.colors.surface_container_highest
                        : theme.colors.surface_container;
@@ -609,15 +668,33 @@ struct ProjectTabDragPayload {
                           0.0F}));
     }
 
+    // 主页标签：图标 only，无文字，不可关闭，固定最左（在 ScrollView 之外）。
+    huxerui::View homeTab =
+        TopTab(TopTabId{}, "", iconLeading(app::images::home, homeActive), homeActive,
+               /*draggable=*/false, actions, tabs, dragId, dragDx, dragOrig, 0, 1, tabStride,
+               slideCell, slideTick, hoveredTab)
+            .Key(std::int64_t{0});
+
+    // 主页与条内首个标签之间的分隔竖线：主页或右邻激活、悬停、被拖时隐藏
+    //（Opacity 显隐，始终占布局不回流）。
+    bool homeDividerVisible = false;
+    if (!entries.empty()) {
+        const Entry& first = entries.front();
+        homeDividerVisible = !homeActive && !first.active && hoveredTab.Get() != 0 &&
+                             hoveredTab.Get() != first.key && dragId.Get() != first.key;
+    }
+
+    // 标签条按真实内容取自然上限，窄窗时仍接受父约束并由 ScrollView 横向滚动。
+    // 不能让内部 ScrollView 的 Grow 把整个标题栏剩余宽度都占满，否则视觉上的
+    // 大块空白仍会是 ScrollView/Client 命中，右侧也没有真正的拖动区。
+    // 32 = 主页；其余按固定标签宽 + 分隔/间距的保守步进计算。
+    const float naturalStripWidth =
+        32.0F + 2.0F * theme.spacing.small + 1.0F +
+        static_cast<float>(entries.size()) * tabStride;
+
     return huxerui::Row {
         std::move(homeTab),
-        // 主页与第一个项目标签之间的分隔竖线：无项目标签 / 主页或右邻
-        // 激活、悬停、被拖时隐藏（Opacity 显隐，始终占布局不回流）。
-        tabDivider(!visibleTabs.empty() && activeProject.Get() != 0 &&
-                   hoveredTab.Get() != 0 &&
-                   activeProject.Get() != visibleTabs.front().first &&
-                   hoveredTab.Get() != visibleTabs.front().first &&
-                   dragId.Get() != visibleTabs.front().first),
+        tabDivider(homeDividerVisible),
         // Stack 包裹：拖动时覆盖层克隆叠在标签行之上（绘制最上层），随
         // ScrollView 一起滚动（Offset 只平移绘制，布局原点仍在内容坐标系）。
         huxerui::ScrollView(huxerui::Stack {
@@ -631,8 +708,10 @@ struct ProjectTabDragPayload {
             .With(huxerui::ScrollBar{}, huxerui::Grow(1.0F)),
     }
         .With(huxerui::Spacing(theme.spacing.small),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+              huxerui::Frame{.max_width = naturalStripWidth});
 }
+
 
 // 左列：图标侧边栏（选中态用实心图标变体，悬停显示文字提示）。
 // 去岛屿包裹：图标按钮直接落在窗口背景上；WebSocket/TCP 已并入请求页标签，不再单列。
@@ -693,7 +772,7 @@ std::string TruncateSummary(const std::string& text, std::size_t maxChars) {
     return text; // 未超限：原样返回。
 }
 
-// 全局 Cookie 的行编辑缓冲元素：store 行（id/enabled）+ 完整 TextEditingValue
+// 项目 Cookie 的行编辑缓冲元素：store 行（id/enabled）+ 完整 TextEditingValue
 // （保留光标与选区，逐键回写不重置插入点）。
 struct CookieRow {
     std::int64_t id = 0;
@@ -706,7 +785,7 @@ struct CookieRow {
     bool operator==(const CookieRow&) const = default;
 };
 
-// 从 store 读当前项目全局 Cookie 列表 → 编辑缓冲（弹窗打开时取初值）。
+// 从 store 读当前项目 Cookie 列表 → 编辑缓冲（弹窗打开时取初值）。
 std::vector<CookieRow> CookieRowsFromStore() {
     std::vector<CookieRow> rows;
     for (const db::GlobalCookie& cookie : g_requests.globalCookies()) {
@@ -769,7 +848,7 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
-// 全局 Cookie 管理弹窗（当前项目）。
+// 项目 Cookie 管理弹窗（当前项目）。
 // 编辑模型（选型说明）：行编辑态存 dialog 层 State<std::vector<CookieRow>> 缓冲，
 // 行内保留完整 TextEditingValue——若逐键直通写库（OnChanged 即 saveGlobalCookie），
 // 每字符一次 SQLite upsert、失败时 toast 刷屏，且重组回读 store 只剩纯文本会丢
@@ -854,9 +933,9 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
                     })
                     .With(huxerui::Grow(1.0F)),
                 phantom
-                    ? huxerui::View{huxerui::Text("", huxerui::TextRole::Label)
-                                        .With(huxerui::Padding(4.0F))}
-                    : huxerui::View{huxerui::Button("✕").OnClick(
+                    ? huxerui::View{huxerui::Row{}.With(
+                          huxerui::Frame{.width = 28.0F, .height = 28.0F})}
+                    : AppIconButton("✕", "删除 Cookie",
                           [tasks, rows, toast, version, row, i] {
                               // 删除会卸载 ✕ 所在行：推迟出指针事件路径（约定 6）；
                               // 落库删除同样在推迟任务里做，失败则保留缓冲行。
@@ -877,15 +956,15 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
                                   rows = copy;
                                   version = version.Get() + 1;
                               });
-                          })},
+                          }, AppIconButtonShape::Bare),
             }
                 .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
     }
 
     return DialogCard(huxerui::Column {
-        huxerui::Text("全局 Cookie（当前项目）", huxerui::TextRole::Title),
-        huxerui::Text("启用的全局 Cookie 在每次发送时并入请求；项目级静态值，不参与 "
+        huxerui::Text("项目 Cookie", huxerui::TextRole::Title),
+        huxerui::Text("启用的项目 Cookie 在每次发送时并入请求；项目级静态值，不参与 "
                       "{{var}} 环境变量替换。",
                       huxerui::TextRole::Body)
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
@@ -960,7 +1039,7 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
     const std::string statusK6 = g_loadtest.available() ? "k6: 就绪" : "k6: 未找到";
     const std::string proxy = trim(sessionPreference("request_proxy"));
     const std::string proxyLabel =
-        "请求代理: " + (proxy.empty() ? std::string("无") : TruncateSummary(proxy, 24));
+        "应用代理: " + (proxy.empty() ? std::string("无") : TruncateSummary(proxy, 24));
     const auto statusText = [&theme](std::string text) {
         return huxerui::Text(std::move(text), huxerui::TextRole::Label)
             .Style(huxerui::TextStyle{
@@ -976,7 +1055,7 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
         // 右缘占位：空 Row + Grow(1.0F) 吃掉剩余宽度，把两个热区推到行尾。
         // 约定 8：零尺寸占位不用 Spacer（自带 Grow(1) 的隐式语义留给真弹性项）。
         huxerui::Row{}.With(huxerui::Grow(1.0F)),
-        StatusActionText(proxyLabel, "设置单次 HTTP 请求代理（curl 引擎，k6 压测不受影响）",
+        StatusActionText(proxyLabel, "设置应用级代理（curl 引擎，k6 压测不受影响）",
                          theme,
                          [dialog, version] {
                              // 开弹窗是层操作、不卸载按钮子树，指针事件路径上同步 Show
@@ -987,7 +1066,7 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
                                  },
                                  huxerui::DialogOptions{});
                          }),
-        StatusActionText("全局 Cookie", "管理当前项目的全局 Cookie", theme,
+        StatusActionText("项目 Cookie", "管理当前项目的项目 Cookie", theme,
                          [dialog, version] {
                              dialog.Show(
                                  [version](huxerui::DialogContext ctx) mutable -> huxerui::View {
@@ -1119,13 +1198,156 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
     if (sessionPreference("close_behavior") == "1") initialCloseBehavior = 1;
     if (sessionPreference("close_behavior") == "2") initialCloseBehavior = 2;
 
-    auto navPage = huxerui::UseState<std::size_t>(pages::kHome);
+    // ---- 顶级标签状态（island-structure-theme.md §13.1/§13.2，P1-B0.1）----
+    // navPage：项目工作区内部页（kRequest/kLoad/kHistory/kProjectSettings + 遗留
+    //   kHttpTest），不再包含 kHome/kAppSettings 等顶级目的地。
+    // tabs：打开的项目标签顺序（= 持久化 open_projects 的 CSV 格式）。
+    // activeProject：领域当前项目游标——不再兼任「当前顶级标签」；设置激活时
+    //   不清空（避免返回项目后重新加载，§13.1），视觉 active 由 activeTopTab 决定。
+    // settingsOpen：设置单例标签是否存在（不持久化，启动 = 无设置标签）。
+    // activeTopTab：当前顶级标签（Home / Project(id) / GlobalSettings；不持久化，
+    //   启动 = 主页）。
+    // lastProjectTab：最近激活且仍打开的项目 id（关设置回退用；0 = 无，不持久化）。
+    auto navPage = huxerui::UseState<std::size_t>(pages::kRequest);
+    // P1-B0.5 启动恢复：从 session.open_projects / session.active_project 重建 tabs 与 active（解析/去重/过滤已删，数据无效回主页）。
+    TopTabState restored = [&] {
+        std::vector<std::int64_t> existIds;
+        for (const db::Project& p : g_requests.allProjects()) existIds.push_back(p.id);
+        return RestoreTopTabs(sessionPreference("open_projects"), sessionPreference("active_project"),
+                              existIds);
+    }();
+    // 领域游标与 State 同步（启动时即一致，首帧不闪回主页）。
+    if (restored.active.kind == TopTabKind::Project) {
+        g_requests.selectProject(restored.active.project_id);
+        g_loadtest.setProject(restored.active.project_id);
+    } else {
+        g_requests.selectProject(0);
+        g_loadtest.setProject(0);
+    }
+    auto tabs = huxerui::UseState(std::move(restored.open_projects));
+    auto activeProject = huxerui::UseState(
+        restored.active.kind == TopTabKind::Project ? restored.active.project_id : std::int64_t{0});
+    auto settingsOpen = huxerui::UseState(restored.settings_open);
+    auto activeTopTab = huxerui::UseState(restored.active);
+    auto lastProjectTab = huxerui::UseState(restored.last_project);
     auto themeMode = huxerui::UseState<int>(std::move(initialThemeMode));
-    // 顶级标签：activeProject = 0 为主页标签；其余值为打开的项目 id。
-    auto tabs = huxerui::UseState<std::vector<std::int64_t>>({});
-    auto activeProject = huxerui::UseState<std::int64_t>(0);
     auto closeBehavior = huxerui::UseState<int>(std::move(initialCloseBehavior));
     auto closeDialogOpen = huxerui::UseState(false);
+    // P1-B0.5 状态保活：设置分类在 AppRoot，随顶级标签存活（切到项目再回保留原分类）
+    auto settingsCategory = huxerui::UseState<std::size_t>(0);
+
+    // ---- 顶级标签操作（事件回调只做 tasks.Launch 推迟，CLAUDE.md 约定 6）----
+    // 变更本体（领域写入 + State 写回）在推迟任务里同步完成：切到 Project(id) 时
+    // 先做领域写入再写 activeTopTab，同一任务内两者一致、重组无中间帧（§13.2
+    // 不变量 1）。*Now 函数只能从推迟语境调用（组合体内禁止写 State）。
+
+    // TopTabState 快照（与上面的 State 一一对应，见 ui.h TopTabState）。
+    auto topTabSnapshot = [=]() -> TopTabState {
+        TopTabState s;
+        s.open_projects = tabs.Get();
+        s.settings_open = settingsOpen.Get();
+        s.active = activeTopTab.Get();
+        s.last_project = lastProjectTab.Get();
+        return s;
+    };
+
+    // 领域同步：active 变为 Project(id) 时无条件写领域（§13.2 项 3：不能因
+    // project id 未变化而跳过顶级切换；selectProject/setProject 幂等）。
+    // activeProject State 与 store 游标同步（HomePage is_open 高亮 / RequestPage
+    // 的领域输入）。
+    auto syncDomainProject = [=](std::int64_t id) {
+        g_requests.selectProject(id);
+        g_loadtest.setProject(id);
+        saveSessionPreference("active_project", std::to_string(id));
+        activeProject = id;
+    };
+
+    // State 写回；open_projects 变化时按既有 CSV 格式持久化（保持「只在新增/拖拽
+    // 时持久化」的惯例——激活已打开项目不重写）。settingsOpen/activeTopTab/
+    // lastProjectTab 不持久化（启动 = 主页、无设置标签，§13.4 B0.1）。
+    auto commitTopTab = [=](const TopTabState& before, const TopTabState& after) {
+        if (after.open_projects != before.open_projects) {
+            std::string csv;
+            for (std::size_t i = 0; i < after.open_projects.size(); ++i) {
+                csv += (i ? "," : "");
+                csv += std::to_string(after.open_projects[i]);
+            }
+            saveSessionPreference("open_projects", csv);
+        }
+        tabs = after.open_projects;
+        settingsOpen = after.settings_open;
+        activeTopTab = after.active;
+        lastProjectTab = after.last_project;
+    };
+
+    // 激活顶级标签（主页/项目/设置统一入口；点击项目标签无条件激活顶级 + 领域，
+    // 即使 activeProject 已是该 id，§13.2 项 3）。
+    auto activateTopTabNow = [=](TopTabId target) {
+        const TopTabState before = topTabSnapshot();
+        TopTabState after = before;
+        switch (target.kind) {
+            case TopTabKind::Home:
+                after = ActivateHome(before);
+                break;
+            case TopTabKind::Project:
+                after = ActivateProject(before, target.project_id);
+                break;
+            case TopTabKind::GlobalSettings:
+                after = ActivateSettings(before);
+                break;
+        }
+        // 遗留 HttpTest（navPage=kHttpTest，标题栏闪电入口）不是项目工作区页面：
+        // 任何顶级激活都退出它，避免「顶级标签已切换仍停在 HttpTest」的双状态残留。
+        if (navPage.Get() == pages::kHttpTest) navPage = pages::kRequest;
+        if (after.active.kind == TopTabKind::Project) {
+            syncDomainProject(after.active.project_id);
+        }
+        commitTopTab(before, after);
+    };
+
+    // 关闭顶级标签。领域同步规则：回退到项目则同步领域；活动项目被关且回主页则
+    // 领域清零（旧模型行为，状态条随之显示「未打开项目」）；关设置回主页不清领域
+    //（项目仍在打开列表，保留游标避免重开时重新加载）。
+    auto closeTopTabNow = [=](TopTabId target) {
+        const TopTabState before = topTabSnapshot();
+        const TopTabState after = CloseTopTab(before, target);
+        if (after.active.kind == TopTabKind::Project) {
+            syncDomainProject(after.active.project_id);
+        } else if (target.kind == TopTabKind::Project && before.active == target) {
+            g_requests.selectProject(0);
+            g_loadtest.setProject(0);
+            saveSessionPreference("active_project", "0");
+            activeProject = 0;
+        }
+        if (!(before.active == after.active) && navPage.Get() == pages::kHttpTest) {
+            // 同 activateTopTabNow：活动顶级标签变化后退出遗留 HttpTest 全宽页
+            //（它不属于任何顶级标签）；关非活动标签不动当前页面。
+            navPage = pages::kRequest;
+        }
+        commitTopTab(before, after);
+    };
+
+    // 事件入口包装：切/关标签会卸载被点节点，推迟出指针事件路径（约定 6）。
+    auto activateTopTab = [tasks, activateTopTabNow](TopTabId target) {
+        tasks.Launch([=]() -> huxerui::Task<void> {
+            co_await huxerui::Delay(std::chrono::duration<double>{0});
+            activateTopTabNow(target);
+        });
+    };
+    auto closeTopTab = [tasks, closeTopTabNow](TopTabId target) {
+        tasks.Launch([=]() -> huxerui::Task<void> {
+            co_await huxerui::Delay(std::chrono::duration<double>{0});
+            closeTopTabNow(target);
+        });
+    };
+    TopTabActions topTabActions{activateTopTab, closeTopTab};
+
+    // HomePage 打开项目回调：ProjectCard 的推迟任务在完成领域写入后调用（仍在
+    // 推迟语境），内部走同一 activateTopTabNow——新增/激活顶级项目标签 + State
+    // 写回 + open_projects 按需持久化（格式与原 CSV 一致）。
+    std::function<void(std::int64_t)> onOpenProject = [activateTopTabNow](std::int64_t id) {
+        activateTopTabNow(TopTabId{TopTabKind::Project, id});
+    };
 
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
@@ -1164,16 +1386,69 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
             0);
     }
 
+    // 内容区（P1-B0.1）：按 activeTopTab 切换顶级标签内容。主页 / 全局设置整宽
+    // 覆盖侧栏（都与项目无关，未打开项目就点不到任何项目相关入口）；Project(id)
+    // → 侧栏 + PageFor（项目工作区内部页，navPage 表达）。遗留 HttpTest
+    //（navPage=kHttpTest，闪电入口）优先显示且全宽——它不表达顶级标签（§13.1：
+    // P1-B1 项 4 再决定其顶级身份），任何顶级激活都会重置 navPage（见
+    // activateTopTabNow）。防御：active 项目 id 不在 tabs（open_projects）时回落
+    // 主页——该路径不应发生（activeTopTab 只经 ActivateProject/CloseTopTab 变更，
+    // 不变量 1 保证 active 项目在 open_projects 中）。
+    const TopTabId activeTab = activeTopTab.Get();
+    const bool legacyHttpTest = navPage.Get() == pages::kHttpTest;
+    bool showSideShell = false;
+    huxerui::View page;
+    if (legacyHttpTest) {
+        page = huxerui::View{HttpTestPage()}.Key(std::string{"httptest"}).With(huxerui::Grow(1.0F));
+    } else {
+        // P1-B0.5 状态保活：顶级标签内容用 IndexedPages 保持所有页面挂载（设置↔项目切换不卸载，草稿保活）
+        std::vector<huxerui::View> indexed;
+        indexed.reserve(1 + tabs.Get().size() + (settingsOpen.Get() ? 1 : 0));
+        indexed.push_back(HomePage(onOpenProject, activeProject).Key(std::int64_t{0}).With(huxerui::Grow(1.0F)));
+        std::unordered_map<std::int64_t, std::size_t> projIdx;
+        for (std::int64_t id : tabs.Get()) {
+            const std::size_t idx = indexed.size();
+            projIdx[id] = idx;
+            indexed.push_back(pages::PageFor(navPage.Get(), activeProject).Key(id).With(huxerui::Grow(1.0F)));
+        }
+        if (settingsOpen.Get()) {
+            indexed.push_back(GlobalSettingsPage(themeMode, closeBehavior, settingsCategory)
+                                   .Key(kSettingsTabDisplayKey)
+                                   .With(huxerui::Grow(1.0F)));
+        }
+        std::size_t selected = 0;
+        if (activeTab.kind == TopTabKind::Home) {
+            selected = 0;
+        } else if (activeTab.kind == TopTabKind::Project) {
+            const auto it = projIdx.find(activeTab.project_id);
+            if (it != projIdx.end()) {
+                selected = it->second;
+                showSideShell = true;
+            } else {
+                selected = 0;
+            }
+        } else if (activeTab.kind == TopTabKind::GlobalSettings) {
+            selected = indexed.size() > 0 ? indexed.size() - 1 : 0;
+        }
+        if (selected >= indexed.size()) selected = 0;
+        page = huxerui::IndexedPages(std::move(indexed), selected);
+    }
+    // IndexedPages keep-alive（P1-B0.5）：切主题只是根重组、IndexedPages 保持所有页面挂载
+    // （设置↔项目切换不卸载，草稿与设置分类保活）；切项目/切内部页仅切换 selected 索引。
+
     huxerui::View content = huxerui::Column {
-        // 自定义标题栏岛：Logo + 项目标签条 + 齿轮（框架在其右侧渲染窗口按钮）。
+        // 自定义标题栏岛：Logo + 顶级标签条 + 闪电/齿轮（框架在其右侧渲染窗口按钮）。
         // 全部内容统一 24pt 高（kTitleBarContentHeight = title_bar_height）；
         // WindowTitleBar 构造即带交叉轴居中，这里给中间标签条包装 Row 也补上
         // 居中，任何一侧偏高都不漂移。
         huxerui::WindowTitleBar {
-            LogoBadge(),
-            huxerui::Row {ProjectTabStrip(navPage, tabs, activeProject)}
-                .With(huxerui::Grow(1.0F),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+            LogoBadge().With(huxerui::WindowDragRegion{}),
+            // 标签条按真实内容宽度布局；窄窗时受父约束收缩并横向滚动。
+            TopTabStrip(tabs, settingsOpen, activeTopTab, topTabActions),
+            // 标题栏唯一的弹性项。ScrollView 本身必须保持 Client；所有标签内容之外
+            // 的剩余宽度由这个真实 sibling 占有，因此整块空白可靠命中 Drag，右侧
+            // 动作组仍按自然宽度固定在系统按钮左侧。
+            huxerui::Spacer{}.With(huxerui::Grow(1.0F), huxerui::WindowDragRegion{}),
             // 齿轮不用 IconButton（框架内置最小触摸尺寸，Frame 压不住、比标签高
             // 一截）：裸 Image + 自绘热区。无底无圆角（设计要求去背景），
             // 与标题栏内容等高 + 交叉轴居中保证垂直居中。
@@ -1185,8 +1460,12 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
             // 偏上的根因：gear.svg 画布 24x24，大于 14pt 的 Frame——未指定
             // Fit 时按画布原始尺寸绘制并从边缘锚定。显式 Fit(Contain) +
             // Align(Center, Center) 让图案缩放后钉在框中心。
-            // 闪电：框架 HTTP 协程压测实验页。与齿轮同款裸 Image 热区（不写
-            // 背景、24pt 等高垂直居中、Tint 跟随深浅色）。
+            // 闪电：框架 HTTP 协程压测实验页（遗留顶级入口，保持现状：写
+            // navPage=kHttpTest 全宽显示，不表达顶级标签）。§13.1 要求记录后续
+            // 选择：要么升级为同类单例顶级标签，要么改为 Dialog/工具窗口
+            //（P1-B1 项 4 评估）；禁止继续新增把它当项目页面 navPage 的入口。
+            // 与齿轮同款裸 Image 热区（不写背景、24pt 等高垂直居中、Tint 跟随
+            // 深浅色）。
             huxerui::Row {
                 huxerui::Image(app::images::bolt)
                     .Fit(huxerui::ImageFit::Contain)
@@ -1198,7 +1477,12 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
                 .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
                       huxerui::Frame{.height = kTitleBarContentHeight},
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-                      huxerui::Tooltip("HTTP 协程压测"))
+                      huxerui::Tooltip("HTTP 协程压测"),
+                      // 键盘/语义（P1-B0.4）：裸 Image 热区默认不可聚焦，补
+                      // Focusable + Button 语义后键盘可激活（§13.6）。
+                      huxerui::Focusable(true),
+                      huxerui::Semantics{.role = huxerui::SemanticRole::Button,
+                                         .label = "HTTP 协程压测"})
                 .OnClick([tasks, navPage] {
                     // 切页会卸载内容子树：推迟出指针事件路径
                     tasks.Launch([=]() -> huxerui::Task<void> {
@@ -1206,6 +1490,8 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
                         navPage = pages::kHttpTest;
                     });
                 }),
+            // 齿轮：打开/激活设置单例标签（未开则开、已开仅激活，§13.1）；激活
+            // 经 activateTopTab 的推迟任务（约定 6），顶级状态写回见上。
             huxerui::Row {
                 huxerui::Image(app::images::gear)
                     .Fit(huxerui::ImageFit::Contain)
@@ -1217,12 +1503,17 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
                 .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
                       huxerui::Frame{.height = kTitleBarContentHeight},
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-                      huxerui::Tooltip("全局设置"))
-                .OnClick([tasks, navPage] {
-                    // 切页会卸载内容子树：推迟出指针事件路径
+                      huxerui::Tooltip("全局设置"),
+                      // 键盘/语义（P1-B0.4）：同闪电按钮——键盘可打开/激活设置
+                      // 单例标签（§13.6 键盘要求）。
+                      huxerui::Focusable(true),
+                      huxerui::Semantics{.role = huxerui::SemanticRole::Button,
+                                         .label = "全局设置"})
+                .OnClick([tasks, activateTopTab] {
+                    // 切标签会卸载内容子树：推迟出指针事件路径（约定 6）
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        navPage = pages::kAppSettings;
+                        activateTopTab(TopTabId{TopTabKind::GlobalSettings, 0});
                     });
                 }),
         }
@@ -1234,23 +1525,22 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
                   huxerui::Spacing(gap)),
         // 主行：侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
-        // 主页与全局设置（都与项目无关）内容整宽覆盖侧栏：未打开项目就点不到任何
-        // 项目相关入口。占位必须用空 Row——Spacer 自带 Grow(1)，会分走一半宽度。
+        // 仅 Project(id) 顶级标签显示侧栏；主页/设置/遗留 HttpTest 整宽覆盖。
+        // 占位必须用空 Row——Spacer 自带 Grow(1)，会分走一半宽度。
         huxerui::Row {
-            navPage.Get() == pages::kHome || navPage.Get() == pages::kAppSettings ||
-                    navPage.Get() == pages::kHttpTest
-                ? huxerui::View{huxerui::Row{}}
-                : SideShell(navPage),
-            pages::PageFor(navPage.Get(), navPage, tabs, activeProject, themeMode, closeBehavior)
-                .Key(navPage.Get() * 100000 + activeProject.Get())
-                .With(huxerui::Grow(1.0F)),
+            showSideShell ? huxerui::View{SideShell(navPage)}
+                          : huxerui::View{huxerui::Row{}},
+            // IndexedPages 的子页面有 Grow，但外层容器本身也必须作为主 Row 的
+            // 弹性项接收“侧栏之外的剩余宽度”。漏掉这里会按页面固有宽度测量，
+            // 请求编辑器右岛向窗口外溢出并被裁切。
+            std::move(page).With(huxerui::Grow(1.0F)),
         }
             .With(huxerui::Spacing(gap),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Grow(1.0F)),
         // 底部全局状态条（所有页面共享）：独立 composable（结构与主题宿主说明见
         // GlobalStatusBar）——无顶部分隔线，一行小字 + 右缘两个文字热区
-        // （请求代理 / 全局 Cookie）。
+        // （应用代理 / 项目 Cookie）。
         GlobalStatusBar(statusTopPad),
     }
                                .With(huxerui::Spacing(rootSpec.spacing.extra_small),
@@ -1265,6 +1555,7 @@ huxerui::View StatusActionText(std::string label, std::string tooltip,
     // 主题边界走 MinimalThemed：自定义 spec + 组件 typed style 覆盖（8px 按钮圆角）。
     // 关闭询问弹窗宿主挂在 provider 之下（AppRoot 自身读不到主题，CloseGuard 能）。
     return MinimalThemed(dark, CloseGuard(closeBehavior, closeDialogOpen, std::move(content)));
+
 }
 
 } // namespace apitab::ui

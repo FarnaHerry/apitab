@@ -378,7 +378,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                     })
                     .With(huxerui::Grow(1.0F)),
                 badge,
-                huxerui::Button("✕").OnClick([tasks, drafts, index, ci, results, runGen] {
+                AppIconButton("✕", "删除测试用例", [tasks, drafts, index, ci, results, runGen] {
                     // 删除会卸载本按钮所在卡片：写回推迟出指针事件路径（约定 6）；
                     // 结果向量与用例按下标对齐，删一行会整体错位 → 清空结果并升代际
                     // （作废在途运行的回写）。
@@ -391,7 +391,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                         results = std::vector<CaseResult>{};
                         runGen = runGen.Get() + 1;
                     });
-                }),
+                }, AppIconButtonShape::Bare),
             };
 
             std::vector<huxerui::View> card{
@@ -479,9 +479,9 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                             })
                             .With(huxerui::Grow(1.0F)),
                         phantom
-                            ? huxerui::View{huxerui::Text("", huxerui::TextRole::Label)
-                                                .With(huxerui::Padding(4.0F))}
-                            : huxerui::View{huxerui::Button("✕").OnClick(
+                            ? huxerui::View{huxerui::Row{}.With(
+                                  huxerui::Frame{.width = 28.0F, .height = 28.0F})}
+                            : AppIconButton("✕", "删除断言",
                                   [tasks, rows = c.asserts, i, ci, setCaseAsserts] {
                                       // 删除会移除本按钮所在行：推迟出指针事件路径。
                                       tasks.Launch([=]() -> huxerui::Task<void> {
@@ -492,7 +492,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                                               copy.erase(copy.begin() + static_cast<long>(i));
                                           setCaseAsserts(ci, std::move(copy));
                                       });
-                                  })},
+                                  }, AppIconButtonShape::Bare),
                     }
                         .With(huxerui::Spacing(theme.spacing.small),
                               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
