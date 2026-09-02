@@ -32,7 +32,9 @@ struct DraftTabDragPayload {
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
     auto toast = huxerui::UseToast();
-    auto envSearching = huxerui::UseState(false);
+    auto envPopup = huxerui::UsePopup();
+    auto envEditing = huxerui::UseState(false);
+    auto envPopupLayer = huxerui::UseState(std::make_shared<huxerui::LayerId>(0)).Get();
     (void)envVersion.Get(); // 订阅环境版本：环境增删改/切换后重组本条
     const auto chipFont = huxerui::Font::System(font_size::kChip);
     const auto badgeFont =
@@ -311,14 +313,8 @@ struct DraftTabDragPayload {
         envNames.push_back(e.name.empty() ? "（未命名）" : e.name);
     }
 
-    // 环境选择 + ☰ 合并控件（同 MethodUrlBar 思路）：一个共用描边圆角外框 +
-    // Spacing(0)，左侧环境选择扁平触发器（环境名 + 统一无尾箭头弹自绘下拉，选中项
-    // 深色填充底色、无对钩；保持自绘而非官方 Select——Select 触发器自带描边
-    // 外观，塞不进共用外框），中间 1pt 竖分隔线，右侧 ☰ 为 Bare AppIconButton
-    // （环境配置弹窗入口；常态透明、hover 才显统一圆角方形底——与左侧触发器
-    // 同一"框内扁平段"视觉）。外层 Row 交叉轴 Stretch 让分隔线拉满全高，
-    // 左触发器与右侧按钮各自 CrossAlign(Center) 垂直居中。
-    // 外框圆角取几何令牌 control_radius（P1-A3：不再散落 shapes.small 字面量）。
+    // 环境选择 + ☰ 合并控件：TextField + 受控 Popup，避免 ComboBox 内部状态机
+    // 与项目的“显示当前值 / 点击清空搜索 / 取消恢复”语义互相叠加。
     const IslandTheme islands = ResolveIslandTheme(theme);
     struct EnvChoice {
         std::int64_t id = 0;
@@ -329,94 +325,105 @@ struct DraftTabDragPayload {
         allChoices.push_back(EnvChoice{.id = env.id,
                                        .label = env.name.empty() ? "（未命名）" : env.name});
 
-    // 官方 ComboBox：受控输入只用于搜索过滤，选中建议才真正切换环境。
-    // 初始化为当前环境名称；选择后同步回写完整 TextEditingValue。
+    // 非搜索态保存当前环境名称；进入搜索态后清空为查询值。
     auto envQuery = huxerui::UseState(
-        huxerui::TextEditingValue{envNames.at(currentEnv)});
-    const std::string needle = envQuery.Get().text;
-    auto containsFolded = [](const std::string& value, const std::string& query) {
-        std::string lhs = value;
-        std::string rhs = query;
-        std::ranges::transform(lhs, lhs.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        std::ranges::transform(rhs, rhs.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        return rhs.empty() || lhs.find(rhs) != std::string::npos;
-    };
-    std::vector<EnvChoice> matchingChoices;
-    for (const EnvChoice& choice : allChoices)
-        if (containsFolded(choice.label, needle)) matchingChoices.push_back(choice);
-
-    huxerui::View envSearch =
-        huxerui::ComboBox(
-            envQuery, matchingChoices,
-            [](const EnvChoice& choice) { return choice.label; },
-            [](const EnvChoice& choice) { return huxerui::Text(choice.label); })
-            .Placeholder("搜索环境")
-            .Variant(huxerui::TextFieldVariant::Standard)
-            .EmptyContent([] {
-                return huxerui::Text("没有匹配的环境", huxerui::TextRole::Label)
-                    .With(huxerui::Padding(10.0F));
-            })
-            .OnChanged([envQuery](const huxerui::TextEditingValue& value) {
-                envQuery = value;
-            })
-            .OnSelected([tasks, envQuery, envSearching, matchingChoices, envVersion, toast](
-                            std::size_t selected, const huxerui::TextEditingValue& value) {
-                if (selected >= matchingChoices.size()) return;
-                if (const std::string err =
-                        g_requests.selectEnv(matchingChoices[selected].id);
-                    !err.empty()) {
-                    toast.Show("切换环境失败: " + err);
-                    return;
-                }
-                envQuery = value;
-                envVersion = envVersion.Get() + 1;
-                tasks.Launch([envSearching]() -> huxerui::Task<void> {
-                    co_await huxerui::Delay(std::chrono::duration<double>{0});
-                    envSearching = false;
-                });
-            })
-            // 搜索态原位替换紧凑按钮，不能改变标题栏的占位尺寸。
-            // 不再用失焦关闭：只有完成选择才恢复为紧凑按钮，避免点击候选项时闪烁。
-            .With(huxerui::Frame{.width = 136.0F, .height = islands.control_height},
-                  huxerui::ClipChildren());
-
-    huxerui::View envCompact = huxerui::Row {
-        huxerui::Row{huxerui::Text(envNames.at(currentEnv), huxerui::TextRole::Body)
-                          .With(huxerui::Foreground(theme.colors.on_surface),
-                                huxerui::ClipChildren())}
-            .With(huxerui::Frame{.width = 112.0F, .height = islands.control_height},
-                  huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 0.0F)),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-        huxerui::Row{huxerui::Image(app::images::chevron_down)
-                          .Fit(huxerui::ImageFit::Contain)
-                          .Align(huxerui::HorizontalAlignment::Center,
-                                 huxerui::VerticalAlignment::Center)
-                          .Tint(theme.colors.on_surface_variant)
-                          .With(huxerui::Frame{.width = 12.0F, .height = 12.0F})}
-            .With(huxerui::Frame{.width = 24.0F, .height = islands.control_height},
-                  huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-                  huxerui::Focusable(false)),
-    }.With(huxerui::Frame{.width = 136.0F, .height = islands.control_height},
-           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-           huxerui::Semantics{.role = huxerui::SemanticRole::Button,
-                               .label = "搜索并选择环境"},
-           huxerui::Focusable(true))
-        .OnClick([tasks, envSearching, envQuery, currentName = envNames.at(currentEnv)] {
-            tasks.Launch([=]() -> huxerui::Task<void> {
-                co_await huxerui::Delay(std::chrono::duration<double>{0});
-                // 搜索框的默认值必须是点击前正在使用的环境，而不是空查询。
-                envQuery = huxerui::TextEditingValue{currentName};
-                envSearching = true;
+        huxerui::TextEditingValue::FromText(envNames.at(currentEnv)));
+    auto popupFactory =
+        [envQuery, envEditing, allChoices, envVersion, toast, envPopupLayer, theme](
+            huxerui::PopupContext ctx) -> huxerui::View {
+        const std::string query = envQuery.Get().text;
+        auto matches = [query](const std::string& value) {
+            std::string lhs = value;
+            std::string rhs = query;
+            std::ranges::transform(lhs, lhs.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
             });
-        });
-
-    huxerui::View envTrigger = envSearching.Get() ? std::move(envSearch)
-                                                  : std::move(envCompact);
+            std::ranges::transform(rhs, rhs.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            return rhs.empty() || lhs.find(rhs) != std::string::npos;
+        };
+        std::vector<huxerui::View> rows;
+        for (const EnvChoice& choice : allChoices) {
+            if (!matches(choice.label)) continue;
+            rows.push_back(
+                huxerui::Row{huxerui::Text(choice.label, huxerui::TextRole::Body)}
+                    .With(huxerui::Frame{.min_height = 32.0F},
+                          huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 0.0F)),
+                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
+                    .OnClick([choice, ctx, envQuery, envEditing, envVersion, toast,
+                              envPopupLayer] {
+                        if (const std::string err = g_requests.selectEnv(choice.id); !err.empty()) {
+                            toast.Show("切换环境失败: " + err);
+                            return;
+                        }
+                        envQuery = huxerui::TextEditingValue::FromText(choice.label);
+                        envEditing = false;
+                        envVersion = envVersion.Get() + 1;
+                        ctx.Dismiss();
+                        *envPopupLayer = 0;
+                    }));
+        }
+        if (rows.empty()) {
+            rows.push_back(huxerui::Text("没有匹配的环境", huxerui::TextRole::Label)
+                               .With(huxerui::Padding(10.0F)));
+        }
+        return huxerui::Column{std::move(rows)}.With(
+            huxerui::Background(theme.colors.surface_container),
+            huxerui::CornerRadius(ResolveIslandTheme(theme).control_radius),
+            huxerui::Padding(4.0F), huxerui::Frame{.width = 136.0F, .max_height = 280.0F},
+            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    };
+    auto openEnvironmentPopup =
+        [envPopup, envPopupLayer, popupFactory, envEditing, envQuery,
+         currentName = envNames.at(currentEnv)] {
+        if (*envPopupLayer != 0) return;
+        huxerui::PopupOptions options{
+            .placement = {huxerui::AnchorSide::Below,
+                          huxerui::AnchorAlignment::Start}};
+        options.on_dismiss_request = [envPopup, envPopupLayer, envEditing, envQuery,
+                                      currentName] {
+            if (*envPopupLayer != 0) envPopup.Dismiss(*envPopupLayer);
+            *envPopupLayer = 0;
+            envEditing = false;
+            envQuery = huxerui::TextEditingValue::FromText(currentName);
+        };
+        *envPopupLayer = envPopup.Show(
+            popupFactory, std::move(options));
+    };
+    auto beginEnvironmentSearch =
+        [envEditing, envQuery, openEnvironmentPopup] {
+            if (!envEditing.Get()) {
+                envEditing = true;
+                envQuery = huxerui::TextEditingValue::FromText("");
+            }
+            openEnvironmentPopup();
+        };
+    huxerui::View envTrigger =
+        huxerui::TextField(envQuery)
+            // 搜索态清空真实输入，但以当前环境作为占位提示；用户一旦输入，
+            // 占位符自然消失并按查询内容过滤 Popup。
+            .Placeholder(envEditing.Get() ? envNames.at(currentEnv) : "搜索环境")
+            .Variant(huxerui::TextFieldVariant::Outlined)
+            .TrailingIcon(envEditing.Get() ? app::images::search : app::images::chevron_down)
+            .OnChanged([envEditing, envQuery, openEnvironmentPopup](
+                           const huxerui::TextEditingValue& value) {
+                envEditing = true;
+                envQuery = value;
+                openEnvironmentPopup();
+            })
+            // HuxerUI 作者确认项：这里需要在用户点击 TextField 时调用
+            // beginEnvironmentSearch，内部会把受控值设为
+            // TextEditingValue::FromText("")（见上方 beginEnvironmentSearch）。
+            // 实机上 TextField 能获得输入焦点，但 ViewEvents::Click 回调未触发，
+            // 之前尝试同节点 FocusChanged、Pointer，以及 .With(...) 后的 OnClick
+            // 也未触发。因此请确认：TextField 内部编辑节点是否会消费这些 ViewEvents，
+            // 应使用哪个公开事件/API 监听“首次获得编辑焦点或被指针点击”？
+            // 当前把 OnClick 放在 .With(...) 前，意图是绑定到 TextField 本体。
+            .OnClick(beginEnvironmentSearch)
+            .With(envPopup.Anchor(),
+                  huxerui::Frame{.width = 136.0F, .height = islands.control_height},
+                  huxerui::ClipChildren());
 
     // ☰：环境配置弹窗（自定义内容层，DialogFactory）。P1-A4 收口：原
     // Text("☰")+Padding 热区不足 28pt 且无语义标签/Tooltip，迁为统一 Bare

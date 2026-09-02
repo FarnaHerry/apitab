@@ -78,7 +78,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
             .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
         huxerui::Row {
             // 保存不卸载本按钮（表单 Key 不变、State 保留）：同步写即可。
-            huxerui::Button("保存").OnClick([envId, name, baseUrl, vars, envVersion, toast] {
+            huxerui::Button("保存").OnClick([ctx, envId, name, baseUrl, vars, envVersion, toast] {
                 if (name.Get().text.empty()) {
                     toast.Show("环境名称不能为空");
                     return;
@@ -94,6 +94,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                 }
                 toast.Show("已保存");
                 envVersion = envVersion.Get() + 1;
+                ctx.Dismiss();
             }),
             huxerui::Button("关闭").OnClick([ctx] { ctx.Dismiss(); }),
         }
