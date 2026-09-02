@@ -1,8 +1,72 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 2405e79..416612b 100644
+index 2405e79..9b2f9ae 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -114,16 +114,26 @@ endif ()
+@@ -54,6 +54,7 @@ endif ()
+ 
+ # SweetEditor — third-party cross-platform editor core (C++17, vendored).
+ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
++    include(FetchContent)
+     set(SWEETEDITOR_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+     set(SWEETEDITOR_BUILD_STATIC ON CACHE BOOL "" FORCE)
+     set(SWEETEDITOR_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+@@ -61,11 +62,22 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
+     set(SWEETEDITOR_BUILD_APPLE_FRAMEWORK OFF CACHE BOOL "" FORCE)
+     set(SWEETEDITOR_BUILD_WASM_C_ABI OFF CACHE BOOL "" FORCE)
+     set(SWEETEDITOR_BUILD_WASM_EMBIND OFF CACHE BOOL "" FORCE)
+-    add_subdirectory(
+-        "${CMAKE_CURRENT_SOURCE_DIR}/3dparty/SweetEditor"
+-        "${CMAKE_BINARY_DIR}/sweeteditor"
+-        EXCLUDE_FROM_ALL
+-    )
++    if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/3dparty/SweetEditor/CMakeLists.txt")
++        FetchContent_Declare(
++            sweeteditor_source
++            GIT_REPOSITORY https://github.com/FinalScave/SweetEditor.git
++            GIT_TAG bd4330e70eda5c71b71ecac54cf7312d82d2eae2
++            GIT_SHALLOW FALSE
++        )
++        FetchContent_MakeAvailable(sweeteditor_source)
++    endif ()
++    if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/3dparty/SweetEditor/CMakeLists.txt")
++        add_subdirectory(
++            "${CMAKE_CURRENT_SOURCE_DIR}/3dparty/SweetEditor"
++            "${CMAKE_BINARY_DIR}/sweeteditor"
++            EXCLUDE_FROM_ALL
++        )
++    endif ()
+ endif ()
+ 
+ # SweetLine — third-party native syntax highlighting engine (C++17, vendored).
+@@ -76,11 +88,22 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
+     set(SWEETLINE_BUILD_ANDROID_JNI OFF CACHE BOOL "" FORCE)
+     set(SWEETLINE_BUILD_WASM_EMBIND OFF CACHE BOOL "" FORCE)
+     set(SWEETLINE_BUILD_APPLE_FRAMEWORK OFF CACHE BOOL "" FORCE)
+-    add_subdirectory(
+-        "${CMAKE_CURRENT_SOURCE_DIR}/3dparty/SweetLine"
+-        "${CMAKE_BINARY_DIR}/sweetline"
+-        EXCLUDE_FROM_ALL
+-    )
++    if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/3dparty/SweetLine/CMakeLists.txt")
++        FetchContent_Declare(
++            sweetline_source
++            GIT_REPOSITORY https://github.com/FinalScave/SweetLine.git
++            GIT_TAG 64665d94c8421372cbdce0f74daeb7b8a414d422
++            GIT_SHALLOW FALSE
++        )
++        FetchContent_MakeAvailable(sweetline_source)
++    endif ()
++    if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/3dparty/SweetLine/CMakeLists.txt")
++        add_subdirectory(
++            "${CMAKE_CURRENT_SOURCE_DIR}/3dparty/SweetLine"
++            "${CMAKE_BINARY_DIR}/sweetline"
++            EXCLUDE_FROM_ALL
++        )
++    endif ()
+ endif ()
+ 
+ file(GLOB_RECURSE LIBRARY_SOURCE_FILES CONFIGURE_DEPENDS
+@@ -114,16 +137,26 @@ endif ()
  # editor drags and command taps from raising the keyboard) that released SDKs
  # may not ship. Detect it so the component overrides it only when available.
  set(HUXERUI_HAS_FOCUS_POINTER_HOOK OFF)
@@ -785,4 +849,3 @@ index cf93127..b1255a9 100644
    // Analyze enough lines to cover the current viewport and publish those spans.
    void RefreshVisible(sweeteditor::EditorCore& core);
    // Syntax-highlight-only path for scrolling: publishes spans but defers
-
