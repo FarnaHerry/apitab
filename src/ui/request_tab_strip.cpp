@@ -312,8 +312,9 @@ struct DraftTabDragPayload {
     }
 
     // 环境选择 + ☰ 合并控件。HuxerUI 2659a55 起 ComboBox 原生提供尾图标
-    // 和展开状态事件：展开=清空搜索、收起（未选中）=恢复当前值，
-    // 不再自行拼 TextField + Popup。
+    // 和展开状态事件：展开=进搜索态并清空查询，收起=回闭合态。闭合态显示
+    // 在组合期从 store 现值派生，保证默认始终是当前环境名，不再自行拼
+    // TextField + Popup。
     const IslandTheme islands = ResolveIslandTheme(theme);
     struct EnvChoice {
         std::int64_t id = 0;
@@ -324,18 +325,22 @@ struct DraftTabDragPayload {
         allChoices.push_back(EnvChoice{.id = env.id,
                                        .label = env.name.empty() ? "（未命名）" : env.name});
 
-    // 非搜索态保存当前环境名称；进入搜索态后清空为查询值。
-    auto envQuery = huxerui::UseState(
-        huxerui::TextEditingValue::FromText(envNames.at(currentEnv)));
+    // envQuery 只承载搜索态的查询文本；闭合态显示值在组合期从 store 现值
+    // 派生（不依赖 State 快照回写——快照漏一次写回就空白/陈旧，默认必须
+    // 始终显示当前环境名）。
+    auto envQuery = huxerui::UseState(huxerui::TextEditingValue::FromText(""));
+    const huxerui::TextEditingValue envValue =
+        envEditing.Get()
+            ? envQuery.Get()
+            : huxerui::TextEditingValue::FromText(envNames.at(currentEnv));
     // 统一切环境出口：菜单点击/键盘 Enter 唯一命中/提交都走这里，失败只弹 toast
-    // 不改搜索态。成功则把受控值定为选中项、退出搜索态并 bump envVersion 重组。
-    auto applyEnvChoice = [envEditing, envQuery, envVersion,
-                          toast](std::int64_t id, const huxerui::TextEditingValue& value) {
+    // 不改搜索态。成功则退出搜索态并 bump envVersion 重组（显示随即跟上新值）。
+    auto applyEnvChoice = [envEditing, envQuery, envVersion, toast](std::int64_t id) {
         if (const std::string err = g_requests.selectEnv(id); !err.empty()) {
             toast.Show("切换环境失败: " + err);
             return;
         }
-        envQuery = value;
+        envQuery = huxerui::TextEditingValue::FromText("");
         envEditing = false;
         envVersion = envVersion.Get() + 1;
     };
@@ -375,7 +380,7 @@ struct DraftTabDragPayload {
     huxerui::View envTrigger = huxerui::ProvideEnvironment(
         envFieldStyle,
         huxerui::View{
-        huxerui::ComboBox(envQuery, filteredEnvironments)
+        huxerui::ComboBox(envValue, filteredEnvironments)
             .Placeholder(envEditing.Get() ? envNames.at(currentEnv) : "搜索环境")
             .Variant(huxerui::TextFieldVariant::Outlined)
             .TrailingIcon(envEditing.Get() ? app::images::search : app::images::chevron_down)
@@ -385,37 +390,32 @@ struct DraftTabDragPayload {
                 return huxerui::Text("没有匹配的环境", huxerui::TextRole::Label)
                     .With(huxerui::Padding(10.0F));
             })
-            .OnExpandedChanged([envEditing, envQuery,
-                                currentName = envNames.at(currentEnv)](bool expanded) {
+            .OnExpandedChanged([envEditing, envQuery](bool expanded) {
                 if (expanded) {
                     envEditing = true;
                     envQuery = huxerui::TextEditingValue::FromText("");
                     return;
                 }
                 // 无选中关闭（Escape / 点外部 / 失焦 / 卸载）同样发收起事件：
-                // 恢复"未搜索态显示当前环境"语义，否则字段卡在查询文本 +
-                // 搜索图标上。点击/回车选中时框架先发收起再发 Selected，
-                // 这里的恢复写会被随后的 Selected 覆盖，最终仍是选中项。
+                // 退出搜索态即可，闭合显示值由组合期从 store 现值派生，无需回写。
                 envEditing = false;
-                envQuery = huxerui::TextEditingValue::FromText(currentName);
             })
             .OnChanged([envEditing, envQuery](const huxerui::TextEditingValue& value) {
                 envEditing = true;
                 envQuery = value;
             })
             .OnSelected([applyEnvChoice, filteredEnvironmentIds](
-                            std::size_t index, const huxerui::TextEditingValue& value) {
+                            std::size_t index, const huxerui::TextEditingValue&) {
                 if (index >= filteredEnvironmentIds.size()) return;
-                applyEnvChoice(filteredEnvironmentIds[index], value);
+                applyEnvChoice(filteredEnvironmentIds[index]);
             })
             // 无高亮项时按 Enter 框架发 Submitted（先收起再发）。搜索场景里
             // "输查询词 + Enter"是自然完成手势：唯一命中直接采用；多命中/
-            // 无命中维持取消恢复（收起分支已把受控值恢复为当前环境）。
+            // 无命中回到闭合态（显示仍为当前环境）。
             .OnSubmitted([applyEnvChoice, query, filteredEnvironments,
                           filteredEnvironmentIds] {
                 if (query.empty() || filteredEnvironments.size() != 1) return;
-                applyEnvChoice(filteredEnvironmentIds[0],
-                               huxerui::TextEditingValue::FromText(filteredEnvironments[0]));
+                applyEnvChoice(filteredEnvironmentIds[0]);
             })
             .With(huxerui::Frame{.width = 136.0F, .height = islands.control_height},
                   huxerui::ClipChildren())});
