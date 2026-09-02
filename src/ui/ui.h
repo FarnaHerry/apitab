@@ -536,6 +536,34 @@ std::string_view SyntaxForBodyKind(std::size_t kind);
 std::string StripJsonComments(const std::string& in);
 std::string PrettyXml(const std::string& input);
 
+// request_editor.cpp — KV 编辑原语与请求编辑器（P1-C1 自 request_page.cpp 拆出，
+// KV 为单一 owner）：KvTable（回调风格，行数据寄宿草稿；类型列下拉随值自动推断）
+// 被编辑器与环境表单共用，签名仅用 draft.h/huxerui/std 类型，可安全进头文件；
+// 其余桥接（ToKeyValue/FromKeyValue/SpecFromDraft/CookiesFromHeaders 等，签名含
+// 模块类型）留在 owner TU 内，不进头文件（CLAUDE.md 模块约束）。
+huxerui::View KvTable(std::vector<KvRow> rows, const huxerui::ThemeSpec& theme,
+                      std::string keyLabel, std::string valueLabel,
+                      std::function<void(std::vector<KvRow>)> onChanged);
+huxerui::View RequestEditor(
+    huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
+    huxerui::State<std::size_t> activeTab, huxerui::State<int> listVersion,
+    huxerui::State<bool> inFlight, huxerui::State<std::string> responseBody,
+    huxerui::State<std::vector<std::string>> responseHeaders,
+    huxerui::State<std::vector<std::string>> responseCookies,
+    huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab);
+
+// environment_widgets.cpp — 环境配置弹窗（P1-C1 自 request_page.cpp 拆出）：左侧
+// 环境列表（选中/新建/重命名/删除）+ 右侧选中环境的名称/基础 URL/变量 KV 表，
+// envVersion 驱动重读 store；重命名/删除确认在同层之上。
+huxerui::View EnvironmentDialog(huxerui::DialogContext ctx, huxerui::State<int> envVersion);
+
+// request_tab_strip.cpp — 右岛顶部内部标签条（P1-C1 自 request_page.cpp 拆出）：
+// 已打开草稿的 chip（固定宽、悬停显 ✕、Chrome 式拖拽换位与让位滑动）+ 末尾“＋”
+// 新建 + 右侧环境 ComboBox/☰ 环境配置弹窗入口（envVersion 驱动重读 store）。
+huxerui::View RequestTabStrip(huxerui::State<std::vector<RequestDraft>> drafts,
+                              huxerui::State<std::size_t> activeTab,
+                              huxerui::State<int> envVersion);
+
 // request_doc.cpp — 请求文档页（P1-C1 自 request_page.cpp 拆出）：按当前草稿只读
 // 生成方法/URL/KV/Body 文档，State 变化即重组刷新。
 huxerui::View RequestDocPage(const RequestDraft& snapshot, const std::string& envBaseUrl);
