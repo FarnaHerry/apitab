@@ -390,11 +390,27 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
                 "$<TARGET_FILE_DIR:apitab>/apitab.resources/huxerui/resources.bin"
         COMMENT "Copying assets and the merged HuxerUI resource package next to apitab")
     if (WIN32)
-        # HuxerUI 运行时 DLL 需在 exe 旁
-        add_custom_command(TARGET apitab POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${HUXERUI_SDK_DIR}/bin/huxerui.dll" "$<TARGET_FILE_DIR:apitab>"
-            COMMENT "Copying huxerui.dll next to apitab")
+        # HuxerUI 运行时 DLL 需在 exe 旁。源码通道没有 HUXERUI_SDK_DIR，且
+        # dll 实际落在构建树 RUNTIME 输出（多配置时还带 config 子目录），
+        # 只有 $<TARGET_FILE:> 能跨两种通道、跨生成器解析；目标缺失
+        # （如静态框架构建）时回落 SDK 路径，两处都没有就跳过。
+        set(APITAB_HUXERUI_DLL "")
+        if (TARGET HuxerUI::huxerui)
+            get_target_property(APITAB_HUXERUI_DLL_TYPE HuxerUI::huxerui TYPE)
+            if (APITAB_HUXERUI_DLL_TYPE STREQUAL "SHARED_LIBRARY")
+                set(APITAB_HUXERUI_DLL "$<TARGET_FILE:HuxerUI::huxerui>")
+            endif ()
+        endif ()
+        if (NOT APITAB_HUXERUI_DLL AND HUXERUI_SDK_DIR
+                AND EXISTS "${HUXERUI_SDK_DIR}/bin/huxerui.dll")
+            set(APITAB_HUXERUI_DLL "${HUXERUI_SDK_DIR}/bin/huxerui.dll")
+        endif ()
+        if (APITAB_HUXERUI_DLL)
+            add_custom_command(TARGET apitab POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${APITAB_HUXERUI_DLL}" "$<TARGET_FILE_DIR:apitab>"
+                COMMENT "Copying huxerui.dll next to apitab")
+        endif ()
     endif ()
 
     # 仓库根的 compile_commands.json 软链（给 clangd 用；.gitignore 已忽略）
