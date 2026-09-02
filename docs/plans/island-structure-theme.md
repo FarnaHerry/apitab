@@ -1231,3 +1231,57 @@ agent 并行开发：`src/ui/request_page.cpp`（约 2900 行）同时承载请�
 - 待续：RequestEditor（含 SpecFromDraft/CookiesFromHeaders/KvTable 编辑器侧）、
   RequestTabStrip、ResponseArea、BodyTextEditor/文档页、环境控件等后续功能域继续
   从 request_page.cpp 拆出（P1-C1 剩余），之后 P1-C2（app.cpp）、P1-C3（公共声明）。
+
+### 16.5 P1-C2 执行记录（2026-09-02）：应用壳拆分 → title_bar / global_status_bar / app_dialogs
+
+`src/ui/app.cpp` 同时承载标题栏、顶级标签、全局状态条、对话框与 AppRoot 薄编排，
+按 §16.2 建议边界拆为职责文件；AppRoot 保持薄编排（仅状态持有与路由），行为零改动。
+
+- **新文件（3 个，职责不混合、每文件 ≤ ~1000 行）**：
+  - `src/ui/title_bar.cpp`（509 行）：标题栏结构——`LogoBadge`（apitab_mark 矢量徽标）、
+    `TopTab`（单个标签，激活/悬停/关闭，键盘 Focusable/Semantics）、`TopTabStrip`
+    （主页钉最左、项目标签横向滚动、设置单例固定队尾、分隔竖线、拖拽换位与让位滑动、
+    覆盖层克隆）、`ProjectTabDragPayload`、`TopTabDisplayKey`；§15 标题栏命中区规则
+    （Logo/标签空白=拖动区、标签本体/✕/闪电/齿轮=交互区、Grow(1) WindowDragRegion 弹性空白）
+    原样保留，拖拽 payload/行为不变。
+  - `src/ui/global_status_bar.cpp`（358 行）：底部全局状态条——`TruncateSummary`、
+    `CookieRow`、`CookieRowsFromStore`、`StatusActionText`、`RequestProxyDialogContent`、
+    `GlobalCookieDialogContent`、`GlobalStatusBar`（右缘代理/Cookie 热区，弹窗层捕获调用处
+    环境；P1-B1 前保持现状，不拆为项目/状态两栏）。
+  - `src/ui/app_dialogs.cpp`（104 行）：应用级对话框宿主——`CloseGuard`（关闭询问：
+    直接关闭/最小化到托盘/取消，托盘可用性动态查询，Hide/Quit 推迟出事件路径）。
+
+- **保留为壳（原 app.cpp 薄编排层，履行 §16.2 app_shell 角色）**：
+  - `src/ui/app.cpp` 由 1561 → 670 行，保留：`pages::PageIndex/PageFor`（项目工作区路由）、
+    `MinimalDarkThemeSpec/MinimalLightThemeSpec/MinimalThemed`（极简黑白主题，8px 按钮圆角
+    覆盖）、`SideShell`（左侧图标侧栏）、`AppRoot`（全部受控 State：tabs/settingsOpen/
+    activeTopTab/lastProjectTab/navPage/themeMode/closeBehavior/settingsCategory + 统一
+    入口 activateTopTab/closeTopTab/commitTopTab/syncDomainProject，推迟任务约定 6）。
+  - `src/ui/ui.h` 新增 P1-C2 块：跨 TU 共享常量 `kTitleBarContentHeight/kProjectTabWidth/
+    kSettingsTabDisplayKey`（原匿名常量提升为头常量，TopTab/TopTabStrip 与 AppRoot 共用）、
+    `TopTabActions` 结构、`LogoBadge/TopTabStrip/GlobalStatusBar/CloseGuard` 声明（签名仅用
+    State/draft.h/std/huxerui 类型，可安全进头）；不含模块类型声明（CLAUDE.md 头文件墙）。
+
+- **app.cpp 前后行数**：1561 → 1084（标题栏抽离后）→ 755（状态条抽离后）→ 670（对话框抽离后）；
+  新文件合计 509+358+104=971 行，整体代码量不变（纯搬移）。
+
+- **桥接并列清单与理由**：本次拆分**无模块类型桥接并列**。标题栏/对话框签名仅用
+  huxerui::State 与 TopTabId，状态条的 `CookieRowsFromStore`（db::GlobalCookie）与
+  `TruncateSummary` 等 helpers 按 CLAUDE.md 约束保留在各自 TU 内私有，不进 ui.h；
+  虽与 request_page 的 `FromKeyValue` 同属模块类型签名场景，但本批未复制该类逻辑，
+  无需并列与 P1-C3 归并。
+
+- **验证（每个功能域提交前必做）**：
+  - 配置日志含 `HuxerUI 源码编译（third_party/huxerui @ f85a94f）` 与 `宿主工具用本地源码构建`；
+  - `cmake --build build --target apitab -j8` 通过（仅既有第三方头 `-Wsubobject-linkage` 警告）；
+  - `cmake --build build --target test_smoke && ctest --test-dir build -R smoke` 通过（1/1）；
+  - `git diff --check` 干净；`./build/apitab --cli help` 冒烟正常；
+  - 行为零改动：顶级标签行为矩阵 §13.6、标题栏拖动 §15、键盘可达性（Focusable/Semantics）
+    保持不变，State 槽位顺序与推迟任务语义未变。
+
+- **留给 P1-C3**：
+  - 若后续出现跨 TU 复用的模块类型 helpers，再评估微小桥接并列与归并（当前无）；
+  - `app.cpp` 仍可进一步抽 `SideShell` 为独立组件或将主题派生抽至 `theme.cpp`，但非必须
+    （当前 670 行已满足 ≤1000 约束，AppRoot 已是薄编排）；
+  - ui.h 的 P1-C2 块与 P1-C1 块同处一文件，后续按职责拆局部头时再迁移，不在本批堆局部头；
+  - 继续 P1-C1 剩余（RequestEditor/TabStrip/Response/Body/Environment 等）与 P1-C3 公共声明整理。
