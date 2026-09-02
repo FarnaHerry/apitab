@@ -75,11 +75,17 @@ jobs:
 
       - name: Configure
         run: |
+          # SweetEditor 自带的 linux 预置 libsimdutf.a 是 g++/libstdc++ 编译的，
+          # 其并入 sweeteditor_static 的对象引用 GLIBCXX 版本化 glue 符号
+          # (std::ios_base_library_init)；libc++ 主链接需显式补该 DSO。
+          # 仅一个初始化 glue 符号，无 std:: 类型跨界，安全；标准库变量放
+          # 链接行对象之后保证解析顺序。clang/Dev 本机 GCC 通道不需要。
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
             -DCMAKE_CXX_FLAGS='-stdlib=libc++' \
             -DCMAKE_EXE_LINKER_FLAGS='-stdlib=libc++' \
-            -DCMAKE_SHARED_LINKER_FLAGS='-stdlib=libc++'
+            -DCMAKE_SHARED_LINKER_FLAGS='-stdlib=libc++' \
+            -DCMAKE_CXX_STANDARD_LIBRARIES=/usr/lib/x86_64-linux-gnu/libstdc++.so.6
 
       - name: Build release
         run: cmake --build build --config Release --parallel
@@ -156,8 +162,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # AppleClang 的 libc++ 把 std::stop_token/jthread 用 availability 门控，
+          # 框架默认 min=12.0 时 .mm 里 task.h 报 "no type named 'stop_token'"；
+          # 框架自身已用 macOS 14 API（CADisplayLink），提到 14.0 一致且暴露符号。
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_COMPILER="$APITAB_GXX" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3
 
       - name: Configure (Windows)

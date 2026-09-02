@@ -335,6 +335,12 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     if (APITAB_HAS_COMBOBOX)
         target_compile_definitions(apitab PRIVATE APITAB_HAS_COMBOBOX)
     endif()
+    # windows.h 的 min/max 宏会毁掉所有经 ixwebsocket/asio/curl 头链引入它的
+    # TU 里的 std::max/std::min（MSVC C2589）；宏不跨 TU，必须整个目标定义
+    # （config.cppm 等文件内的 #ifndef 守卫与此兼容）。
+    if (WIN32)
+        target_compile_definitions(apitab PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    endif ()
     # 源码注释含中文：MSVC 必须显式 /utf-8，否则按 codepage 误读
     if (MSVC)
         target_compile_options(apitab PRIVATE /utf-8)
