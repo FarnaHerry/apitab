@@ -983,6 +983,16 @@ settings_page.cpp:213-216）：
 - 候选行不能包含独立可点击或可聚焦的子控件；稳定变化的候选应给 View `.Key(...)`。
 - `ComboBoxStyle` 只管理候选浮层，输入本体继续使用 `TextFieldStyle`。
 
+**2659a55 实机缺口（2026-09-02，环境选择器接入时发现）**：显式收起（点选候选、
+Escape、Enter 提交）记录 `dismissed_revision` 且焦点保留在输入框（popup
+`retain_anchor_focus`），抑制只由**直接编辑或新焦点周期**清除；鼠标再次点击
+已聚焦的输入框既不产生焦点变化也没有点击回调（尾图标纯装饰），弹层因此无法
+重开，只能打字或按 Down。`ComboBox` 无公开 expand/focus API，应用侧无法兜底
+→ 待反馈上游（建议：pointer-down 命中已聚焦的 ComboBox 输入框时按"新焦点周期"
+处理，清抑制重开）。应用侧已在 request_tab_strip 补齐收起恢复语义：
+`OnExpandedChanged(false)` 恢复当前环境名并退出搜索态（选中路径 collapse 先于
+`Selected`，恢复写被随后覆盖，不冲突）；无高亮项 Enter 在唯一命中时直接采用。
+
 当前源码 main 已具备该 API，但仓库和 `~/.local/share/HuxerUI` 的 0.2.0 预编译 SDK
 尚不包含它。开发期允许在默认源码通道直接使用 `ComboBox`，不再让旧 SDK 阻塞追新；
 但进入合并/发布验收前必须刷新可消费 SDK，确保 `APITAB_HUXERUI_FORCE_SDK=ON` 恢复
