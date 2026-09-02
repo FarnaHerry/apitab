@@ -520,8 +520,15 @@ huxerui::View MethodUrlBar(std::vector<std::string> methods, std::size_t methodI
 huxerui::View HomePage(std::function<void(std::int64_t)> onOpenProject,
                        huxerui::State<std::int64_t> activeProject);
 
-// request_page.cpp
+// request_page.cpp — 请求工作区根编排（薄组合：左岛集合树 + 右岛 HTTP/WS/TCP/gRPC 分派）。
 huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject);
+
+// request_response.cpp — 请求工作区右侧下岛（P1-C1 自 request_page.cpp 拆出）：响应区
+// Body/Headers/Cookies 三档切换 + 内部滚动。State 订阅局限在岛内，不扩散到编辑器。
+huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
+                           huxerui::State<std::vector<std::string>> responseHeaders,
+                           huxerui::State<std::vector<std::string>> responseCookies,
+                           const huxerui::ThemeSpec& theme);
 
 // request_list.cpp — 请求工作区左岛（P1-C1 自 request_page.cpp 拆出）：当前项目
 // 请求集合树（分组折叠 / 请求叶子，行尾 ⋮ / 右键统一菜单、拖拽移入分组或根）。
