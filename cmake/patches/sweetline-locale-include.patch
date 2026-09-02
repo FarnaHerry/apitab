@@ -1,0 +1,16 @@
+diff --git a/src/util.cpp b/src/util.cpp
+index 26e3e4f..b312574 100644
+--- a/src/util.cpp
++++ b/src/util.cpp
+@@ -3,6 +3,11 @@
+ #include <vector>
+ #include <utf8/utf8.h>
+ #include <codecvt>
++// NOTE(apitab local patch): wstring_convert lives in <locale> and only reached
++// util.cpp transitively before; libc++ 23 pruned that chain. std::copy needs
++// <algorithm> spelled out for the same reason.
++#include <locale>
++#include <algorithm>
+ #ifdef _WIN32
+ #include <windows.h>
+ #else

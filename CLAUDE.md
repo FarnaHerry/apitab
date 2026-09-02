@@ -94,6 +94,13 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   SweetEditor。CI 经 sweetedit CMakeLists 的 FetchContent PATCH_COMMAND 应用（幂等），
   本地手动 clone 的 3dparty/SweetEditor 必须同样应用保持 parity；嵌套 pull 新提交
   后需重放并复跑 `git apply --check`。
+  ⑥ **嵌套 SweetLine 的 wstring_convert 头文件修复**（`cmake/patches/sweetline-locale-include.patch`）：
+  `util.cpp` 一直靠 `<codecvt>`/`<filesystem>` 的传递包含拿到 `std::wstring_convert`
+  （标准归属头是 `<locale>`），brew llvm 22→23 滚动更新后 libc++ 23 剪掉了传递链，
+  macOS 通道直接编译失败；补丁显式补 `#include <locale>` 与 `#include <algorithm>`
+  （util.cpp 的 std::copy 同理）。CI 经 sweetedit CMakeLists 的 sweetline
+  FetchContent PATCH_COMMAND 应用（幂等），本地手动 clone 的 3dparty/SweetLine
+  必须同样应用保持 parity。
   均建议反馈作者：sweetedit 需跟进 HuxerUI main 的 Event/Stroke/键盘
   API 变化，并支持官方主题配色入口；os_log 路径应显式门控 __clang__。
 - UI 层是**普通 .cpp**（不要 .cppm：codegen 只扫 .cpp/.cc/.cxx）；composable
