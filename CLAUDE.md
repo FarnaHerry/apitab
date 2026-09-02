@@ -31,10 +31,17 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   源码模式编译 Linux 后端需要 `sudo dnf install gtk4-devel libsoup3-devel`。
   强制回落已安装/离线 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`；该通道是兼容与发布门禁，
   不阻塞开发期使用最新源码 API。
-- 源码 clone 当前带两处本地补丁：`tools/codegen/CMakeLists.txt` 与
+- 源码 clone 当前带本地补丁：`tools/codegen/CMakeLists.txt` 与
   `tools/resource_compiler/CMakeLists.txt`
   的 Linux 静态链接改为可用 `-DAPITAB_HOST_TOOLS_DYNAMIC=ON` 关掉（本机无
   libstdc++-static，免 sudo；仅影响本机自编译宿主工具）。
+  `include/huxerui/window.h` 的 `WindowTitleBar` 构造函数里
+  `CrossAlign(CrossAxisAlignment::Center)` 改为 `CrossAlign{...}`：函数式强转
+  依赖 P0960，clang 在 Objective-C++ 下不实现，导致 macOS 所有 `*.mm` TU 编译
+  失败；花括号聚合初始化跨语言通用。该补丁以
+  `cmake/patches/huxerui-window-p0960.patch` 形式在 CI 两个 fetch 步骤里
+  `git apply`（改动处带 `NOTE(apitab local patch)`，上游 pull 后需核对/重导，
+  建议反馈作者改用花括号）。
   原 `platform/linux/linux_adapter.cpp` 的 X11 `None` 冲突补丁已由上游
   `dcd41c4` 正式修复，937efb1 更新后本地补丁已删除。
 - **上游 linux 预置宿主工具可能落后于源码**：4a56daf 改了 svg 编译器/path
@@ -71,6 +78,9 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   ③ **调色板注入**：新增 `SweetEditorPalette`（约 60 个 ARGB 字段，
   默认=原浅色）+ `SweetEditorOptions::palette`，sweet_editor.cpp /
   sweetline_highlighter.cpp 全部颜色（含语法高亮与彩虹括号）改读 palette。
+  所有 `0x........` ARGB 字面量一律包 `static_cast<int32_t>(...)`：MSVC
+  `/std:c++latest` 按 C++26 规则把常量表达式里的非值保留整型转换判为窄化
+  （error C2397），win64 CI 实证编译失败。
   应用侧经 `EditorPalette(theme)`（common.cpp，深色=结构色从 ThemeSpec
   派生 + VS Code Dark+ 语法色）在 BodyTextEditor 与压测页脚本编辑器接线。
   ④ `sweet_editor.cpp` 的滚轮桥接通过 CMake 头文件特性检测兼容旧 `ScrollEvent`
@@ -222,7 +232,9 @@ TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结
 ## 关键约定（改代码前必读）
 
 1. **`import std;` 后禁止再 `#include` 标准头**。C/系统/第三方头放全局模块片段
-   （`module;` 与 `module apitab.x;` 之间）。
+   （`module;` 与 `module apitab.x;` 之间）。反过来，**普通 UI .cpp / ui.h 头**
+   （非模块 TU）用哪个 std 设施就得自己 `#include` 哪个——libstdc++ 会传递性带入、
+   CI linux 的 libc++ 不会（ui.h 用 `std::from_chars` 缺 `<charconv>` 实证炸过）。
 2. **跨模块前向声明（如 `core::platform::requestUiUpdate`）必须放全局模块片段**——
    写在模块域内会被附加模块名修饰（`@apitab.xxx`），链接不到外部符号。
 3. **UI 层遵守官方 skill 的 DSL 风格**（`.claude/skills/huxerui-app-development/

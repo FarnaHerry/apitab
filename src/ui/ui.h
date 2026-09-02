@@ -7,6 +7,7 @@
 #include "draft.h"
 
 #include <algorithm>
+#include <charconv>  // std::from_chars：ui.h 直接用它解析 open_projects CSV，libstdc++ 会传递性带入而 libc++（CI linux clang-21）不会，必须显式包含（同 request_editor/request_page/testcase_page 的约定）
 #include <cstddef>
 #include <cstdint>
 #include <functional>

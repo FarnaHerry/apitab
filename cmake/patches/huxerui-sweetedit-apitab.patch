@@ -95,7 +95,7 @@ index 2405e79..9b2f9ae 100644
      target_compile_definitions(
          sweetedit_core
 diff --git a/include/sweetedit_core/sweet_editor.h b/include/sweetedit_core/sweet_editor.h
-index 114b680..41b025c 100644
+index 114b680..1d0e1e0 100644
 --- a/include/sweetedit_core/sweet_editor.h
 +++ b/include/sweetedit_core/sweet_editor.h
 @@ -1,5 +1,6 @@
@@ -138,94 +138,97 @@ index 114b680..41b025c 100644
  
  namespace detail {
  class SweetEditorControllerState;
-@@ -168,6 +173,100 @@ using HostDecorationProvider = std::function<HostDecorationResult(uint32_t start
+@@ -168,6 +173,103 @@ using HostDecorationProvider = std::function<HostDecorationResult(uint32_t start
  // (reference GutterIconProvider): the host can mark breakpoints/errors etc.
  using GutterIconProvider = std::function<std::vector<std::pair<uint32_t, int32_t>>(uint32_t start_line, uint32_t end_line)>;
  
 +// NOTE(apitab local patch): every color the editor paints, injectable by the
 +// host for theme adaptation. All values are ARGB (0xAARRGGBB). The defaults
 +// reproduce the upstream hardcoded light theme exactly, so a
-+// default-constructed palette changes nothing.
++// default-constructed palette changes nothing. The static_cast<int32_t> on
++// each default keeps MSVC (/std:c++latest, C++26 narrowing-in-constant-
++// conversion) from rejecting the 0x........ literals as non-value-preserving
++// (error C2397); plain code is unaffected.
 +struct SweetEditorPalette {
-+  int32_t editor_background = 0xFFFFFFFF;
-+  int32_t gutter_background = 0xFFF2F3F5;
++  int32_t editor_background = static_cast<int32_t>(0xFFFFFFFF);
++  int32_t gutter_background = static_cast<int32_t>(0xFFF2F3F5);
 +  // Hairline between the gutter and the text area.
-+  int32_t gutter_split_line = 0xFFE3E5E8;
-+  int32_t line_number = 0xFF9AA0A6;
-+  int32_t cursor = 0xFF1F1F1F;
-+  int32_t selection_background = 0x554A90E2;
++  int32_t gutter_split_line = static_cast<int32_t>(0xFFE3E5E8);
++  int32_t line_number = static_cast<int32_t>(0xFF9AA0A6);
++  int32_t cursor = static_cast<int32_t>(0xFF1F1F1F);
++  int32_t selection_background = static_cast<int32_t>(0x554A90E2);
 +  // Selection drag handles and the HuxerUI selection-overlay accent.
-+  int32_t selection_handle = 0xFF1F6FEB;
-+  int32_t current_line_background = 0x0F000000;
-+  int32_t guide = 0xFFC8C8C8;
-+  int32_t separator = 0xFFB0B7C3;
-+  int32_t inlay_hint_background = 0x143B82F6;
-+  int32_t inlay_hint_text = 0xB0344A73;
-+  int32_t fold_placeholder_background = 0x2E748DB0;
-+  int32_t fold_placeholder_text = 0xFF284A70;
-+  int32_t gutter_icon = 0xFF267F99;
++  int32_t selection_handle = static_cast<int32_t>(0xFF1F6FEB);
++  int32_t current_line_background = static_cast<int32_t>(0x0F000000);
++  int32_t guide = static_cast<int32_t>(0xFFC8C8C8);
++  int32_t separator = static_cast<int32_t>(0xFFB0B7C3);
++  int32_t inlay_hint_background = static_cast<int32_t>(0x143B82F6);
++  int32_t inlay_hint_text = static_cast<int32_t>(0xB0344A73);
++  int32_t fold_placeholder_background = static_cast<int32_t>(0x2E748DB0);
++  int32_t fold_placeholder_text = static_cast<int32_t>(0xFF284A70);
++  int32_t gutter_icon = static_cast<int32_t>(0xFF267F99);
 +  // Whitespace rendering: space dots, and the tab-arrow / line-break hooks.
-+  int32_t whitespace_marker = 0x40000000;
-+  int32_t whitespace_symbol = 0x4D000000;
-+  int32_t phantom_text = 0x99999999;
-+  int32_t scrollbar_thumb = 0x73000000;
++  int32_t whitespace_marker = static_cast<int32_t>(0x40000000);
++  int32_t whitespace_symbol = static_cast<int32_t>(0x4D000000);
++  int32_t phantom_text = static_cast<int32_t>(0x99999999);
++  int32_t scrollbar_thumb = static_cast<int32_t>(0x73000000);
 +  // Completion panel (reference light theme, EditorTheme.java).
-+  int32_t completion_panel_background = 0xF0FAFBFD;
-+  int32_t completion_panel_border = 0x30A0A8B8;
-+  int32_t completion_selected_background = 0x3D3B82F6;
-+  int32_t completion_label = 0xFF1F2937;
-+  int32_t completion_detail = 0xFF8A94A6;
-+  int32_t completion_badge_text = 0xFFFFFFFF;
-+  int32_t completion_kind_keyword = 0xFFC678DD;
-+  int32_t completion_kind_function = 0xFF61AFEF;
-+  int32_t completion_kind_variable = 0xFFE5C07B;
-+  int32_t completion_kind_class = 0xFFE06C75;
-+  int32_t completion_kind_interface = 0xFF56B6C2;
-+  int32_t completion_kind_module = 0xFFD19A66;
-+  int32_t completion_kind_property = 0xFF98C379;
-+  int32_t completion_kind_snippet = 0xFFBE5046;
-+  int32_t completion_kind_text = 0xFF7A8494;
++  int32_t completion_panel_background = static_cast<int32_t>(0xF0FAFBFD);
++  int32_t completion_panel_border = static_cast<int32_t>(0x30A0A8B8);
++  int32_t completion_selected_background = static_cast<int32_t>(0x3D3B82F6);
++  int32_t completion_label = static_cast<int32_t>(0xFF1F2937);
++  int32_t completion_detail = static_cast<int32_t>(0xFF8A94A6);
++  int32_t completion_badge_text = static_cast<int32_t>(0xFFFFFFFF);
++  int32_t completion_kind_keyword = static_cast<int32_t>(0xFFC678DD);
++  int32_t completion_kind_function = static_cast<int32_t>(0xFF61AFEF);
++  int32_t completion_kind_variable = static_cast<int32_t>(0xFFE5C07B);
++  int32_t completion_kind_class = static_cast<int32_t>(0xFFE06C75);
++  int32_t completion_kind_interface = static_cast<int32_t>(0xFF56B6C2);
++  int32_t completion_kind_module = static_cast<int32_t>(0xFFD19A66);
++  int32_t completion_kind_property = static_cast<int32_t>(0xFF98C379);
++  int32_t completion_kind_snippet = static_cast<int32_t>(0xFFBE5046);
++  int32_t completion_kind_text = static_cast<int32_t>(0xFF7A8494);
 +  // Built-in context menu panel.
-+  int32_t context_menu_background = 0xFFFFFFFF;
-+  int32_t context_menu_border = 0xFFDDDDDD;
-+  int32_t context_menu_item_text = 0xFF1F1F1F;
++  int32_t context_menu_background = static_cast<int32_t>(0xFFFFFFFF);
++  int32_t context_menu_border = static_cast<int32_t>(0xFFDDDDDD);
++  int32_t context_menu_item_text = static_cast<int32_t>(0xFF1F1F1F);
 +  // Core render colors (se::EditorRenderColors).
-+  int32_t text_foreground = 0xFF1F1F1F;
-+  int32_t link_foreground = 0xFF4C9DFF;
-+  int32_t active_link_foreground = 0xFF4C9DFF;
-+  int32_t codelens_foreground = 0xB0344A73;
-+  int32_t active_codelens_foreground = 0xFF3A5FA0;
-+  int32_t diff_added_line_background = 0x1FA6E22E;
-+  int32_t diff_removed_line_background = 0x1FF92672;
-+  int32_t diff_added_gutter_background = 0x2FA6E22E;
-+  int32_t diff_removed_gutter_background = 0x2FF92672;
++  int32_t text_foreground = static_cast<int32_t>(0xFF1F1F1F);
++  int32_t link_foreground = static_cast<int32_t>(0xFF4C9DFF);
++  int32_t active_link_foreground = static_cast<int32_t>(0xFF4C9DFF);
++  int32_t codelens_foreground = static_cast<int32_t>(0xB0344A73);
++  int32_t active_codelens_foreground = static_cast<int32_t>(0xFF3A5FA0);
++  int32_t diff_added_line_background = static_cast<int32_t>(0x1FA6E22E);
++  int32_t diff_removed_line_background = static_cast<int32_t>(0x1FF92672);
++  int32_t diff_added_gutter_background = static_cast<int32_t>(0x2FA6E22E);
++  int32_t diff_removed_gutter_background = static_cast<int32_t>(0x2FF92672);
 +  // Range-effect styles (se::EditorRangeEffectStyles); the selection
 +  // background reuses `selection_background` above.
-+  int32_t search_match_background = 0x33F59E0B;
-+  int32_t search_current_background = 0x55F59E0B;
-+  int32_t bracket_match_background = 0x260F766E;
-+  int32_t ime_composition_underline = 0xFF2563EB;
-+  int32_t document_highlight_text = 0x142563EB;
-+  int32_t document_highlight_read = 0x1C2563EB;
-+  int32_t document_highlight_write = 0x282563EB;
-+  int32_t diagnostic_error_underline = 0xFFDC2626;
-+  int32_t diagnostic_warning_underline = 0xFFD97706;
-+  int32_t diagnostic_info_underline = 0xFF0EA5E9;
-+  int32_t diagnostic_hint_underline = 0xFF64748B;
++  int32_t search_match_background = static_cast<int32_t>(0x33F59E0B);
++  int32_t search_current_background = static_cast<int32_t>(0x55F59E0B);
++  int32_t bracket_match_background = static_cast<int32_t>(0x260F766E);
++  int32_t ime_composition_underline = static_cast<int32_t>(0xFF2563EB);
++  int32_t document_highlight_text = static_cast<int32_t>(0x142563EB);
++  int32_t document_highlight_read = static_cast<int32_t>(0x1C2563EB);
++  int32_t document_highlight_write = static_cast<int32_t>(0x282563EB);
++  int32_t diagnostic_error_underline = static_cast<int32_t>(0xFFDC2626);
++  int32_t diagnostic_warning_underline = static_cast<int32_t>(0xFFD97706);
++  int32_t diagnostic_info_underline = static_cast<int32_t>(0xFF0EA5E9);
++  int32_t diagnostic_hint_underline = static_cast<int32_t>(0xFF64748B);
 +  // Syntax highlighting colors registered for the SweetLine style ids.
-+  int32_t syntax_keyword = 0xFF0000FF;
-+  int32_t syntax_type = 0xFF267F99;
-+  int32_t syntax_class = 0xFF267F99;
-+  int32_t syntax_function = 0xFF795E26;
-+  int32_t syntax_variable = 0xFF001080;
-+  int32_t syntax_string = 0xFFA31515;
-+  int32_t syntax_number = 0xFF098658;
-+  int32_t syntax_comment = 0xFF008000;
-+  int32_t syntax_preprocessor = 0xFF9B4F96;
-+  int32_t syntax_builtin = 0xFF0000FF;
-+  int32_t syntax_punctuation = 0xFF777777;
-+  int32_t syntax_annotation = 0xFFB35C00;
-+  int32_t syntax_url = 0xFF0B5CAD;
++  int32_t syntax_keyword = static_cast<int32_t>(0xFF0000FF);
++  int32_t syntax_type = static_cast<int32_t>(0xFF267F99);
++  int32_t syntax_class = static_cast<int32_t>(0xFF267F99);
++  int32_t syntax_function = static_cast<int32_t>(0xFF795E26);
++  int32_t syntax_variable = static_cast<int32_t>(0xFF001080);
++  int32_t syntax_string = static_cast<int32_t>(0xFFA31515);
++  int32_t syntax_number = static_cast<int32_t>(0xFF098658);
++  int32_t syntax_comment = static_cast<int32_t>(0xFF008000);
++  int32_t syntax_preprocessor = static_cast<int32_t>(0xFF9B4F96);
++  int32_t syntax_builtin = static_cast<int32_t>(0xFF0000FF);
++  int32_t syntax_punctuation = static_cast<int32_t>(0xFF777777);
++  int32_t syntax_annotation = static_cast<int32_t>(0xFFB35C00);
++  int32_t syntax_url = static_cast<int32_t>(0xFF0B5CAD);
 +  // Rainbow bracket depth colors (style ids 100..107). The casts keep the
 +  // 0xFF...... literals from narrowing inside the std::array braced init.
 +  std::array<int32_t, 8> rainbow_brackets = {
@@ -239,7 +242,7 @@ index 114b680..41b025c 100644
  // Declarative configuration for a SweetEditor instance.
  struct SweetEditorOptions {
    std::string initial_text;
-@@ -230,6 +329,9 @@ struct SweetEditorOptions {
+@@ -230,6 +332,9 @@ struct SweetEditorOptions {
    float content_start_padding = 0.0F;
    // Host gutter icons (breakpoints, errors) merged during decoration refresh.
    GutterIconProvider gutter_icon_provider;
