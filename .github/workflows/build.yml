@@ -193,6 +193,10 @@ jobs:
           # 让 CMake 把标准库识别为 libc++ 走 import std 消费路径——
           # CMAKE_CXX_STDLIB_MODULES_JSON 直接指向上一步生成的元数据，绕过
           # -print-file-name 发现（brew llvm 没有该 json，显式注入最稳）。
+          # _LIBCPP_DISABLE_AVAILABILITY：头文件的可用性标注（如浮点
+          # from_chars 标 macOS 26.0）是给 Apple 系统 dylib 的；本链链的是
+          # brew 自带 dylib（符号齐全），标注全是假约束——libc++ 文档认可的
+          # 关闭方式。CMAKE_CXX_FLAGS 会进 std 模块 BMI 编译，宏全程一致。
           # brew libc++ 23 的 std::jthread/stop_token 已转正，Apple libc++ 的
           # -fexperimental-library 不再需要。
           # 部署目标 14.0：框架自身已使用 macOS 14 API（CADisplayLink）。
@@ -200,8 +204,8 @@ jobs:
             -DCMAKE_C_COMPILER="$APITAB_LLVM_PREFIX/bin/clang" \
             -DCMAKE_CXX_COMPILER="$APITAB_LLVM_PREFIX/bin/clang++" \
             -DCMAKE_OBJCXX_COMPILER="$APITAB_LLVM_PREFIX/bin/clang++" \
-            -DCMAKE_CXX_FLAGS='-stdlib=libc++' \
-            -DCMAKE_OBJCXX_FLAGS='-stdlib=libc++' \
+            -DCMAKE_CXX_FLAGS='-stdlib=libc++ -D_LIBCPP_DISABLE_AVAILABILITY' \
+            -DCMAKE_OBJCXX_FLAGS='-stdlib=libc++ -D_LIBCPP_DISABLE_AVAILABILITY' \
             -DCMAKE_EXE_LINKER_FLAGS='-stdlib=libc++' \
             -DCMAKE_SHARED_LINKER_FLAGS='-stdlib=libc++' \
             -DCMAKE_CXX_STDLIB_MODULES_JSON="$APITAB_LLVM_PREFIX/lib/libc++.modules.json" \
