@@ -595,4 +595,9 @@ huxerui::View TopTabStrip(huxerui::State<std::vector<std::int64_t>> tabs,
 // 底部全局状态条（global_status_bar.cpp）：右缘热区 + 代理/Cookie 弹窗（无模块类型签名）
 huxerui::View GlobalStatusBar(float statusTopPad);
 
+// 应用级对话框宿主（app_dialogs.cpp）
+huxerui::View CloseGuard(huxerui::State<int> closeBehavior,
+                         huxerui::State<bool> closeDialogOpen,
+                         huxerui::View content);
+
 } // namespace apitab::ui
