@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -565,5 +566,30 @@ huxerui::View ProjectSettingsPage();
 
 // http_test_page.cpp（框架自带 HTTP + 协程的并发压测实验页）
 huxerui::View HttpTestPage();
+
+// ---- P1-C2 应用壳拆分（app.cpp → title_bar / global_status_bar / app_dialogs / app_shell）----
+// 跨 TU 引用的壳组件声明：普通 .cpp 经 huxerui::composable 调用，签名仅用 State/draft.h/std/huxerui
+// 类型，可安全进 ui.h；含模块类型（db::* / api::*）的桥接保留在各自 TU 内，不进头（CLAUDE.md 约束）。
+
+// 标题栏几何与设置单例显示 key（原 app.cpp 匿名命名空间常量，跨 TU 共享故提升为头常量）。
+inline constexpr float kTitleBarContentHeight = 24.0F;
+inline constexpr float kProjectTabWidth = 140.0F;
+inline constexpr std::int64_t kSettingsTabDisplayKey =
+    std::numeric_limits<std::int64_t>::max();
+
+// 顶级标签条 → AppRoot 的操作入口：activate/close 的实现由 AppRoot 提供（推迟任务
+// 里完成 TopTabState helper 计算、领域写入与 State 写回；TopTab/TopTabStrip 不直接
+// 持有顶级状态写入）。
+struct TopTabActions {
+    std::function<void(TopTabId)> activate;
+    std::function<void(TopTabId)> close;
+};
+
+// 标题栏（title_bar.cpp）：Logo + 顶级标签条（含主页/项目/设置单例、拖拽换位）
+huxerui::View LogoBadge();
+huxerui::View TopTabStrip(huxerui::State<std::vector<std::int64_t>> tabs,
+                          huxerui::State<bool> settingsOpen,
+                          huxerui::State<TopTabId> activeTopTab,
+                          const TopTabActions& actions);
 
 } // namespace apitab::ui
