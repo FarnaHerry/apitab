@@ -27,7 +27,7 @@
 ## 阻塞点（需要 HuxerUI SDK 提供）
 
 1. **多窗口 API**：运行期创建/销毁次级窗口（如
-   `ApplicationHandle.OpenWindow(WindowOptions, RootFactory)`）。0.1.0 只有
+   `ApplicationHandle.OpenWindow(WindowOptions, RootFactory)`）。0.2.0 仍只有
    单 `Application` 单 root factory，`UseWindow()` 仅主窗口命令。
 2. **跨窗口拖放**：同进程 typed payload 拖拽会话跨窗口边界（A 窗口
    DragSource → B 窗口 DropTarget）；或至少提供「拖拽离开窗口边界」回调
@@ -39,6 +39,6 @@
   SDK 版本字符串变化）时，检索新版 SDK 是否提供上述两项能力（查
   `include/huxerui/app.h` / `window.h` / `gesture.h` 与官方 changelog）。
 - **不更新不用检索**。
-- 最后检索版本：源码 main `63b7e0b`（2026-09-01，SDK 0.2.0；两项均不支持，
-  app.h/window.h/gesture.h 本批未动。此前 0.1.0 时 PointerEvent 无 button
-  字段，现已落地并另有 `ViewEvents::ContextMenuRequested`）。
+- 最后检索版本：源码 main `937efb1`（2026-09-02，项目版本仍为 0.2.0；两项均不
+  支持）。本批 app.h 仅调整滚动输入接口，window.h/gesture.h 没有运行期创建窗口
+  或跨窗口拖放 API；设计文档仍明确共享导航不跨窗口。

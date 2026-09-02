@@ -3,8 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 apitab 是一个 **C++23 模块化 GUI 工具**：API 测试（单次请求走 curl 引擎抽象
-`api::ApiEngine`）+ k6 压测 + SQLite 存储，用 **CMake** 构建。前端为 **HuxerUI**（组件式声明 UI，官方预编译
-SDK 接入）；迁移地图见 `docs/huxerui-migration.md`。分层：UI（src/ui/*.cpp +
+`api::ApiEngine`）+ k6 压测 + SQLite 存储，用 **CMake** 构建。前端为 **HuxerUI 0.2.0**（组件式声明 UI，源码/官方 SDK 双通道）；迁移地图见 `docs/huxerui-migration.md`。分层：UI（src/ui/*.cpp +
 app_main.cpp，普通 C++ 源走 hcg codegen）/ 领域 store（apitab.* 模块）/ 引擎
 三层，引擎自保留在 store 单例中。
 
@@ -21,21 +20,23 @@ fundamentals、layout-and-ui、theme-animation-presentation、navigation-and-win
 presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）。
 要点：
 
-- HuxerUI 接入：优先 `third_party/huxerui` 源码（git clone 的上游仓库，
-  `add_subdirectory` 编译，跟踪上游更新 `git pull` 即可；不入库，.gitignore
-  已忽略）；目录不存在或 Linux 缺 gtk4/libsoup-3.0 开发包时自动回落
-  `third_party/tarballs` 的预编译 SDK（`find_package(HuxerUI CONFIG REQUIRED
+- HuxerUI 接入采用“**SDK 工程契约驱动、源码解析优先**”：CLI、项目自省、codegen、
+  resource compiler 和打包继续遵守 HuxerUI SDK 工程格式，但开发构建优先
+  `third_party/huxerui` 源码（git clone 的上游仓库，`add_subdirectory` 编译，跟踪
+  上游更新 `git pull` 即可；不入库，.gitignore 已忽略）。CLI 注入的已安装 SDK
+  `HUXERUI_HOME` 不得压过仓库源码；只有 `HUXERUI_HOME` 明确指向源码目录时优先于
+  仓库源码。源码目录不存在或 Linux 缺 gtk4/libsoup-3.0 开发包时才自动回落
+  `third_party/tarballs` 的 Linux 0.2.0 预编译 SDK（`find_package(HuxerUI 0.2.0 CONFIG REQUIRED
   COMPONENTS shared)`，`HuxerUI_DIR` 指向 `build/vendor/huxerui/...`）。
   源码模式编译 Linux 后端需要 `sudo dnf install gtk4-devel libsoup3-devel`。
-  强制回落 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`。
-- 源码 clone 当前带三处本地补丁：① `platform/linux/linux_adapter.cpp` 在
-  gdkx.h 后 `#undef None`（上游 3eafb0b 引入的 `PointerButton::None` 与
-  X11 `None` 宏冲突，已向作者反馈口径见会话记录）。上游修复后 `git checkout
-  -- platform/linux/linux_adapter.cpp && git pull` 即可归位。
-  ② `tools/codegen/CMakeLists.txt` 与 `tools/resource_compiler/CMakeLists.txt`
+  强制回落已安装/离线 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`；该通道是兼容与发布门禁，
+  不阻塞开发期使用最新源码 API。
+- 源码 clone 当前带两处本地补丁：`tools/codegen/CMakeLists.txt` 与
+  `tools/resource_compiler/CMakeLists.txt`
   的 Linux 静态链接改为可用 `-DAPITAB_HOST_TOOLS_DYNAMIC=ON` 关掉（本机无
   libstdc++-static，免 sudo；仅影响本机自编译宿主工具）。
-  ③ 无其他源码改动。
+  原 `platform/linux/linux_adapter.cpp` 的 X11 `None` 冲突补丁已由上游
+  `dcd41c4` 正式修复，937efb1 更新后本地补丁已删除。
 - **上游 linux 预置宿主工具可能落后于源码**：4a56daf 改了 svg 编译器/path
   编码却只重发了 mac/windows/android 的预置 hrc/hcg，linux 预置仍是旧的
   → 新运行时解旧资源包启动即抛 "unknown path operation"。对策：用当前
@@ -62,7 +63,7 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   `controller.LoadDocument(key, text, syntax)`，仅 document_key 变化才重载
   initial_text。本地补丁（改动处均带 `NOTE(apitab local patch)` 注释，
   **上游 pull 后需逐一核对/归位**）：① `include/sweetedit_core/sweet_editor.h`
-  的 11 个事件声明从旧式 `Event<Args...>`（面向 SDK 0.1.0）改为 HuxerUI
+  的 11 个事件声明从旧式 `Event<Args...>`（面向早期 SDK）改为 HuxerUI
   main 的函数签名式 `Event<void(Args...)>`，发射侧不受影响；②
   `src/sweet_editor/sweet_editor.cpp` 的 8 处 StrokePath/DrawBorder 由
   float 线宽改为 `StrokeStyle{.width=...}`、`Extension::OnKey` 返回类型
@@ -72,6 +73,9 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   sweetline_highlighter.cpp 全部颜色（含语法高亮与彩虹括号）改读 palette。
   应用侧经 `EditorPalette(theme)`（common.cpp，深色=结构色从 ThemeSpec
   派生 + VS Code Dark+ 语法色）在 BodyTextEditor 与压测页脚本编辑器接线。
+  ④ `sweet_editor.cpp` 的滚轮桥接通过 CMake 头文件特性检测兼容旧 `ScrollEvent`
+  与 937efb1 新 `ScrollInputEvent`（嵌套滚动/overscroll 统一；delta 字段语义不变），
+  保持源码 main 与 0.2.0 SDK 双通道可编译。
   均建议反馈作者：sweetedit 需跟进 HuxerUI main 的 Event/Stroke/键盘
   API 变化，并支持官方主题配色入口。
 - UI 层是**普通 .cpp**（不要 .cppm：codegen 只扫 .cpp/.cc/.cxx）；composable
@@ -83,7 +87,12 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   `third_party/huxerui` git pull 升级）后，按 `docs/plans/` 里各计划的
   「版本检索规则」检索新版能力（多窗口/跨窗口拖放等，见
   `docs/plans/project-tab-tear-off-window.md`）；不更新则无需检索。
-- **已用上的 2026-08-30 新能力**（仅源码模式有，SDK 0.1.0 无；
+- **源码 main 937efb1 新能力（2026-09-02）**：新增受控可编辑 `ComboBox`
+  （自由输入 + 应用提供候选，`OnChanged` 与 `OnSelected` 分离）、Snackbar，以及
+  嵌套滚动/overscroll 统一。本仓 0.2.0 预编译 SDK 尚不含这些 main 能力；开发期
+  默认源码通道可以使用，合并/发布前必须刷新 SDK 并完成三通道验证。应用场景与边界见
+  `docs/plans/island-structure-theme.md` §十四。
+- **已用上的 2026-08-30 新能力**（已包含于 SDK 0.2.0；
   `PointerEvent button 字段`计划项已落地）：右键事件
   `ViewEvents::ContextMenuRequested` + `ShowPopupMenuAt`（请求树列表右键
   菜单，自绘 PopupMenu）；官方 `Select` 下拉（设置页/历史页/压测页方法，
@@ -154,7 +163,8 @@ ctest --test-dir build             # 冒烟测试（test_smoke）
   识别项目的依据）、`platform/<平台>/main.cpp` 平台入口（`main()` 里先
   `loadSessionPreferences()` 再 `RunApplication()`）、`src/app.cpp` 只持有
   `Application` 单例 + `requestUiUpdate` no-op 钩子、src/ 递归 glob 源码、
-  resources/ 以 app 命名空间注册。CLI 在 `~/.local/bin/huxerui`（软链到 vendor SDK）。
+  resources/ 以 app 命名空间注册。CLI 在 `~/.local/bin/huxerui`，应软链到
+  `~/.local/share/HuxerUI/bin/huxerui` 的当前安装 SDK。
 - CLI 的库图扫描模式（HUXERUI_LIBRARY_GRAPH_ONLY）下不启用语言、不构建依赖，
   顶层 CMakeLists 的所有重活都以该变量为门控跳过。
 
@@ -163,7 +173,7 @@ ctest --test-dir build             # 冒烟测试（test_smoke）
 - **依赖全部 vendor 在 `third_party/`**（tarball + SHA256，configure 期解包到
   `build/vendor/`，离线可复现；版本与原 mcpp.lock 一致，清单见
   `third_party/README.md`）：HuxerUI（**优先 `third_party/huxerui` 源码
-  clone 编译**，缺该目录或缺 gtk4/libsoup 开发包时回落 0.1.0 预编译 SDK）、
+  clone 编译**，或由 `HUXERUI_HOME` 选择已安装 0.2.0 SDK；Linux 离线回落同为 0.2.0）、
   Asio 1.38.1（`import asio` 模块在 `cmake/asio.cppm`）、IXWebSocket 12.0.1
   （client-only、无 TLS/zlib）、SQLiteCpp 3.3.3
   （内置 amalgamation）、nlohmann::json 3.12.0（`import nlohmann.json` 模块在
