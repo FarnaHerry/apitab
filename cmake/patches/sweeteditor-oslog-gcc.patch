@@ -1,0 +1,22 @@
+diff --git a/src/internal/logging.hpp b/src/internal/logging.hpp
+index 21f7d2f..7ae3ff0 100644
+--- a/src/internal/logging.hpp
++++ b/src/internal/logging.hpp
+@@ -16,7 +16,7 @@
+     #include "android_log.h"
+   #elif defined(OHOS)
+     #include "ohos_log.h"
+-  #elif defined(__APPLE__)
++  #elif defined(__APPLE__) && defined(__clang__)
+     #include <os/log.h>
+     #include <sweeteditor/utility.h>
+     #if defined(__JETBRAINS_IDE__)
+@@ -68,7 +68,7 @@
+   #if defined(ANDROID)
+     #include <android/log.h>
+     #define PERF_LOG_PRINT(fmt, ...) __android_log_print(ANDROID_LOG_INFO, "SWEETEDITOR", fmt, ##__VA_ARGS__)
+-  #elif defined(__APPLE__)
++  #elif defined(__APPLE__) && defined(__clang__)
+     #include <os/log.h>
+     inline void _perf_log_print(const char* fmt, ...) {
+       char buf[512];

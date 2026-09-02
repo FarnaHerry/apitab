@@ -86,8 +86,15 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   ④ `sweet_editor.cpp` 的滚轮桥接通过 CMake 头文件特性检测兼容旧 `ScrollEvent`
   与 937efb1 新 `ScrollInputEvent`（嵌套滚动/overscroll 统一；delta 字段语义不变），
   保持源码 main 与 0.2.0 SDK 双通道可编译。
+  ⑤ **嵌套 SweetEditor 的 os_log GCC 兼容**（`cmake/patches/sweeteditor-oslog-gcc.patch`）：
+  `logging.hpp` 的 `#elif defined(__APPLE__)` 分支 `#include <os/log.h>` 依赖
+  clang-only 的 `__builtin_os_log_format`，macOS 通道 C++ 用 brew GCC（import std）
+  直接编译失败，改为 `defined(__APPLE__) && defined(__clang__)`（GCC 落 iostream
+  兜底）。CI 经 sweetedit CMakeLists 的 FetchContent PATCH_COMMAND 应用（幂等），
+  本地手动 clone 的 3dparty/SweetEditor 必须同样应用保持 parity；嵌套 pull 新提交
+  后需重放并复跑 `git apply --check`。
   均建议反馈作者：sweetedit 需跟进 HuxerUI main 的 Event/Stroke/键盘
-  API 变化，并支持官方主题配色入口。
+  API 变化，并支持官方主题配色入口；os_log 路径应显式门控 __clang__。
 - UI 层是**普通 .cpp**（不要 .cppm：codegen 只扫 .cpp/.cc/.cxx）；composable
   函数不加 `inline`；入口/根写在 src/app_main.cpp + src/ui/app.cpp。
 - 主题从 MaterialTheme/MaterialDarkTheme 等内置主题定制；受控值以应用状态为
