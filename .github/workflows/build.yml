@@ -29,7 +29,7 @@ jobs:
   #    libc++-21-dev 自带 std 模块与 modules.json（Debian 打包的相对路径是坏的，
   #    需按 llvm-21 前缀改写为绝对路径，见下方步骤）。
   build-linux:
-    name: build-linux-x64
+    name: build-linux-x86_64
     runs-on: ubuntu-24.04
     container:
       image: ubuntu:26.04
@@ -100,7 +100,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-linux-x64
+          name: build-linux-x86_64
           path: dist-src
           if-no-files-found: error
           retention-days: 14
@@ -112,7 +112,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: win64
+          - name: windows-x86_64
             os: windows-latest
             binary: build/apitab.exe
           - name: macos-arm64
@@ -211,12 +211,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: linux-x64
+          - name: linux-x86_64
             os: ubuntu-24.04
             k6_asset: k6-v1.5.0-linux-amd64.tar.gz
             k6_binary: k6
             package_script: unix
-          - name: win64
+          - name: windows-x86_64
             os: windows-latest
             k6_asset: k6-v1.5.0-windows-amd64.zip
             k6_binary: k6.exe
@@ -298,7 +298,7 @@ jobs:
       - name: Package Unix archive
         if: runner.os != 'Windows'
         shell: bash
-        run: bash packaging/ci-package.sh "${{ matrix.name == 'linux-x64' && 'linux' || 'macos' }}" "${{ matrix.name == 'linux-x64' && 'x86_64' || 'arm64' }}" dist-src/apitab engines/k6
+        run: bash packaging/ci-package.sh "${{ matrix.name == 'linux-x86_64' && 'linux' || 'macos' }}" "${{ matrix.name == 'linux-x86_64' && 'x86_64' || 'arm64' }}" dist-src/apitab engines/k6
 
       - name: Package Linux deb/rpm
         if: runner.os == 'Linux'
@@ -329,7 +329,7 @@ jobs:
           $line = Get-Content CMakeLists.txt | Where-Object { $_ -match '^\s*project\(apitab\s+VERSION\s+' } | Select-Object -First 1
           $version = $line -replace '^\s*project\(apitab\s+VERSION\s+([0-9.]+).*', '$1'
           makensis "/DAPP_VERSION=$version" "$env:GITHUB_WORKSPACE\packaging\apitab.nsi"
-          Get-ChildItem "apitab-v$version-win64*"
+          Get-ChildItem "apitab-v$version-windows-x86_64*"
 
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4

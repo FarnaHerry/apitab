@@ -18,7 +18,7 @@ Copy-Item (Join-Path $root "assets") (Join-Path $dist "assets") -Recurse
 Copy-Item $k6 (Join-Path $dist "engines\k6.exe")
 & (Join-Path $dist "engines\k6.exe") version
 if ($LASTEXITCODE -ne 0) { throw "k6 version check failed" }
-$zip = Join-Path $root "apitab-v$version-win64.zip"
+$zip = Join-Path $root "apitab-v$version-windows-x86_64.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $dist "*") -DestinationPath $zip -CompressionLevel Optimal
 Write-Host "produced: $zip"

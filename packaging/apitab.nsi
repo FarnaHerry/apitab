@@ -7,7 +7,7 @@ Unicode true
 !endif
 Name "apitab ${APP_VERSION}"
 ; 相对路径以脚本目录（packaging/）为基准，写回仓库根供 CI 上传
-OutFile "..\apitab-v${APP_VERSION}-win64-setup.exe"
+OutFile "..\apitab-v${APP_VERSION}-windows-x86_64-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\apitab"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma

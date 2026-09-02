@@ -80,7 +80,7 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   sweetline_highlighter.cpp 全部颜色（含语法高亮与彩虹括号）改读 palette。
   所有 `0x........` ARGB 字面量一律包 `static_cast<int32_t>(...)`：MSVC
   `/std:c++latest` 按 C++26 规则把常量表达式里的非值保留整型转换判为窄化
-  （error C2397），win64 CI 实证编译失败。
+  （error C2397），windows-x86_64 CI 实证编译失败。
   应用侧经 `EditorPalette(theme)`（common.cpp，深色=结构色从 ThemeSpec
   派生 + VS Code Dark+ 语法色）在 BodyTextEditor 与压测页脚本编辑器接线。
   ④ `sweet_editor.cpp` 的滚轮桥接通过 CMake 头文件特性检测兼容旧 `ScrollEvent`
