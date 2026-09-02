@@ -520,8 +520,60 @@ huxerui::View MethodUrlBar(std::vector<std::string> methods, std::size_t methodI
 huxerui::View HomePage(std::function<void(std::int64_t)> onOpenProject,
                        huxerui::State<std::int64_t> activeProject);
 
-// request_page.cpp
+// request_page.cpp — 请求工作区根编排（薄组合：左岛集合树 + 右岛 HTTP/WS/TCP/gRPC 分派）。
 huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject);
+
+// request_body_editor.cpp — Body 文本编辑器与格式化 helpers（P1-C1 自 request_page.cpp
+// 拆出）：SweetEditor 代码编辑器（行号/语法高亮/等宽，palette 跟随主题）+ JSON 注释
+// 剥除 + XML 美化。BodyTextEditor 为跨 TU composable；SyntaxForBodyKind/
+// StripJsonComments/PrettyXml 为普通函数（签名仅用 std 类型，可安全进头文件），
+// 供 RequestEditor 格式化路径调用。
+huxerui::View BodyTextEditor(huxerui::State<std::vector<RequestDraft>> drafts,
+                             std::size_t index, const RequestDraft& snapshot,
+                             const huxerui::ThemeSpec& theme,
+                             sweetedit_huxer::SweetEditorController controller);
+std::string_view SyntaxForBodyKind(std::size_t kind);
+std::string StripJsonComments(const std::string& in);
+std::string PrettyXml(const std::string& input);
+
+// request_editor.cpp — KV 编辑原语与请求编辑器（P1-C1 自 request_page.cpp 拆出，
+// KV 为单一 owner）：KvTable（回调风格，行数据寄宿草稿；类型列下拉随值自动推断）
+// 被编辑器与环境表单共用，签名仅用 draft.h/huxerui/std 类型，可安全进头文件；
+// 其余桥接（ToKeyValue/FromKeyValue/SpecFromDraft/CookiesFromHeaders 等，签名含
+// 模块类型）留在 owner TU 内，不进头文件（CLAUDE.md 模块约束）。
+huxerui::View KvTable(std::vector<KvRow> rows, const huxerui::ThemeSpec& theme,
+                      std::string keyLabel, std::string valueLabel,
+                      std::function<void(std::vector<KvRow>)> onChanged);
+huxerui::View RequestEditor(
+    huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
+    huxerui::State<std::size_t> activeTab, huxerui::State<int> listVersion,
+    huxerui::State<bool> inFlight, huxerui::State<std::string> responseBody,
+    huxerui::State<std::vector<std::string>> responseHeaders,
+    huxerui::State<std::vector<std::string>> responseCookies,
+    huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab);
+
+// environment_widgets.cpp — 环境配置弹窗（P1-C1 自 request_page.cpp 拆出）：左侧
+// 环境列表（选中/新建/重命名/删除）+ 右侧选中环境的名称/基础 URL/变量 KV 表，
+// envVersion 驱动重读 store；重命名/删除确认在同层之上。
+huxerui::View EnvironmentDialog(huxerui::DialogContext ctx, huxerui::State<int> envVersion);
+
+// request_tab_strip.cpp — 右岛顶部内部标签条（P1-C1 自 request_page.cpp 拆出）：
+// 已打开草稿的 chip（固定宽、悬停显 ✕、Chrome 式拖拽换位与让位滑动）+ 末尾“＋”
+// 新建 + 右侧环境 ComboBox/☰ 环境配置弹窗入口（envVersion 驱动重读 store）。
+huxerui::View RequestTabStrip(huxerui::State<std::vector<RequestDraft>> drafts,
+                              huxerui::State<std::size_t> activeTab,
+                              huxerui::State<int> envVersion);
+
+// request_doc.cpp — 请求文档页（P1-C1 自 request_page.cpp 拆出）：按当前草稿只读
+// 生成方法/URL/KV/Body 文档，State 变化即重组刷新。
+huxerui::View RequestDocPage(const RequestDraft& snapshot, const std::string& envBaseUrl);
+
+// request_response.cpp — 请求工作区右侧下岛（P1-C1 自 request_page.cpp 拆出）：响应区
+// Body/Headers/Cookies 三档切换 + 内部滚动。State 订阅局限在岛内，不扩散到编辑器。
+huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
+                           huxerui::State<std::vector<std::string>> responseHeaders,
+                           huxerui::State<std::vector<std::string>> responseCookies,
+                           const huxerui::ThemeSpec& theme);
 
 // request_list.cpp — 请求工作区左岛（P1-C1 自 request_page.cpp 拆出）：当前项目
 // 请求集合树（分组折叠 / 请求叶子，行尾 ⋮ / 右键统一菜单、拖拽移入分组或根）。

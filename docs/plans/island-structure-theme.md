@@ -1231,3 +1231,123 @@ agent 并行开发：`src/ui/request_page.cpp`（约 2900 行）同时承载请�
 - 待续：RequestEditor（含 SpecFromDraft/CookiesFromHeaders/KvTable 编辑器侧）、
   RequestTabStrip、ResponseArea、BodyTextEditor/文档页、环境控件等后续功能域继续
   从 request_page.cpp 拆出（P1-C1 剩余），之后 P1-C2（app.cpp）、P1-C3（公共声明）。
+
+### 16.5 P1-C1 阶段 2 执行记录（2026-09-02）：右岛剩余六域 → 薄编排
+
+在阶段 1（左岛）之后，继续按 §16.2 建议边界拆分右岛各功能域；本阶段为**纯搬移、
+行为零变化**，每文件原则上 ≤1000 行。request_page.cpp 由 2178 → 426 行（薄编排
+仅保留 `RequestPage` 根组合 + `ApiImportDialogContent` 导入弹窗与私有
+`InferKvType`/`ImportedBodyKindIndex`），其余右岛功能域按功能域拆至独立 `.cpp`
+（经顶层 CMake `CONFIGURE_DEPENDS` glob 自动收编，无需改 CMake）。
+
+#### 迁移清单（按提交顺序）
+
+- **提交 15a44ba — request_response.cpp（64 行）**：`ResponseArea`（响应
+  Body/Headers/Cookies 三档切换 + 内部 ScrollView）自匿名命名空间提升为外部链接。
+  ui.h 新增 `ResponseArea` 声明。验证：apitab/test_smoke 通过、diff-check 干净、
+  426 行之前的增量（2182→2130）。
+
+- **提交 a5e29b8 — request_doc.cpp（90 行）**：`RequestDocPage`（按草稿只读生成
+  方法/URL/KV/Body 文档）提升为外部链接。ui.h 新增 `RequestDocPage` 声明。
+  验证：同上，2130→2056 行。
+
+- **提交 8650888 — request_body_editor.cpp（124 行）**：`BodyTextEditor`
+  （SweetEditor 代码编辑器，palette 跟随主题、document_key 按 uid+类型独立）+
+  `SyntaxForBodyKind` / `StripJsonComments` / `PrettyXml`（格式化 helpers，签名仅
+  用 std 类型，可安全进 ui.h）。ui.h 新增 `BodyTextEditor` 及三个普通函数声明
+  （供 `RequestEditor` 格式化路径调用）；`PrettyXml` 需 `apitab.utils::trim`，新
+  TU 经 `import apitab.utils` 引入。验证：同上，2056→1950 行。
+
+- **提交 1ab4f2d — 右岛剩余三域合批（editor 847 + env 294 + tab 468 行）**：
+  三域因 `KvTable` 单一 owner 与 `EnvironmentDialog` 跨域依赖必须同批落地以保持
+  可构建（每文件仍 ≤1000 行，合批内仍按功能域分离文件）：
+
+  - **request_editor.cpp（847 行）**：`RequestEditor`（调试/文档/测试/Mock 顶部
+    切换、方法/URL/发送/保存/⋮ 操作栏、Params/Headers/Cookies/Body 分区及保存/
+    发送/Mock 完整路径）+ `SplitActionButton`（前向声明+定义）+ `KvTable`/
+    `KvTypeSelect`/`InferKvType`（KV 为单一 owner，供环境表单经 ui.h 复用）+
+    `ParseIntField`/`CaseToDb`/`MockToDb`/`SpecFromDraft`/`CookiesFromHeaders`
+    （签名含 `api::`/`db::` 模块类型，按 CLAUDE.md 约束不进 ui.h）；与
+    `environment_widgets.cpp` 的 `ToKeyValue`/`FromKeyValue` 同逻辑按需并列、
+    注明 P1-C3 归并。
+
+  - **environment_widgets.cpp（294 行）**：`EnvironmentDialog`（左侧环境列表/
+    新建/重命名/删除 + 右侧 `EnvEditForm` 名称/基础 URL/变量 KV 表）+ `EnvEditForm`；
+    `KvTable` 经 ui.h 复用 editor 的单一实现；`ToKeyValue`/`FromKeyValue`
+    与 editor 同逻辑按需并列。
+
+  - **request_tab_strip.cpp（468 行）**：`RequestTabStrip`（已打开草稿 chip 固定宽/
+    悬停显 ✕/Chrome 式拖拽换位与让位滑动 + 末尾“＋”新建 + 右侧环境 ComboBox/☰
+    环境配置入口）+ `DraftTabDragPayload`。
+
+  ui.h 新增 `KvTable`/`RequestEditor`/`EnvironmentDialog`/`RequestTabStrip`
+  跨 TU 声明（签名仅用 `draft.h`/`huxerui`/`std` 类型，安全进头；模块类型桥接
+  仍留在各自 TU）。request_page.cpp 1950→426 行，仅保留薄编排 `RequestPage` 与
+  `ApiImportDialogContent`（+ 私有 `InferKvType`/`ImportedBodyKindIndex`）。
+
+#### 新文件与行数
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `src/ui/request_list.cpp` | 764 | 左岛集合树（阶段 1） |
+| `src/ui/request_response.cpp` | 64 | 响应区 |
+| `src/ui/request_doc.cpp` | 90 | 文档页 |
+| `src/ui/request_body_editor.cpp` | 124 | Body 编辑器 + 格式化 helpers |
+| `src/ui/request_editor.cpp` | 847 | 请求编辑器 + KV/桥接/Split |
+| `src/ui/environment_widgets.cpp` | 294 | 环境弹窗 + 表单 |
+| `src/ui/request_tab_strip.cpp` | 468 | 标签条 + 拖拽 |
+| `src/ui/request_page.cpp` | 426 | 薄编排（RequestPage + 导入弹窗） |
+
+#### 并列的桥接函数及其理由
+
+- `FromKeyValue` / `ToKeyValue`（`api::KeyValue` ⇄ `KvRow`，签名含模块类型
+  `api::KeyValue`，普通头无法声明，见 CLAUDE.md 模块约束）在三个 TU 按需并列：
+  `request_list.cpp`（集合树载入）、`request_editor.cpp`（Spec 组装/保存）、
+  `environment_widgets.cpp`（环境变量表单），各 TU 内为 `inline`（外部 inline
+  允许重复，ODR 要求定义一致）并注明“与 <对侧文件> 同逻辑；P1-C3 归并唯一实现”。
+  不改模块层、不新增模块。
+
+- `InferKvType`（`std::string` → `std::string`，仅用 std 类型）在
+  `request_editor.cpp`（KV 值推断）与 `request_page.cpp`（导入接口的
+  `ImportedParam` 类型推断）按需并列一份，注明同逻辑；P1-C3 可归并为单一
+  header 声明（签名安全）。
+
+- 其余桥接（`ParseIntField`/`CaseToDb`/`MockToDb`/`SpecFromDraft`/
+  `CookiesFromHeaders`，签名含 `api::`/`db::`）仅留在实际使用它的
+  `request_editor.cpp` TU 内，不进入任何头文件；`RequestListIsland` 侧的
+  `DraftFromSaved`/`CaseFromDb`/`MockFromDb` 同理仅留左岛 TU。
+
+#### 验证结论（每域提交前必做，阶段 2 末次全量）
+
+- `cmake -S . -B build -G Ninja` 配置日志含 `HuxerUI 源码编译` / `ComboBox 可用
+  （源码通道）`，source-first 未被破坏（`third_party/huxerui` 软链生效）。
+- `cmake --build build --target apitab -j8` 通过（仅既有第三方头
+  `-Wsubobject-linkage` 警告，无 error）。
+- `cmake --build build --target test_smoke && ./build/test_smoke` → `ok`；
+  `ctest --test-dir build` smoke 通过（选择矩阵 13/13 在 CI 环境可另跑）。
+- `git diff --check` 干净；`./build/apitab --cli help` 冒烟正常。
+- 行为零变化：各 composable 逻辑、State 槽位顺序、事件顺序、键盘/焦点语义、
+  菜单内容与文案、拖拽 payload 类型均整块原样搬移；仅加声明/必要的
+  `import`/`include`，去掉本 TU 不再用的旧 include，把函数从匿名命名空间
+  提升为 `apitab::ui` 外部链接以匹配声明。
+
+#### 留给 P1-C3 的事项
+
+- **公共声明归并**：`ToKeyValue`/`FromKeyValue`/`InferKvType` 当前按需并列
+  三处（editor/env/list + page），P1-C3 需在不改模块层的前提下抽出职责清晰的
+  局部头（如 `request_bridges.h` 或 `kv_helpers.h`）统一唯一实现，或确认
+  `inline` 重复即为最终形态并更新注释。
+
+- **导入弹窗的 Infer 依赖**：`ApiImportDialogContent` 仍在 `request_page.cpp`
+  私有 `InferKvType`，与 editor 的同逻辑并列；P1-C3 归并时一并处理。
+
+- **request_page.cpp 的最终定位**：已为薄编排（426 行），后续仅保留
+  `RequestPage` 根组合与 `ApiImportDialogContent`；若导入弹窗后续独立为
+  `api_import_dialog.cpp`，则 request_page 可进一步收至 ~200 行以内。
+
+- **P1-C2（app.cpp 拆分）**：`app.cpp`（约 1560 行）按 §16.2 建议边界
+  `app_shell.cpp` / `title_bar.cpp` / `global_status_bar.cpp` /
+  `app_dialogs.cpp` 拆分，`AppRoot` 保持薄编排；同样每文件 ≤1000 行、
+  每域独立构建验证。
+
+
