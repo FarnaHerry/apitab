@@ -523,6 +523,18 @@ huxerui::View HomePage(std::function<void(std::int64_t)> onOpenProject,
 // request_page.cpp
 huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject);
 
+// request_list.cpp — 请求工作区左岛（P1-C1 自 request_page.cpp 拆出）：当前项目
+// 请求集合树（分组折叠 / 请求叶子，行尾 ⋮ / 右键统一菜单、拖拽移入分组或根）。
+// vertical=true 用于 Compact 视口（列表改顶部横岛，限高撑宽）。
+huxerui::View RequestListIsland(huxerui::State<std::vector<RequestDraft>> drafts,
+                                huxerui::State<std::size_t> activeTab,
+                                huxerui::State<int> listVersion, bool vertical);
+
+// request_page.cpp（P1-C1 起外部链接）— 导入接口弹窗内容：左岛“+”菜单 → 导入
+// 接口…；文件选择（FilePicker）或粘贴退化 + OpenAPI/Postman 解析预览 + 同步落库。
+// 依赖的 ImportedBodyKindIndex/InferKvType 仍为 request_page.cpp 私有。
+huxerui::View ApiImportDialogContent(huxerui::DialogContext ctx, huxerui::State<int> listVersion);
+
 // testcase_page.cpp — 请求编辑器子页"测试用例"（pageTab=2）：用例编辑与
 // 断言运行，读写草稿 cases（持久化经 request_page 保存按钮全量落库）。
 huxerui::View TestCasePage(RequestDraft snapshot,

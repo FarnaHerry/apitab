@@ -1203,3 +1203,31 @@ agent 并行开发：`src/ui/request_page.cpp`（约 2900 行）同时承载请�
   状态和文件行数统计。
 - P1-C 不与标题栏、窗口缩放、ComboBox 或菜单交互修复混合提交；若发现行为回归，先
   回退结构迁移再单独修复。
+
+### 16.4 P1-C1 阶段 1 执行记录（2026-09-02）：请求集合树 → request_list.cpp
+
+从 request_page.cpp 拆出功能域「请求集合树」到新文件 `src/ui/request_list.cpp`
+（764 行）；request_page.cpp 由 2897 → 约 2178 行。本阶段为**纯逐字搬移**，
+组合逻辑、状态槽位、事件顺序与菜单语义未改；source-first 构建路径未受影响。
+
+- **迁移到 request_list.cpp**（全部原样搬移；`RequestListIsland` 为跨 TU 调用，
+  由匿名命名空间提升为 `apitab::ui` 外部链接）：
+  - composable：`RequestListIsland`（左岛集合树）、`RowMenuButton`（行尾 ⋮，被
+    island 独占，仍为文件私有）；
+  - 纯函数/结构：`DraftFromSaved`（db::SavedRequest → RequestDraft，含用例/Mock
+    子对象载入）、`CaseFromDb`、`MockFromDb`、`RequestDragPayload`、
+    `GroupDragPayload`。
+- **ApiImportDialogContent**（导入接口弹窗，被左岛“+”菜单调用）仍在
+  request_page.cpp，但从匿名命名空间提升为外部链接、经 ui.h 声明供集合树 TU 调用；
+  其依赖 `ImportedBodyKindIndex` / `InferKvType` 仍为该 TU 私有实现。
+- **桥接并列说明**：`FromKeyValue`（api::KeyValue → KvRow，签名含模块类型、普通头
+  无法声明，见 CLAUDE.md 模块约束）在 request_list.cpp 内按需并列一份，注明与
+  request_page.cpp（环境变量表单）逻辑相同；P1-C3 整理公共声明时归并唯一实现。
+- **ui.h** 新增 `RequestListIsland` / `ApiImportDialogContent` 声明（含职责注释），
+  未向 ui.h 堆入任何页面私有状态。
+- 验收：`cmake --build build --target apitab` 通过（仅既有第三方头
+  `-Wsubobject-linkage` 警告）；`ctest` 2/2（smoke + 选择矩阵）；CLI 冒烟正常；
+  `git diff --check` 干净。
+- 待续：RequestEditor（含 SpecFromDraft/CookiesFromHeaders/KvTable 编辑器侧）、
+  RequestTabStrip、ResponseArea、BodyTextEditor/文档页、环境控件等后续功能域继续
+  从 request_page.cpp 拆出（P1-C1 剩余），之后 P1-C2（app.cpp）、P1-C3（公共声明）。
