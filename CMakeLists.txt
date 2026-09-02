@@ -151,6 +151,20 @@ if (APITAB_HUXERUI_SOURCE_DIR)
     endif ()
     add_subdirectory("${APITAB_HUXERUI_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/huxerui-sdk"
         EXCLUDE_FROM_ALL)
+    # HuxerUI 0.2 currently attaches -fobjc-arc to the whole macOS object
+    # target. That works with AppleClang but breaks the GCC C++ compiler used
+    # for C++23 `import std`; retain ARC only for Objective-C++ sources.
+    if (APPLE AND TARGET huxerui_core_objects)
+        get_target_property(APITAB_HUXERUI_COMPILE_OPTIONS
+            huxerui_core_objects COMPILE_OPTIONS)
+        if (APITAB_HUXERUI_COMPILE_OPTIONS)
+            list(REMOVE_ITEM APITAB_HUXERUI_COMPILE_OPTIONS -fobjc-arc)
+            list(APPEND APITAB_HUXERUI_COMPILE_OPTIONS
+                "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+            set_target_properties(huxerui_core_objects PROPERTIES
+                COMPILE_OPTIONS "${APITAB_HUXERUI_COMPILE_OPTIONS}")
+        endif ()
+    endif ()
     # 打印实际来源与 commit，使 `huxerui build/run` 默认输出可见（P1-B1.0 要求）
     execute_process(COMMAND git -C "${APITAB_HUXERUI_SOURCE_DIR}" rev-parse --short HEAD
         OUTPUT_VARIABLE APITAB_HUXERUI_SOURCE_COMMIT
