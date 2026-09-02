@@ -88,9 +88,10 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   保持源码 main 与 0.2.0 SDK 双通道可编译。
   ⑤ **嵌套 SweetEditor 的 os_log GCC 兼容**（`cmake/patches/sweeteditor-oslog-gcc.patch`）：
   `logging.hpp` 的 `#elif defined(__APPLE__)` 分支 `#include <os/log.h>` 依赖
-  clang-only 的 `__builtin_os_log_format`，macOS 通道 C++ 用 brew GCC（import std）
-  直接编译失败，改为 `defined(__APPLE__) && defined(__clang__)`（GCC 落 iostream
-  兜底）。CI 经 sweetedit CMakeLists 的 FetchContent PATCH_COMMAND 应用（幂等），
+  clang-only 的 `__builtin_os_log_format`，改为 `defined(__APPLE__) && defined(__clang__)`
+  （GCC 落 iostream 兜底）。macOS 通道已整体切到 brew llvm clang/libc++（见文末
+  CI 备注），正常走 os_log；补丁保留作防御，防有人拿 GCC 编 __APPLE__ 下的
+  SweetEditor。CI 经 sweetedit CMakeLists 的 FetchContent PATCH_COMMAND 应用（幂等），
   本地手动 clone 的 3dparty/SweetEditor 必须同样应用保持 parity；嵌套 pull 新提交
   后需重放并复跑 `git apply --check`。
   均建议反馈作者：sweetedit 需跟进 HuxerUI main 的 Event/Stroke/键盘
@@ -271,8 +272,13 @@ TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结
 
 - Windows：HuxerUI 运行时 dll 在 POST_BUILD 拷到 exe 旁；OpenSSL 走 chocolatey，
   CI 里以 `OPENSSL_ROOT_DIR` 注入。
-- CI 的 linux job 用 ubuntu:26.04 容器 + clang-21/libc++（详见
-  `.github/workflows/build.yml` 注释）。- 版本号唯一来源是顶层 `project(apitab VERSION ...)`；packaging 脚本与 NSIS 从
+- CI 的 linux job 用 ubuntu:26.04 容器 + clang-21/libc++；macOS job 整链 brew
+  llvm clang/libc++（.mm 框架层只能 clang 编译，std 类型贯穿 .mm/.cpp 接口 →
+  单进程必须单一标准库；此前的 brew GCC 混链 AppleClang 在 mangling 分叉上直接
+  链接失败）。`import std` 的 libc++.modules.json 由 CI 按上游 schema 生成进
+  brew llvm 的 lib/，configure 经 `CMAKE_CXX_STDLIB_MODULES_JSON` 显式注入
+  （brew formula 不开 LIBCXX_ENABLE_STD_MODULES）。详见
+  `.github/workflows/build.yml` 注释。- 版本号唯一来源是顶层 `project(apitab VERSION ...)`；packaging 脚本与 NSIS 从
   CMakeLists 解析。
 
 ## CLI（agent 可用）

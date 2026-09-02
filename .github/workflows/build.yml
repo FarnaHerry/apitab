@@ -139,9 +139,33 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew list openssl@3 &>/dev/null || brew install openssl@3
-          # AppleClang 不被 CMake 的 import std 支持，C++ 侧用 brew GCC（≥15）
-          brew install gcc
-          echo "APITAB_GXX=$(ls /opt/homebrew/bin/g++-1[5-9] | sort -V | tail -1)" >> "$GITHUB_ENV"
+          # C/C++/OBJCXX 整链走 brew LLVM clang/libc++。.mm 框架层只能由 clang
+          # 编译（ARC/blocks），而 std 类型（std::string/string_view/shared_ptr）
+          # 贯穿 .mm 与 .cpp 的接口——单进程必须单一标准库：brew GCC/libstdc++
+          # 与 AppleClang/libc++ 混链在 mangling 层就分叉（libstdc++ 的 __cxx11
+          # ABI tag / std:: 对 libc++ 的 std::__1），File::Path、
+          # PlatformRegistry::FindViewValue 链接期 undefined symbol 实证；即便
+          # 强链过，std 容器布局不一致也是堆 UB。AppleClang 本体也不行：CMake
+          # 不支持其 C++20 模块扫描，apitab 的 .cppm/FILE_SET 过不了 generate。
+          brew install llvm
+          llvm_prefix="$(brew --prefix llvm)"
+          mod_dir="$llvm_prefix/share/libc++/v1"
+          # import std 还需 std 模块元数据。brew llvm 只装模块源
+          # （LIBCXX_INSTALL_MODULES=ON → share/libc++/v1），不带
+          # libc++.modules.json（formula 未开 LIBCXX_ENABLE_STD_MODULES）——
+          # 按上游 schema 生成一份：绝对 source-path，模块源目录作
+          # system-include（std.cppm include 的头路径由 clang 驱动默认提供）。
+          # 顺手写进 brew 的 lib/：-print-file-name 发现路径也能命中。
+          for f in std.cppm std.compat.cppm; do
+            test -f "$mod_dir/$f" || { echo "missing $mod_dir/$f (brew llvm layout changed?)" >&2; exit 1; }
+          done
+          python3 - "$mod_dir" "$llvm_prefix/lib/libc++.modules.json" <<'PY'
+          import json, sys
+          mod_dir, out = sys.argv[1], sys.argv[2]
+          mod = lambda name: {"logical-name": name, "source-path": mod_dir + "/" + name + ".cppm", "is-std-library": True, "local-arguments": {"system-include-directories": [mod_dir]}}
+          json.dump({"version": 1, "revision": 1, "modules": [mod("std"), mod("std.compat")]}, open(out, "w"), indent=1)
+          PY
+          echo "APITAB_LLVM_PREFIX=$llvm_prefix" >> "$GITHUB_ENV"
           cmake --version
           ninja --version
 
@@ -162,15 +186,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # 框架 .mm 走 AppleClang/libc++（C++ 侧是 brew GCC/libstdc++）：Apple
-          # libc++ 至今把 std::jthread/stop_token 锁在 -fexperimental-library 后
-          # （Xcode 16.4 / clang 17 实测 c++2a/20/2b 裸编都 "no type named"，
-          # 加该 flag 即通过），task.h 因此编译失败。只给 OBJCXX 加——brew GCC
-          # 不认识这个 flag。
+          # C/C++/OBJCXX 全部落 brew llvm clang（单一标准库的必要性见安装步骤
+          # 注释；OBJCXX 必须显式指定，否则 CMake 默认会拿 xcrun 的 AppleClang
+          # 又混回两套 libc++ 头/库）。-stdlib=libc++ 写进 CXX/OBJCXX 与链接
+          # flags：一是确定性链接 brew 的 libc++ 而非 SDK 里的 Apple 版，二是
+          # 让 CMake 把标准库识别为 libc++ 走 import std 消费路径——
+          # CMAKE_CXX_STDLIB_MODULES_JSON 直接指向上一步生成的元数据，绕过
+          # -print-file-name 发现（brew llvm 没有该 json，显式注入最稳）。
+          # brew libc++ 23 的 std::jthread/stop_token 已转正，Apple libc++ 的
+          # -fexperimental-library 不再需要。
           # 部署目标 14.0：框架自身已使用 macOS 14 API（CADisplayLink）。
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_COMPILER="$APITAB_GXX" \
-            -DCMAKE_OBJCXX_FLAGS='-fexperimental-library' \
+            -DCMAKE_C_COMPILER="$APITAB_LLVM_PREFIX/bin/clang" \
+            -DCMAKE_CXX_COMPILER="$APITAB_LLVM_PREFIX/bin/clang++" \
+            -DCMAKE_OBJCXX_COMPILER="$APITAB_LLVM_PREFIX/bin/clang++" \
+            -DCMAKE_CXX_FLAGS='-stdlib=libc++' \
+            -DCMAKE_OBJCXX_FLAGS='-stdlib=libc++' \
+            -DCMAKE_EXE_LINKER_FLAGS='-stdlib=libc++' \
+            -DCMAKE_SHARED_LINKER_FLAGS='-stdlib=libc++' \
+            -DCMAKE_CXX_STDLIB_MODULES_JSON="$APITAB_LLVM_PREFIX/lib/libc++.modules.json" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3
 
