@@ -523,6 +523,10 @@ huxerui::View HomePage(std::function<void(std::int64_t)> onOpenProject,
 // request_page.cpp — 请求工作区根编排（薄组合：左岛集合树 + 右岛 HTTP/WS/TCP/gRPC 分派）。
 huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject);
 
+// request_doc.cpp — 请求文档页（P1-C1 自 request_page.cpp 拆出）：按当前草稿只读
+// 生成方法/URL/KV/Body 文档，State 变化即重组刷新。
+huxerui::View RequestDocPage(const RequestDraft& snapshot, const std::string& envBaseUrl);
+
 // request_response.cpp — 请求工作区右侧下岛（P1-C1 自 request_page.cpp 拆出）：响应区
 // Body/Headers/Cookies 三档切换 + 内部滚动。State 订阅局限在岛内，不扩散到编辑器。
 huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
