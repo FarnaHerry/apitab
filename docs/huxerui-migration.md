@@ -1,13 +1,15 @@
 # HuxerUI 迁移地图（进行中）
 
-本分支把前端从 EUI-NEO 0.5.7（绝对定位 DSL）整体切换到 **HuxerUI 0.1.0**
+本分支把前端从 EUI-NEO 0.5.7（绝对定位 DSL）整体切换到 **HuxerUI 0.2.0**
 （github.com/HuxerUI/HuxerUI，组件式声明 UI：composable View + UseState +
 TaskScope 结构化并发）。领域层（src/store/*、引擎、DB、config）**不变**。
 
 ## 消费方式（官方路径）
 
-- 以官方 **预编译 SDK**（`third_party/tarballs/huxerui-sdk-0.1.0-*`，SHA256 校验）
-  解包后走 `find_package(HuxerUI CONFIG REQUIRED COMPONENTS shared)` —— 只取
+- `HUXERUI_HOME` 可直接指向 0.2.0 的**源码根目录**或**已安装 SDK 前缀**；前者
+  `add_subdirectory`，后者走 `find_package(HuxerUI 0.2.0 CONFIG REQUIRED
+  COMPONENTS shared)`。未显式设置时优先仓库内 `third_party/huxerui` 源码；
+  `APITAB_HUXERUI_FORCE_SDK=ON` 使用经 SHA256 校验的 Linux 0.2.0 离线包。只取
   shared 组件，避免 static 分支对 gtk4/gio/libsoup dev 包的强制要求（shared 库
   运行时库由系统桌面环境提供，deb/rpm 的 find-requires 会自动声明）。
 - app 目标由 **`huxerui_add_app()`** 生成（C++20 + `hcg` codegen + 资源集成）；
@@ -38,7 +40,7 @@ TaskScope 结构化并发）。领域层（src/store/*、引擎、DB、config）
 - [x] 删除：store/ui.cppm（旧视图状态机）、i18n 翻译表（改为 preferences 模块）、
       EUI 字体、eui-neo-compat 文档、eui-neo-ui-replicator skill、eui SDK tarball
 
-## 已知坑（GCC 16 + HuxerUI 0.1.0）
+## 已知坑（GCC 16 + HuxerUI 0.2.0）
 
 - 托盘菜单项不要写在 `SystemTrayOptions{.menu = {...}}` 的列表初始化里
   （GCC 16 报 "expected primary-expression"）——先构造
@@ -63,7 +65,7 @@ TaskScope 结构化并发）。领域层（src/store/*、引擎、DB、config）
 
 ## 已知差异 / 风险
 
-- HuxerUI 0.1.0 发布于 2026-08-28（本迁移同日），API 可能随版本演进；
+- 当前最低版本为 HuxerUI 0.2.0，API 仍可能随版本演进；
   vendored SDK tarball 锁定行为。
 - composable 函数不要加 `inline`（hcg 改写后的函数需保持外部链接实体）；
   UI 层不要写成 .cppm 模块（会被 codegen 跳过）。

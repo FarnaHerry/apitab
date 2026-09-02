@@ -6,7 +6,7 @@
 # 构建完全离线、可复现，版本与旧 mcpp.lock 锁定的一致。
 #
 # 产物 target：
-#   HuxerUI::huxerui  HuxerUI 0.1.0 官方 SDK（shared；见文件尾 find_package）
+#   HuxerUI::huxerui  HuxerUI 0.2.0 SDK（shared；见文件尾 find_package）
 #   asio          Asio 1.38.1（standalone，separate compilation，SSL）+ `import asio` 模块
 #   ixwebsocket   IXWebSocket 12.0.1（client-only，无 TLS/无 zlib，与 compat.websocket 一致）
 #   CURL::libcurl curl 8.21.0（OpenSSL 后端，静态库，不编 curl.exe）
@@ -108,4 +108,3 @@ if (NOT APITAB_HUXERUI_FROM_SOURCE)
     # SDK 自带的资源包（运行时按 HUXERUI_RESOURCES_DIR 或 <exe>.resources/ 查找）
     set(HUXERUI_RESOURCES_BIN "${HUXERUI_SDK_DIR}/share/huxerui/resources/huxerui/resources.bin" CACHE INTERNAL "")
 endif ()
-

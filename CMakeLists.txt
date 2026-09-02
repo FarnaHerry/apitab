@@ -72,36 +72,67 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     find_package(Threads REQUIRED)
 endif ()
 
-# ---- HuxerUI（源码优先，预编译 SDK tarball 兜底）-----------------------------
-# 首选 third_party/huxerui（git clone 的上游仓库，add_subdirectory 源码编译，
-# 跟踪上游更新：cd third_party/huxerui && git pull 后重新构建）；该目录不存在
-# 或 Linux 下缺 gtk4/libsoup-3.0 开发包时，回落 third_party/tarballs 的预编译
-# SDK（find_package），保证任何环境都能构建。两种模式都提供
-# HuxerUI::huxerui 目标与 huxerui_add_app()。
+# ---- HuxerUI（0.2.0 SDK / 源码双通道，HUXERUI_HOME 契约）-------------------
+# 优先级（P1-B1.0 固定顺序，见 docs/plans/island-structure-theme.md §14.4）：
+#   1. 显式 HUXERUI_HOME 源码（有 CMakeLists.txt + include/huxerui/huxerui.h）。
+#   2. third_party/huxerui 源码（本地 git clone 的上游仓库，add_subdirectory 编译，
+#      跟踪上游 `git pull` 即可；不入库，.gitignore 已忽略）。
+#      CLI 自动注入的已安装 SDK 前缀（HUXERUI_HOME 指向 SDK）不得越过前两级。
+#   3. 已安装 SDK（HUXERUI_HOME 指向含 lib/cmake/HuxerUI 的 SDK 目录）。
+#   4. 仓库离线 SDK（tarball，Linux 专用；macOS/Windows 不提供离线包）。
+#
+# APITAB_HUXERUI_FORCE_SDK=ON：唯一明确跳过源码的开关，只走第 3/4 通道（发布门禁
+# 与兼容测试用）。源码模式编译 Linux 后端需要 gtk4-devel libsoup3-devel。
+# ComboBox 等新 API 允许在默认源码通道使用；进入合并/发布验收前必须刷新可消费 SDK，
+# 确保 APITAB_HUXERUI_FORCE_SDK=ON 恢复通过（见 island-structure-theme.md §14.2）。
 include(cmake/apitab_vendor.cmake)
-set(APITAB_HUXERUI_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui")
-# 强制使用预编译 SDK（跳过源码模式）：cmake -B build -DAPITAB_HUXERUI_FORCE_SDK=ON
-option(APITAB_HUXERUI_FORCE_SDK "Use the vendored prebuilt HuxerUI SDK instead of third_party/huxerui sources" OFF)
+set(HUXERUI_HOME "$ENV{HUXERUI_HOME}" CACHE PATH "HuxerUI 0.2.0 SDK or source directory")
+set(APITAB_HUXERUI_BUNDLED_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui" CACHE PATH "Bundled HuxerUI source checkout (override for testing to simulate missing source without moving shared directory)")
+set(APITAB_HUXERUI_SOURCE_DIR "")
+option(APITAB_HUXERUI_FORCE_SDK "Skip source checkout; use SDK fallback only" OFF)
+option(APITAB_HUXERUI_MOCK_MISSING_DEPS "Force missing gtk4/libsoup for selection-matrix testing" OFF)
 set(APITAB_HUXERUI_FROM_SOURCE OFF)
-if (EXISTS "${APITAB_HUXERUI_SOURCE_DIR}/CMakeLists.txt" AND NOT APITAB_HUXERUI_FORCE_SDK)
-    set(APITAB_HUXERUI_FROM_SOURCE ON)
-    if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT HUXERUI_LIBRARY_GRAPH_ONLY)
-        # 源码编译 Linux 后端需要 gtk4/gio/libsoup-3.0 开发包（cmake/platform/Linux.cmake
-        # 里 pkg_check_modules REQUIRED）；缺失时回落 SDK，避免 clone 了源码反而构建失败。
+
+# 优先级 1：显式 HUXERUI_HOME 源码（用户显式指向源码目录时优先于仓库内源码）
+if (NOT APITAB_HUXERUI_FORCE_SDK
+        AND HUXERUI_HOME
+        AND EXISTS "${HUXERUI_HOME}/CMakeLists.txt"
+        AND EXISTS "${HUXERUI_HOME}/include/huxerui/huxerui.h")
+    set(APITAB_HUXERUI_SOURCE_DIR "${HUXERUI_HOME}")
+endif ()
+
+# 优先级 2：仓库内 third_party/huxerui 源码（默认 source-first）
+if (NOT APITAB_HUXERUI_SOURCE_DIR
+        AND NOT APITAB_HUXERUI_FORCE_SDK
+        AND EXISTS "${APITAB_HUXERUI_BUNDLED_SOURCE_DIR}/CMakeLists.txt"
+        AND EXISTS "${APITAB_HUXERUI_BUNDLED_SOURCE_DIR}/include/huxerui/huxerui.h")
+    set(APITAB_HUXERUI_SOURCE_DIR "${APITAB_HUXERUI_BUNDLED_SOURCE_DIR}")
+endif ()
+
+# 源码依赖检查（Linux）：缺 gtk4/libsoup-3.0 开发包时醒目回落 SDK
+if (APITAB_HUXERUI_SOURCE_DIR
+        AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
+        AND NOT HUXERUI_LIBRARY_GRAPH_ONLY)
+    if (APITAB_HUXERUI_MOCK_MISSING_DEPS)
+        set(APITAB_HUXERUI_GTK4_FOUND OFF)
+        set(APITAB_HUXERUI_LIBSOUP_FOUND OFF)
+    else ()
         find_package(PkgConfig QUIET)
         if (PkgConfig_FOUND)
             pkg_check_modules(APITAB_HUXERUI_GTK4 QUIET gtk4>=4.6)
             pkg_check_modules(APITAB_HUXERUI_LIBSOUP QUIET libsoup-3.0>=3.0)
         endif ()
-        if (NOT APITAB_HUXERUI_GTK4_FOUND OR NOT APITAB_HUXERUI_LIBSOUP_FOUND)
-            set(APITAB_HUXERUI_FROM_SOURCE OFF)
-            message(STATUS "apitab: third_party/huxerui 存在，但缺 gtk4/libsoup-3.0 开发包"
-                "（sudo dnf install gtk4-devel libsoup3-devel），本次回落预编译 SDK")
-        endif ()
+    endif ()
+    if (NOT APITAB_HUXERUI_GTK4_FOUND OR NOT APITAB_HUXERUI_LIBSOUP_FOUND)
+        message(WARNING "apitab: ${APITAB_HUXERUI_SOURCE_DIR} 存在但缺 gtk4/libsoup-3.0 开发包"
+            "（sudo dnf install gtk4-devel libsoup3-devel），回落预编译 SDK —— 本次未使用源码")
+        set(APITAB_HUXERUI_SOURCE_DIR "")
     endif ()
 endif ()
 
-if (APITAB_HUXERUI_FROM_SOURCE)
+# 源码模式
+if (APITAB_HUXERUI_SOURCE_DIR)
+    set(APITAB_HUXERUI_FROM_SOURCE ON)
     # 上游顶层作为子项目时 tests/examples/CLI 默认 OFF；static 切片必须关掉——
     # _huxerui_select_framework_target 偏好 static，留着会让 app 链到静态库。
     set(HUXERUI_BUILD_STATIC OFF)
@@ -112,38 +143,51 @@ if (APITAB_HUXERUI_FROM_SOURCE)
     # CLAUDE.md），优先使用；缺失时回落上游预置。
     set(APITAB_HUXERUI_LOCAL_TOOLS
         "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-tools")
-    if (EXISTS "${APITAB_HUXERUI_LOCAL_TOOLS}/linux/x86_64/hrc"
+    if (APITAB_HUXERUI_SOURCE_DIR STREQUAL APITAB_HUXERUI_BUNDLED_SOURCE_DIR
+            AND EXISTS "${APITAB_HUXERUI_LOCAL_TOOLS}/linux/x86_64/hrc"
             AND EXISTS "${APITAB_HUXERUI_LOCAL_TOOLS}/linux/x86_64/hcg")
         set(HUXERUI_HOST_TOOL_ROOT "${APITAB_HUXERUI_LOCAL_TOOLS}")
         message(STATUS "apitab: 宿主工具用本地源码构建（third_party/huxerui-tools）")
     endif ()
-    add_subdirectory(third_party/huxerui)
-    message(STATUS "apitab: HuxerUI 源码编译（third_party/huxerui）")
+    add_subdirectory("${APITAB_HUXERUI_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/huxerui-sdk"
+        EXCLUDE_FROM_ALL)
+    # 打印实际来源与 commit，使 `huxerui build/run` 默认输出可见（P1-B1.0 要求）
+    execute_process(COMMAND git -C "${APITAB_HUXERUI_SOURCE_DIR}" rev-parse --short HEAD
+        OUTPUT_VARIABLE APITAB_HUXERUI_SOURCE_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if (APITAB_HUXERUI_SOURCE_COMMIT)
+        message(STATUS "apitab: HuxerUI 源码编译（${APITAB_HUXERUI_SOURCE_DIR} @ ${APITAB_HUXERUI_SOURCE_COMMIT}）")
+    else ()
+        message(STATUS "apitab: HuxerUI 源码编译（${APITAB_HUXERUI_SOURCE_DIR}）")
+    endif ()
 else ()
-    # SDK 解包必须在 find_package 之前（HuxerUI_DIR 指向解包产物的 CMake 包）。
-    # 不解语言、graph-only 模式下也需要（huxerui_add_app 由该包提供）。
-    if (APPLE)
-        apitab_extract(huxerui
-            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/huxerui-sdk-0.1.0-macos-arm64.tar.gz"
-            "f1f3d115f0647d43e8149c82be1e628605fbef4414bf75bd1d7b9de7b1df0852"
-            "huxerui-sdk-0.1.0-macos-arm64")
-    elseif (WIN32)
-        apitab_extract(huxerui
-            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/huxerui-sdk-0.1.0-windows-x86_64.zip"
-            "8d8863878a56b38ad1e669ba666297cc0526e896f3d5e32aabf8aeaaf0b68539"
-            "huxerui-sdk-0.1.0-windows-x86_64")
+    # SDK 模式：优先级 3（HUXERUI_HOME SDK）→ 优先级 4（离线 tarball，Linux 专用）
+    # find_package 不依赖语言启用，graph-only 模式照常执行。
+    if (HUXERUI_HOME AND EXISTS "${HUXERUI_HOME}/lib/cmake/HuxerUI/HuxerUIConfig.cmake")
+        set(HUXERUI_SDK_DIR "${HUXERUI_HOME}" CACHE INTERNAL "HuxerUI SDK root" FORCE)
+        message(STATUS "apitab: HuxerUI SDK（已安装，${HUXERUI_SDK_DIR}）")
+    elseif (APPLE OR WIN32)
+        message(FATAL_ERROR
+            "apitab: macOS/Windows 未提供离线 SDK 包；"
+            "请用 HUXERUI_HOME 指向 0.2.0 源码或已安装 SDK，"
+            "或 clone third_party/huxerui 后默认以源码模式编译")
     else ()
         apitab_extract(huxerui
-            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/huxerui-sdk-0.1.0-linux-x86_64.tar.gz"
-            "147833204b7a08bdae28a2d66019679ac0814af2d3d7238c7a6ea6e39fb1c5a3"
-            "huxerui-sdk-0.1.0-linux-x86_64")
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/huxerui-sdk-0.2.0-linux-x86_64.tar.gz"
+            "e184a62a0e5e22cd71835d5278034d65f8a30a2c48273513633f88719a1243e5"
+            "huxerui-sdk-0.2.0-linux-x86_64")
+        set(HUXERUI_SDK_DIR "${huxerui_SOURCE_DIR}" CACHE INTERNAL "HuxerUI SDK root" FORCE)
+        message(STATUS "apitab: HuxerUI SDK（离线 tarball，${HUXERUI_SDK_DIR}）")
     endif ()
-    set(HUXERUI_SDK_DIR "${huxerui_SOURCE_DIR}" CACHE INTERNAL "HuxerUI SDK root")
+    if (NOT HUXERUI_SDK_DIR)
+        set(HUXERUI_SDK_DIR "${huxerui_SOURCE_DIR}" CACHE INTERNAL "HuxerUI SDK root" FORCE)
+    endif ()
     set(HuxerUI_DIR "${HUXERUI_SDK_DIR}/lib/cmake/HuxerUI" CACHE PATH "HuxerUI package" FORCE)
     set(HUXERUI_RESOURCES_BIN "${HUXERUI_SDK_DIR}/share/huxerui/resources/huxerui/resources.bin" CACHE INTERNAL "")
     # shared 组件：桌面 Linux/Windows 运行时动态库（static 切片在 Linux 要 gtk4
-    # 开发包，本仓库不用）。find_package 不依赖语言启用，graph-only 模式照常执行。
-    find_package(HuxerUI CONFIG REQUIRED COMPONENTS shared)
+    # 开发包，本仓库不用）。
+    find_package(HuxerUI 0.2.0 CONFIG REQUIRED COMPONENTS shared
+        PATHS "${HUXERUI_SDK_DIR}" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
 endif ()
 
 # 平台壳的 HuxerUI 配置钩子（生成格式：platform/<平台>/huxerui.cmake 可选）
@@ -228,6 +272,23 @@ huxerui_add_app(apitab
     BUNDLE_IDENTIFIER "dev.farna.apitab"
 )
 
+# P1-B1.1 ComboBox 能力检测（937efb1 源码有，0.2.0 SDK 无）——决定是否编译 ComboBox 分支
+set(APITAB_HAS_COMBOBOX OFF)
+if (APITAB_HUXERUI_FROM_SOURCE AND EXISTS "${APITAB_HUXERUI_SOURCE_DIR}/include/huxerui/view.h")
+    file(READ "${APITAB_HUXERUI_SOURCE_DIR}/include/huxerui/view.h" _apitab_view_h)
+    if (_apitab_view_h MATCHES "class ComboBox")
+        set(APITAB_HAS_COMBOBOX ON)
+    endif()
+elseif (HUXERUI_SDK_DIR AND EXISTS "${HUXERUI_SDK_DIR}/include/huxerui/view.h")
+    file(READ "${HUXERUI_SDK_DIR}/include/huxerui/view.h" _apitab_view_h)
+    if (_apitab_view_h MATCHES "class ComboBox")
+        set(APITAB_HAS_COMBOBOX ON)
+    endif()
+endif()
+if (APITAB_HAS_COMBOBOX)
+    message(STATUS "apitab: ComboBox available（源码通道）")
+endif()
+
 # ---- sweetedit_core（SweetEditor 代码编辑器组件库，HuxerUI 依赖库）------------
 # huxerui_use_library 官方机制：add_subdirectory + 链接 + 资源包合并进 app 包。
 # HuxerUI 目标已存在（源码或 SDK 模式都一样），sweetedit 不再自行获取 HuxerUI；
@@ -235,10 +296,10 @@ huxerui_add_app(apitab
 if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/CMakeLists.txt")
     if (APITAB_HUXERUI_FROM_SOURCE)
         set(HUXERUI_HOME "${APITAB_HUXERUI_SOURCE_DIR}"
-            CACHE PATH "HuxerUI source dir (sweetedit feature detection)")
+            CACHE PATH "HuxerUI source dir (sweetedit feature detection)" FORCE)
     elseif (HUXERUI_SDK_DIR)
         set(HUXERUI_HOME "${HUXERUI_SDK_DIR}"
-            CACHE PATH "HuxerUI SDK dir (sweetedit feature detection)")
+            CACHE PATH "HuxerUI SDK dir (sweetedit feature detection)" FORCE)
     endif ()
     huxerui_use_library(apitab TARGET sweetedit_core
         PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit")
@@ -255,6 +316,11 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # 模式（add_subdirectory huxerui）下该默认不覆盖普通 .cpp，会丢模块标志。
     set_target_properties(apitab PROPERTIES CXX_SCAN_FOR_MODULES ON)
     target_compile_features(apitab PRIVATE cxx_std_23)
+    # 应用版本编译期常量（设置页“关于”展示）：唯一来源是顶层 project(VERSION)。
+    target_compile_definitions(apitab PRIVATE APITAB_VERSION="${PROJECT_VERSION}")
+    if (APITAB_HAS_COMBOBOX)
+        target_compile_definitions(apitab PRIVATE APITAB_HAS_COMBOBOX)
+    endif()
     # 源码注释含中文：MSVC 必须显式 /utf-8，否则按 codepage 误读
     if (MSVC)
         target_compile_options(apitab PRIVATE /utf-8)
@@ -312,9 +378,12 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     endif ()
 
     # 仓库根的 compile_commands.json 软链（给 clangd 用；.gitignore 已忽略）
-    file(CREATE_LINK "${CMAKE_BINARY_DIR}/compile_commands.json"
-                     "${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json"
-                     SYMBOLIC)
+    # 并行测试/多构建并发时多个 build 目录同时创建同一软链接会竞态；已存在则跳过
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json")
+        file(CREATE_LINK "${CMAKE_BINARY_DIR}/compile_commands.json"
+                         "${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json"
+                         SYMBOLIC)
+    endif()
 
     # ---- 测试 ---------------------------------------------------------------
     # 独立于 CTest 的 BUILD_TESTING 变量：curl 等子项目会把它改成 OFF，不能让它
@@ -326,5 +395,10 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         set_target_properties(test_smoke PROPERTIES CXX_MODULE_STD ON)
         target_compile_features(test_smoke PRIVATE cxx_std_23)
         add_test(NAME smoke COMMAND test_smoke)
+        # P1-B1.0 构建选择矩阵（5 场景，跑 5 次 cmake 配置，约 10s）。
+        # 日常 `ctest` 会执行；CI 三通道验证见 P1-B1.0a。
+        add_test(NAME huxerui_selection_matrix
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/huxerui_selection_matrix.sh")
+        set_tests_properties(huxerui_selection_matrix PROPERTIES TIMEOUT 120)
     endif ()
 endif ()
