@@ -3,7 +3,7 @@
 // 与保存/发送/Mock 完整路径。自 request_page.cpp 拆出（P1-C1，功能域 = 编辑器），
 // 纯搬移；KV 原语（KvTable 等）为单一 owner，供环境表单经 ui.h 声明复用。
 #include <huxerui/huxerui.h>
-#include <sweetedit_core/sweet_editor.h>
+#include <huxerui/codeeditor.h>
 
 #include <algorithm>
 #include <array>
@@ -71,6 +71,155 @@ inline std::string InferKvType(const std::string& raw) {
     return "string";
 }
 
+std::string CsvCell(std::string_view value) {
+    if (value.find_first_of(",\"\r\n") == std::string_view::npos) return std::string{value};
+    std::string escaped{"\""};
+    for (const char c : value) {
+        if (c == '"') escaped += "\"\"";
+        else escaped += c;
+    }
+    escaped += '"';
+    return escaped;
+}
+
+std::string KvRowsToCsv(const std::vector<KvRow>& rows) {
+    std::string result;
+    for (const KvRow& row : rows) {
+        if (!result.empty()) result += '\n';
+        result += row.enabled ? "true" : "false";
+        result += ',';
+        result += CsvCell(row.key.text);
+        result += ',';
+        result += CsvCell(row.value.text);
+        result += ',';
+        result += CsvCell(row.type.text.empty() ? InferKvType(row.value.text) : row.type.text);
+        result += ',';
+        result += CsvCell(row.remark.text);
+    }
+    return result;
+}
+
+std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::string& error) {
+    std::vector<std::vector<std::string>> records(1);
+    std::string field;
+    bool quoted = false;
+    for (std::size_t i = 0; i < csv.size(); ++i) {
+        const char c = csv[i];
+        if (quoted) {
+            if (c == '"' && i + 1 < csv.size() && csv[i + 1] == '"') {
+                field += '"';
+                ++i;
+            } else if (c == '"') {
+                quoted = false;
+            } else {
+                field += c;
+            }
+        } else if (c == '"' && field.empty()) {
+            quoted = true;
+        } else if (c == ',') {
+            records.back().push_back(std::move(field));
+            field.clear();
+        } else if (c == '\n') {
+            records.back().push_back(std::move(field));
+            field.clear();
+            records.emplace_back();
+        } else if (c != '\r') {
+            field += c;
+        }
+    }
+    if (quoted) {
+        error = "CSV 存在未闭合的引号";
+        return std::nullopt;
+    }
+    records.back().push_back(std::move(field));
+    if (records.size() == 1 && records.front().size() == 1 && records.front().front().empty()) return std::vector<KvRow>{};
+
+    std::vector<KvRow> rows;
+    rows.reserve(records.size());
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        const auto& columns = records[i];
+        if (columns.size() != 5) {
+            error = "第 " + std::to_string(i + 1) + " 行应包含 5 个字段";
+            return std::nullopt;
+        }
+        std::string enabled = columns[0];
+        std::transform(enabled.begin(), enabled.end(), enabled.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (enabled != "true" && enabled != "false" && enabled != "1" && enabled != "0") {
+            error = "第 " + std::to_string(i + 1) + " 行的启用字段应为 true/false 或 1/0";
+            return std::nullopt;
+        }
+        rows.push_back(KvRow{
+            .key = huxerui::TextEditingValue{columns[1]},
+            .value = huxerui::TextEditingValue{columns[2]},
+            .type = huxerui::TextEditingValue{columns[3].empty() ? InferKvType(columns[2]) : columns[3]},
+            .remark = huxerui::TextEditingValue{columns[4]},
+            .enabled = enabled == "true" || enabled == "1",
+        });
+    }
+    return rows;
+}
+
+[[huxerui::composable]] huxerui::View BatchKvEditor(
+    huxerui::DialogContext ctx, std::vector<KvRow> rows, std::string keyLabel,
+    std::string valueLabel, std::function<void(std::vector<KvRow>)> onChanged) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto editor = huxerui::codeeditor::UseEditorController();
+    auto error = huxerui::UseState(std::string{});
+    huxerui::codeeditor::EditorOptions editorOptions;
+    ApplyEditorTypography(editorOptions);
+    editorOptions.theme = EditorTheme(theme);
+    editorOptions.document_key = "batch-kv-csv";
+    editorOptions.initial_text = KvRowsToCsv(rows);
+    editorOptions.wrap_mode = 1;
+    editorOptions.sticky_gutter = true;
+    return DialogCard(huxerui::Column {
+        huxerui::Text("批量编辑", huxerui::TextRole::Title),
+        huxerui::Text("每行一条记录；字段顺序：启用, " + keyLabel + ", " + valueLabel +
+                          ", 类型, 备注。包含逗号或引号的内容请使用 CSV 双引号。",
+                      huxerui::TextRole::Body)
+            .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+        huxerui::Text("CSV 表单数据", huxerui::TextRole::Label),
+        huxerui::codeeditor::CodeEditor(std::move(editorOptions), editor)
+            .With(huxerui::Frame{.height = 280.0F}),
+        error.Get().empty()
+            ? huxerui::View{huxerui::Row{}}
+            : huxerui::View{huxerui::Text(error.Get(), huxerui::TextRole::Body)
+                                 .With(huxerui::Foreground(theme.colors.error))},
+        huxerui::Row {
+            huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+            huxerui::Button("确定").OnClick([ctx, editor, error, onChanged = std::move(onChanged)] {
+                std::string message;
+                auto parsed = KvRowsFromCsv(editor.Text(), message);
+                if (!parsed.has_value()) {
+                    error = std::move(message);
+                    return;
+                }
+                onChanged(std::move(*parsed));
+                ctx.Dismiss();
+            }),
+        }.With(huxerui::Spacing(8.0F),
+               huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
+    }.With(huxerui::Spacing(12.0F), huxerui::Frame{.width = 620.0F},
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+}
+
+[[huxerui::composable]] huxerui::View CompactKvField(
+    huxerui::TextEditingValue value, std::string label,
+    std::function<void(const huxerui::TextEditingValue&)> onChanged) {
+    huxerui::TextFieldStyle style = huxerui::UseEnvironment<huxerui::TextFieldStyle>();
+    style.show_label = false;
+    style.outlined.border = huxerui::Color::Transparent();
+    style.outlined.minimum_height = 30.0F;
+    style.corner_radius = 8.0F;
+    style.padding = huxerui::EdgeInsets::Symmetric(8.0F, 4.0F);
+    return huxerui::ProvideEnvironment(
+        style, huxerui::View{huxerui::TextField(std::move(value))
+                                 .Label(std::move(label))
+                                 .Variant(huxerui::TextFieldVariant::Outlined)
+                                 .OnChanged(std::move(onChanged))});
+}
+
 // KV 行的类型选择：行内扁平文本触发器（当前值 + ▾），点击弹自绘下拉选固定类型
 // （做法同 MethodUrlBar 的方法触发器；菜单项回调在菜单层关闭后执行，脱离指针
 // 事件路径，同步回写即可。选中项用深色填充底色，无对钩）。
@@ -108,19 +257,30 @@ inline std::string InferKvType(const std::string& raw) {
     std::vector<KvRow> rows, const huxerui::ThemeSpec& theme, std::string keyLabel,
     std::string valueLabel, std::function<void(std::vector<KvRow>)> onChanged) {
     auto tasks = huxerui::UseTaskScope();
+    auto dialog = huxerui::UseDialog();
     // 表头与数据行共用同一套宽度约定：勾选框约 24pt，键/值/备注自适应拉伸，
     // 类型列固定 72pt。
     const auto typeWidth = huxerui::Frame{.width = 72.0F};
+    const auto actionWidth = huxerui::Frame{.width = 88.0F};
     std::vector<huxerui::View> children{
         huxerui::Row {
             huxerui::Text("", huxerui::TextRole::Label)
                 .With(huxerui::Frame{.width = 24.0F}),
-            huxerui::Text(std::move(keyLabel), huxerui::TextRole::Label)
+            huxerui::Text(keyLabel, huxerui::TextRole::Label)
                 .With(huxerui::Grow(1.0F)),
-            huxerui::Text(std::move(valueLabel), huxerui::TextRole::Label)
+            huxerui::Text(valueLabel, huxerui::TextRole::Label)
                 .With(huxerui::Grow(1.0F)),
             huxerui::Text("类型", huxerui::TextRole::Label).With(typeWidth),
             huxerui::Text("备注", huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
+            huxerui::Button("批量编辑")
+                .OnClick([dialog, rows, keyLabel, valueLabel, onChanged] {
+                    dialog.Show(
+                        [rows, keyLabel, valueLabel, onChanged](huxerui::DialogContext ctx) {
+                            return BatchKvEditor(ctx, rows, keyLabel, valueLabel, onChanged);
+                        },
+                        huxerui::DialogOptions{});
+                })
+                .With(actionWidth),
         }
             .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::Foreground(theme.colors.on_surface_variant)),
@@ -144,6 +304,7 @@ inline std::string InferKvType(const std::string& raw) {
             }
             onChanged(std::move(copy));
         };
+        children.push_back(huxerui::Divider());
         children.push_back(
             huxerui::Row {
                 huxerui::Checkbox(row.enabled).OnChanged([row, i, applyRow](bool checked) {
@@ -151,19 +312,13 @@ inline std::string InferKvType(const std::string& raw) {
                     updated.enabled = checked;
                     applyRow(i, std::move(updated));
                 }),
-                huxerui::TextField(row.key)
-                    .Label("键")
-                    .Variant(huxerui::TextFieldVariant::Standard)
-                    .OnChanged([row, i, applyRow](const huxerui::TextEditingValue& value) {
+                CompactKvField(row.key, "键", [row, i, applyRow](const huxerui::TextEditingValue& value) {
                         KvRow updated = row;
                         updated.key = value;
                         applyRow(i, std::move(updated));
                     })
                     .With(huxerui::Grow(1.0F)),
-                huxerui::TextField(row.value)
-                    .Label("值")
-                    .Variant(huxerui::TextFieldVariant::Standard)
-                    .OnChanged([row, i, applyRow](const huxerui::TextEditingValue& value) {
+                CompactKvField(row.value, "值", [row, i, applyRow](const huxerui::TextEditingValue& value) {
                         KvRow updated = row;
                         updated.value = value;
                         // 值输入时自动重推断类型（不做"手动锁定"：手动下拉选过的
@@ -179,10 +334,7 @@ inline std::string InferKvType(const std::string& raw) {
                     applyRow(i, std::move(updated));
                 })
                     .With(typeWidth),
-                huxerui::TextField(row.remark)
-                    .Label("备注")
-                    .Variant(huxerui::TextFieldVariant::Standard)
-                    .OnChanged([row, i, applyRow](const huxerui::TextEditingValue& value) {
+                CompactKvField(row.remark, "备注", [row, i, applyRow](const huxerui::TextEditingValue& value) {
                         KvRow updated = row;
                         updated.remark = value;
                         applyRow(i, std::move(updated));
@@ -190,7 +342,7 @@ inline std::string InferKvType(const std::string& raw) {
                     .With(huxerui::Grow(1.0F)),
                 phantom
                     ? huxerui::View{huxerui::Row{}.With(
-                          huxerui::Frame{.width = 28.0F, .height = 28.0F})}
+                          huxerui::Frame{.width = 88.0F, .height = 28.0F})}
                     : AppIconButton("✕", "删除此行", [tasks, rows, i, onChanged] {
                         // 删除会移除本按钮所在行：推迟出指针事件路径
                         tasks.Launch([=]() -> huxerui::Task<void> {
@@ -199,15 +351,15 @@ inline std::string InferKvType(const std::string& raw) {
                             if (i < copy.size()) copy.erase(copy.begin() + static_cast<long>(i));
                             onChanged(std::move(copy));
                         });
-                    }, AppIconButtonShape::Bare),
+                    }, AppIconButtonShape::Bare).With(actionWidth),
             }
                 .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
     }
+    children.push_back(huxerui::Divider());
 
     return huxerui::Column(std::move(children))
-        .With(huxerui::Spacing(theme.spacing.small),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+        .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 // ---- 测试用例 / Mock：草稿编辑形态 ⇄ db 落库形态 ----
@@ -331,7 +483,7 @@ huxerui::View SplitActionButton(
     auto sendTask = huxerui::UseState<huxerui::TaskHandle>(huxerui::TaskHandle{});
     // Body 编辑器控制器：格式化按钮与 BodyTextEditor 共享（SweetEditor 非受控，
     // 外部改文本须 LoadDocument）。在顶层创建保证切分区时 UseState 槽位稳定。
-    auto bodyEditorController = sweetedit_huxer::UseSweetEditorController();
+    auto bodyEditorController = huxerui::codeeditor::UseEditorController();
     (void)envVersion.Get(); // 订阅环境版本：切环境后重组，刷新 baseUrl 显示段
 
     const std::vector<RequestDraft> all = drafts.Get();
@@ -460,15 +612,11 @@ huxerui::View SplitActionButton(
             if (snapshot.bodyKindIndex == 1 || snapshot.bodyKindIndex == 5) {
                 bodyFixed.push_back(huxerui::Row {
                     huxerui::Button("格式化").OnClick(
-                        [drafts, index, toast, tasks, bodyEditorController] {
+                        [drafts, index, tasks, bodyEditorController] {
                         const std::vector<RequestDraft> current = drafts.Get();
                         if (index >= current.size()) return;
                         const std::size_t kind = current[index].bodyKindIndex;
-                        if (kind != 1 && kind != 5) { // 仅 JSON / XML 可格式化
-                            toast.Show(kind == 6 ? "GraphQL 暂不支持格式化"
-                                                 : "当前类型无需格式化");
-                            return;
-                        }
+                        if (kind != 1 && kind != 5) return; // 仅 JSON / XML 可格式化
                         const std::string text = current[index].bodies[kind].text;
                         if (text.empty()) return;
                         const std::uint64_t uid = current[index].uid;
@@ -485,13 +633,12 @@ huxerui::View SplitActionButton(
                                 // 让编辑器刷新（key 与 BodyTextEditor 一致，uid+类型）。
                                 bodyEditorController.LoadDocument(
                                     "body-" + std::to_string(uid) + "-" + std::to_string(kind),
-                                    pretty,
-                                    std::string{SyntaxForBodyKind(kind)});
+                                    pretty);
                                 MutateDraft(drafts, index, [&](RequestDraft& d) {
                                     d.bodies[kind] = huxerui::TextEditingValue{std::move(pretty)};
                                 });
-                            } catch (const std::exception& e) {
-                                toast.Show(std::string{"格式化失败: "} + e.what());
+                            } catch (...) {
+                                // 格式不合法时保留原文并静默结束，不用瞬时提示打断编辑。
                             }
                         });
                     }),

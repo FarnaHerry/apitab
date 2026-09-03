@@ -1,6 +1,6 @@
 // loadtest_page.cpp — k6 压测：参数输入 + 启动/停止 + 实时输出流 + 汇总与最近记录。
 #include <huxerui/huxerui.h>
-#include <sweetedit_core/sweet_editor.h>
+#include <huxerui/codeeditor.h>
 
 #include <cstdint>
 #include <string>
@@ -84,7 +84,7 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
     auto output = huxerui::UseState<std::vector<std::string>>({});
     auto summary = huxerui::UseState<std::string>("");
     // k6 脚本编辑器控制器（非受控组件：改文本走 LoadDocument，读文本走 Text()）。
-    auto scriptController = sweetedit_huxer::UseSweetEditorController();
+    auto scriptController = huxerui::codeeditor::UseEditorController();
 
     const bool k6ok = g_loadtest.available();
 
@@ -95,13 +95,15 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
 
     // 脚本编辑器初始内容 = 按当前参数生成的模板（非受控：initial_text 只在挂载时
     // 生效，之后参数变了由「从参数重新生成」按钮 LoadDocument 回灌）。
-    sweetedit_huxer::SweetEditorOptions scriptOptions;
+    huxerui::codeeditor::EditorOptions scriptOptions;
+    ApplyEditorTypography(scriptOptions);
     scriptOptions.document_key = "k6-script";
-    scriptOptions.syntax_json = std::string{kJavaScriptSyntax};
     scriptOptions.initial_text = MakeScriptTemplate(methodIndex.Get(), url.Get().text,
                                                     vus.Get().text, duration.Get().text);
+    scriptOptions.decoration_providers.push_back(SweetLineProvider(
+        std::string{kJavaScriptSyntax}, scriptOptions.initial_text, scriptOptions.document_key));
     scriptOptions.tab_size = 2;  // 与生成的脚本缩进一致
-    scriptOptions.palette = EditorPalette(theme); // 本地补丁：配色跟随主题
+    scriptOptions.theme = EditorTheme(theme);
 
     // 岛屿分区模型：本页只有一个岛，岛本身占满整个页面区块（Grow + Stretch），
     // 内容在岛内部滚动——不再用「ScrollView 套自包含岛」的倒装结构。
@@ -132,13 +134,12 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
                         if (scriptController.LoadDocument(
                                 "k6-script",
                                 MakeScriptTemplate(methodIndex.Get(), url.Get().text,
-                                                   vus.Get().text, duration.Get().text),
-                                std::string{kJavaScriptSyntax}))
+                                                   vus.Get().text, duration.Get().text)))
                             toast.Show("已按当前参数重新生成脚本");
                     }),
             }
                 .With(huxerui::Spacing(theme.spacing.medium)),
-            sweetedit_huxer::SweetEditor(scriptOptions, scriptController)
+            huxerui::codeeditor::CodeEditor(scriptOptions, scriptController)
                 .With(huxerui::Frame{.height = 240.0F}),
             huxerui::Row {
                 huxerui::Button(running.Get() ? "压测进行中…" : "开始压测")

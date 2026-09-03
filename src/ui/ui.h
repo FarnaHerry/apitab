@@ -2,7 +2,7 @@
 #pragma once
 
 #include <huxerui/huxerui.h>
-#include <sweetedit_core/sweet_editor.h>
+#include <huxerui/codeeditor.h>
 
 #include "draft.h"
 
@@ -78,6 +78,14 @@ inline constexpr float kTitle = 20.0F;    // 标题（弹窗标题等）
 // 反向决定按钮命中区（见 AppIconButton / 几何令牌）。
 inline constexpr float kIconGlyph = 15.0F;
 } // namespace font_size
+
+namespace editor_metrics {
+inline constexpr float kFontSize = font_size::kMonoBody;
+inline constexpr float kLineSpacingAdd = 1.0F;
+inline constexpr float kLineSpacingMult = 1.25F;
+inline constexpr float kContentStartPadding = 8.0F;
+inline constexpr float kScrollbarThickness = 8.0F;
+} // namespace editor_metrics
 
 // 岛屿结构的语义层级。页面通过语义层级选择表面，不直接依赖 Material 的
 // surface_container_* 命名；颜色仍由当前 ThemeSpec 派生，深浅主题共用组件。
@@ -499,11 +507,12 @@ void ShowAppMenuAt(huxerui::PopupHandle popup, huxerui::Point point, std::vector
 huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup, std::vector<AppMenuItem> items,
                                   std::function<void(bool)> onMenuHover,
                                   const huxerui::PopupOptions& options = {});
-// SweetEditor 调色板（apitab 本地补丁新增的 SweetEditorOptions::palette）：默认构造
-// = 上游浅色主题。浅色主题直接返回默认；深色主题返回一套以 apitab 深色令牌为骨架
-// （结构色取自 ThemeSpec，语法/补全强调色取 VS Code Dark+ 近似值）的配色。
-sweetedit_huxer::SweetEditorPalette EditorPalette(const huxerui::ThemeSpec& theme);
-// 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（文本 ▾ 弹菜单），
+// 编辑器主题由上游 CodeEditor 直接从应用主题派生。
+huxerui::codeeditor::EditorTheme EditorTheme(const huxerui::ThemeSpec& theme);
+void ApplyEditorTypography(huxerui::codeeditor::EditorOptions& options);
+std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> SweetLineProvider(
+    std::string syntax, std::string initialText, std::string documentKey);
+// 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（无尾下箭头弹菜单），
 // 之后是当前环境 baseUrl 显示区（灰色只读、可截断；为空则不渲染；URL 输入自带
 // URI scheme 时弱化显示表示不拼接），1pt 分隔线，右侧 URL 输入，整体共用一个
 // 10–12pt 大圆角描边外框（large_control_radius 组合栏，不做 full capsule，见
@@ -533,7 +542,7 @@ huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject);
 huxerui::View BodyTextEditor(huxerui::State<std::vector<RequestDraft>> drafts,
                              std::size_t index, const RequestDraft& snapshot,
                              const huxerui::ThemeSpec& theme,
-                             sweetedit_huxer::SweetEditorController controller);
+                             huxerui::codeeditor::EditorController controller);
 std::string_view SyntaxForBodyKind(std::size_t kind);
 std::string StripJsonComments(const std::string& in);
 std::string PrettyXml(const std::string& input);
@@ -564,7 +573,8 @@ huxerui::View EnvironmentDialog(huxerui::DialogContext ctx, huxerui::State<int> 
 // 新建 + 右侧环境 ComboBox/☰ 环境配置弹窗入口（envVersion 驱动重读 store）。
 huxerui::View RequestTabStrip(huxerui::State<std::vector<RequestDraft>> drafts,
                               huxerui::State<std::size_t> activeTab,
-                              huxerui::State<int> envVersion);
+                              huxerui::State<int> envVersion,
+                              huxerui::State<bool> newTabOpen);
 
 // request_doc.cpp — 请求文档页（P1-C1 自 request_page.cpp 拆出）：按当前草稿只读
 // 生成方法/URL/KV/Body 文档，State 变化即重组刷新。

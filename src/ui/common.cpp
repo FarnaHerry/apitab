@@ -9,6 +9,7 @@
 
 #include "app_resources.h"
 #include "ui.h"
+#include "sweetline_provider.h"
 
 import std;
 
@@ -98,7 +99,8 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
     return std::move(card).With(
         huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.24F), {}, 24.0F, 0.0F},
         huxerui::Background(islands.overlay), huxerui::CornerRadius(islands.island_radius),
-        huxerui::Border(islands.outline_soft, 1.0F), huxerui::Padding(islands.island_padding));
+        huxerui::Border(islands.outline_soft, 1.0F), huxerui::ClipChildren(),
+        huxerui::Padding(islands.island_padding));
 }
 
 // 统一图标动作：glyph 只负责绘制（固定 kIconGlyph 字号，不反向决定按钮大小），
@@ -193,7 +195,8 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
 [[huxerui::composable]] huxerui::View OverflowButton(std::function<void()> onOpenMenu,
                                                      bool enabled) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    return AppIconButton("⋮", "更多操作", std::move(onOpenMenu), AppIconButtonShape::Bare,
+    // 使用中点而不是基线省略号，确保三点在方形命中区内水平、垂直视觉居中。
+    return AppIconButton("···", "更多操作", std::move(onOpenMenu), AppIconButtonShape::Bare,
                          28.0F, false, enabled)
         .With(huxerui::Opacity(enabled ? 1.0F : 0.4F),
               huxerui::Foreground(theme.colors.on_surface_variant));
@@ -321,65 +324,37 @@ void ShowDangerConfirm(huxerui::DialogHandle dialog, std::string title, std::str
         huxerui::DialogOptions{});
 }
 
-// huxerui::Color（float RGBA）→ SweetEditor 调色板的 ARGB int32。
-static std::int32_t ToArgb(huxerui::Color c) {
-    auto channel = [](float v) {
-        if (v < 0.0F) v = 0.0F;
-        if (v > 1.0F) v = 1.0F;
-        return static_cast<std::uint32_t>(v * 255.0F + 0.5F);
-    };
-    return static_cast<std::int32_t>((channel(c.alpha) << 24) | (channel(c.red) << 16) |
-                                     (channel(c.green) << 8) | channel(c.blue));
+huxerui::codeeditor::EditorTheme EditorTheme(const huxerui::ThemeSpec& theme) {
+    huxerui::codeeditor::EditorTheme editor =
+        huxerui::codeeditor::EditorTheme::FromThemeSpec(theme);
+    // 行号栏与输入区使用同一表面，去掉中间的硬分隔，形成连续编辑画布。
+    editor.gutter_background = editor.background;
+    editor.separator_color = huxerui::Color::Transparent();
+    return editor;
 }
 
-sweetedit_huxer::SweetEditorPalette EditorPalette(const huxerui::ThemeSpec& theme) {
-    sweetedit_huxer::SweetEditorPalette palette; // 默认值 = 上游浅色主题
-    if (theme.colors.surface.red > 0.5F) return palette; // 浅色：沿用默认
+void ApplyEditorTypography(huxerui::codeeditor::EditorOptions& options) {
+    // 空 family 统一使用 HUI 的平台等宽字体，同时避免依赖未随应用打包的字体文件。
+    options.font_family.clear();
+    options.font_size = editor_metrics::kFontSize;
+    options.line_spacing_add = editor_metrics::kLineSpacingAdd;
+    options.line_spacing_mult = editor_metrics::kLineSpacingMult;
+    options.content_start_padding = editor_metrics::kContentStartPadding;
+    options.scrollbar_thickness = editor_metrics::kScrollbarThickness;
+}
 
-    // 深色：结构色从 ThemeSpec 派生（编辑器嵌在 surface_container_low 岛上），
-    // 语法/补全强调色取 VS Code Dark+ 近似值（Alpha 叠加色明暗通用，保持默认）。
-    const auto& c = theme.colors;
-    palette.editor_background = ToArgb(c.surface_container_low);
-    palette.gutter_background = ToArgb(c.surface_container);
-    palette.gutter_split_line = ToArgb(c.surface_container_high);
-    palette.line_number = ToArgb(c.on_surface_variant);
-    palette.cursor = ToArgb(c.on_surface);
-    palette.text_foreground = ToArgb(c.on_surface);
-    palette.separator = ToArgb(c.surface_container_highest);
-    palette.gutter_icon = ToArgb(c.on_surface_variant);
-    palette.completion_panel_background = ToArgb(c.surface_container_highest);
-    palette.completion_label = ToArgb(c.on_surface);
-    palette.completion_detail = ToArgb(c.on_surface_variant);
-    palette.context_menu_background = ToArgb(c.surface_container_highest);
-    palette.context_menu_item_text = ToArgb(c.on_surface);
-
-    palette.selection_background = 0x55264F78;
-    palette.selection_handle = 0xFF4C9DFF;
-    palette.current_line_background = 0x0FFFFFFF;
-    palette.guide = 0xFF3A3A42;
-    palette.inlay_hint_text = 0xB09AA0A6;
-    palette.fold_placeholder_text = 0xFFA9C7E8;
-    palette.whitespace_marker = 0x40FFFFFF;
-    palette.whitespace_symbol = 0x4DFFFFFF;
-    palette.scrollbar_thumb = 0x73FFFFFF;
-    palette.completion_panel_border = 0x30FFFFFF;
-    palette.context_menu_border = 0xFF3A3A42;
-    palette.active_codelens_foreground = 0xFF8AB4F8;
-
-    palette.syntax_keyword = 0xFFC586C0;
-    palette.syntax_type = 0xFF4EC9B0;
-    palette.syntax_class = 0xFF4EC9B0;
-    palette.syntax_function = 0xFFDCDCAA;
-    palette.syntax_variable = 0xFF9CDCFE;
-    palette.syntax_string = 0xFFCE9178;
-    palette.syntax_number = 0xFFB5CEA8;
-    palette.syntax_comment = 0xFF6A9955;
-    palette.syntax_preprocessor = 0xFFC586C0;
-    palette.syntax_builtin = 0xFF4FC1FF;
-    palette.syntax_punctuation = 0xFFD4D4D4;
-    palette.syntax_annotation = 0xFFD7BA7D;
-    palette.syntax_url = 0xFF4C9DFF;
-    return palette;
+std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> SweetLineProvider(
+    std::string syntax, std::string initialText, std::string documentKey) {
+    static std::unordered_map<std::string,
+                              std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider>> cache;
+    auto [entry, inserted] = cache.try_emplace(documentKey);
+    if (inserted) {
+        entry->second = std::make_shared<demo::SweetLineDecorationProvider>(
+            std::move(syntax), std::move(initialText), documentKey,
+            demo::SweetLineDecorationProvider::GutterIconSource{},
+            demo::SweetLineDecorationProvider::PhantomSource{});
+    }
+    return entry->second;
 }
 
 // ---- 自绘弹出菜单（ShowPopupMenu[At]）----
@@ -575,7 +550,8 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
                                  huxerui::Frame{.max_height = kMenuMaxHeight});
     return huxerui::Column{std::move(list)}.With(
         menuStyle.shadow, huxerui::Background(menuStyle.background),
-        huxerui::CornerRadius(menuStyle.corner_radius), huxerui::Padding(menuStyle.content_padding),
+        huxerui::CornerRadius(menuStyle.corner_radius), huxerui::ClipChildren(),
+        huxerui::Padding(menuStyle.content_padding),
         huxerui::Frame{.min_width = menuStyle.minimum_width},
         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
@@ -694,7 +670,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
                              std::move(onMenuHover));
 }
 
-// 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（文本 ▾ 弹自绘下拉，
+// 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（统一无尾下箭头弹自绘下拉，
 // DELETE 常驻红；保持自绘而非官方 Select——Select 触发器自带描边外观，塞不进
 // 这个共用外框的组合栏），其后是当前环境 baseUrl 显示区（灰色只读、截断；
 // 输入框内容带 URI scheme 时以输入为准不拼接 → 该段半透明弱化），中间 1pt
@@ -735,10 +711,17 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     // 触发器与下拉项文字都按 MethodColor 统一色表逐方法着色。
     huxerui::View trigger =
         huxerui::Row {
-            huxerui::Text(methods.at(safe) + " ▾", huxerui::TextRole::Body)
+            huxerui::Text(methods.at(safe), huxerui::TextRole::Body)
                 .With(huxerui::Foreground(MethodColor(theme, methods.at(safe)))),
+            huxerui::Image(app::images::chevron_down)
+                .Fit(huxerui::ImageFit::Contain)
+                .Align(huxerui::HorizontalAlignment::Center,
+                       huxerui::VerticalAlignment::Center)
+                .Tint(theme.colors.on_surface_variant)
+                .With(huxerui::Frame{.width = 12.0F, .height = 12.0F}),
         }
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 6.0F)),
+                  huxerui::Spacing(theme.spacing.extra_small),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
             .OnClick([popup, methods = std::move(methods), current = safe,
                       onChanged = std::move(onMethodChanged), &theme] {

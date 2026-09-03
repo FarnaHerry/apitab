@@ -1,7 +1,7 @@
 // request_body_editor.cpp — 请求 Body 文本编辑器与格式化 helpers。
 // 自 request_page.cpp 拆出（P1-C1，功能域 = Body 编辑），纯搬移。
 #include <huxerui/huxerui.h>
-#include <sweetedit_core/sweet_editor.h>
+#include <huxerui/codeeditor.h>
 
 #include <stdexcept>
 #include <string>
@@ -33,20 +33,22 @@ std::string_view SyntaxForBodyKind(std::size_t kind) {
 [[huxerui::composable]] huxerui::View BodyTextEditor(
     huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
     const RequestDraft& snapshot, const huxerui::ThemeSpec& theme,
-    sweetedit_huxer::SweetEditorController controller) {
+    huxerui::codeeditor::EditorController controller) {
     const std::size_t kind = snapshot.bodyKindIndex;
-    sweetedit_huxer::SweetEditorOptions options;
-    options.palette = EditorPalette(theme);
+    huxerui::codeeditor::EditorOptions options;
+    ApplyEditorTypography(options);
+    options.theme = EditorTheme(theme);
     // document_key 绑定草稿 uid + body 类型：切请求或切 body 类型都会重载该
     // 类型自己存档的文本（各类型编辑框独立，输入不互通）。
     options.document_key = "body-" + std::to_string(snapshot.uid) + "-" +
                            std::to_string(kind);
     options.initial_text = snapshot.bodies[kind].text;
-    options.syntax_json = std::string{SyntaxForBodyKind(kind)};
+    options.decoration_providers.push_back(SweetLineProvider(
+        std::string{SyntaxForBodyKind(kind)}, options.initial_text, options.document_key));
     options.wrap_mode = 0; // 不换行，横向滚动
     options.sticky_gutter = true; // 横向滚动时行号栏固定
-    return sweetedit_huxer::SweetEditor(options, controller)
-        .On<sweetedit_huxer::SweetEditorTextChanged>([drafts, index, controller, kind] {
+    return huxerui::codeeditor::CodeEditor(options, controller)
+        .On<huxerui::codeeditor::EditorEvents::TextChanged>([drafts, index, controller, kind] {
             MutateDraft(drafts, index, [&](RequestDraft& d) {
                 d.bodies[kind] = huxerui::TextEditingValue::FromText(controller.Text());
             });

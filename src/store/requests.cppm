@@ -19,7 +19,6 @@ import apitab.config;
 import apitab.db;
 import apitab.preferences;
 import apitab.utils;
-import nlohmann.json;
 
 namespace {
 std::string lowerAscii(std::string s) {
@@ -27,22 +26,6 @@ std::string lowerAscii(std::string s) {
     return s;
 }
 
-// settings.ini 里 KV 列表的 JSON 文本 → KeyValue 数组（与 db 侧 {"k","v","on",
-// "t","r"} 同格式；非法/非数组文本按空表处理）。
-std::vector<api::KeyValue> parseSettingKv(const std::string& text) {
-    std::vector<api::KeyValue> out;
-    const nlohmann::json arr = nlohmann::json::parse(text, nullptr, false);
-    if (!arr.is_array()) return out;
-    for (const auto& item : arr) {
-        if (!item.is_object()) continue;
-        out.push_back({.key = item.value("k", ""),
-                       .value = item.value("v", ""),
-                       .enabled = item.value("on", true),
-                       .type = item.value("t", ""),
-                       .remark = item.value("r", "")});
-    }
-    return out;
-}
 } // namespace
 
 export class RequestStore {
@@ -177,10 +160,6 @@ public:
         return out > 0 ? out : 30;
     }
     static std::string globalProxy() { return trim(sessionPreference("request_proxy")); }
-    static std::vector<api::KeyValue> globalHeaders() {
-        return parseSettingKv(sessionPreference("global_headers"));
-    }
-
     // 删除项目（级联删其请求）。
     std::string deleteProject(std::int64_t id) {
         return guarded([&] {
@@ -536,15 +515,14 @@ public:
             finalSpec.body = stripJsonComments(finalSpec.body);
         }
         finalSpec.url = appendQuery(trim(finalSpec.url), enabled);
-        // ---- 项目/全局公共头合并 + 全局超时/代理注入 ----
-        // 同名键（大小写不敏感）请求显式头优先，项目头优先于全局头；环境变量
-        // 替换已在前面完成，公共头不参与 {{var}} 替换（配置侧直接写死值）。
+        // ---- 项目公共头合并 + 全局超时/代理注入 ----
+        // 同名键（大小写不敏感）请求显式头优先；环境变量替换已在前面完成，
+        // 项目公共头不参与 {{var}} 替换（配置侧直接写死值）。
         std::vector<api::KeyValue> inherited;
         for (const db::Project& p : projects_) {
             if (p.id == currentProjectId_)
                 for (const api::KeyValue& h : p.headers) inherited.push_back(h);
         }
-        for (const api::KeyValue& h : globalHeaders()) inherited.push_back(h);
         for (const api::KeyValue& h : inherited) {
             if (!h.enabled || h.key.empty()) continue;
             const std::string want = lowerAscii(h.key);

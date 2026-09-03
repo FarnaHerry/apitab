@@ -25,6 +25,51 @@ import apitab.utils;
 
 namespace apitab::ui {
 
+[[huxerui::composable]] huxerui::View NewRequestTypeCard(
+    std::string title, std::string description, int kind, std::function<void(int)> onSelected) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    return huxerui::Column {
+        huxerui::Text(title, huxerui::TextRole::Title).Align(huxerui::TextAlign::Center),
+        huxerui::Text(std::move(description), huxerui::TextRole::Body)
+            .Align(huxerui::TextAlign::Center)
+            .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+    }
+        .With(huxerui::Spacing(theme.spacing.small),
+              huxerui::Frame{.width = 220.0F, .height = 128.0F},
+              huxerui::Background(islands.raised),
+              huxerui::CornerRadius(islands.large_control_radius),
+              huxerui::Border(islands.outline_soft, 1.0F),
+              huxerui::ClipChildren(), huxerui::Padding(theme.spacing.medium),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+              huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+              huxerui::Focusable(true),
+              huxerui::Semantics{.role = huxerui::SemanticRole::Button,
+                                  .label = "新建" + title})
+        .OnClick([onSelected = std::move(onSelected), kind] { onSelected(kind); });
+}
+
+[[huxerui::composable]] huxerui::View NewRequestChooser(std::function<void(int)> onSelected) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    return huxerui::Column {
+        huxerui::Text("新建请求", huxerui::TextRole::Title),
+        huxerui::Text("选择要创建的请求类型", huxerui::TextRole::Body)
+            .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+        huxerui::Row {
+            NewRequestTypeCard("HTTP 请求", "REST、JSON、表单与文件请求", 0, onSelected),
+            NewRequestTypeCard("WebSocket", "长连接与实时双向消息调试", 1, onSelected),
+        }.With(huxerui::Spacing(theme.spacing.medium)),
+        huxerui::Row {
+            NewRequestTypeCard("TCP 请求", "TCP/TCPS 原始数据收发", 2, onSelected),
+            NewRequestTypeCard("gRPC 请求", "RPC 接口调试（支持规划中）", 3, onSelected),
+        }.With(huxerui::Spacing(theme.spacing.medium)),
+    }
+        .With(huxerui::Spacing(theme.spacing.medium),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+              huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+              huxerui::Grow(1.0F));
+}
+
 namespace {
 // 与 request_editor.cpp 的 InferKvType 同逻辑，签名仅用 std 类型，可安全进头
 // 但按模块约束，普通头不声明纯 helpers，此处按需并列一份；P1-C3 归并唯一实现。
@@ -281,6 +326,7 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     // 内部标签页：每个打开的请求一个草稿；响应区状态为页面级（单引擎）。
     auto openDrafts = huxerui::UseState<std::vector<RequestDraft>>({});
     auto activeTab = huxerui::UseState<std::size_t>(0);
+    auto newTabOpen = huxerui::UseState(false);
     auto listVersion = huxerui::UseState(0);
     // 环境版本：环境选择/CRUD/弹窗保存后 bump，标签条与环境弹窗按它重读 store。
     auto envVersion = huxerui::UseState(0);
@@ -312,15 +358,17 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     //   无分区、不可保存/发送；gRPC 草稿不落库）。
     // - 无打开草稿：单岛空状态。
     huxerui::View rightArea = huxerui::Column{};
-    if (snapshot.empty()) {
+    if (snapshot.empty() || newTabOpen.Get()) {
+        auto createDraft = [openDrafts, activeTab, newTabOpen](int kind) {
+            std::vector<RequestDraft> copy = openDrafts.Get();
+            copy.push_back(RequestDraft{.kind = kind});
+            openDrafts = copy;
+            activeTab = copy.size() - 1;
+            newTabOpen = false;
+        };
         rightArea = huxerui::Column {
-                        huxerui::Image(app::images::request)
-                            .With(huxerui::Frame{.width = 64.0F, .height = 64.0F},
-                                  huxerui::Foreground(theme.colors.on_surface_variant)),
-                        huxerui::Text("没有打开的请求", huxerui::TextRole::Title),
-                        huxerui::Text("从左侧列表选择请求，或点击“＋ 新建”。",
-                                      huxerui::TextRole::Body)
-                            .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+                        RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
+                        NewRequestChooser(createDraft),
                     }
                         .With(huxerui::Spacing(theme.spacing.medium),
                               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
@@ -334,7 +382,7 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
                                     ? WebSocketPage().With(huxerui::Grow(1.0F)).Key(contentKey)
                                     : TcpPage().With(huxerui::Grow(1.0F)).Key(contentKey);
         rightArea = huxerui::Column {
-                        RequestTabStrip(openDrafts, activeTab, envVersion),
+                        RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                         std::move(content),
                     }
                         .With(huxerui::Spacing(theme.spacing.medium),
@@ -346,7 +394,7 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     } else if (currentKind == 3) {
         // gRPC 占位页：支持规划中——只给标签条 + 居中提示，无操作栏/分区。
         rightArea = huxerui::Column {
-                        RequestTabStrip(openDrafts, activeTab, envVersion),
+                        RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                         huxerui::Column {
                             huxerui::Text("gRPC 请求：支持规划中（暂不可保存/发送）",
                                           huxerui::TextRole::Title),
@@ -372,7 +420,7 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
         std::vector<huxerui::View> islands;
         islands.push_back(
             huxerui::Column {
-                RequestTabStrip(openDrafts, activeTab, envVersion),
+                RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                 RequestEditor(openDrafts, current, activeTab, listVersion,
                               inFlight, responseBody, responseHeaders,
                               responseCookies, envVersion, editorPage)

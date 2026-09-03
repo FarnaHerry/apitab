@@ -5,16 +5,15 @@
 // 不引入 Drawer），标准/Compact 共用同一个分类 State。
 //
 // 受控值以应用状态为权威（CLAUDE.md 约定 5）：themeMode/closeBehavior 由
-// AppRoot 持有原样传入；timeoutSec/globalHeaders 与分类 State 都挂在
+// AppRoot 持有原样传入；timeoutSec 与分类 State 都挂在
 // GlobalSettingsPage 顶层——切换分类只重组内容岛，不重置任何未提交输入。
 // 分类 State 随设置标签关闭（子树卸载）销毁：再打开固定回到"通用"，这是
 // §13.3 "上次会话内分类或通用"二选一的**固定行为**；主题切换只重组不重挂载
 // （内容子树 Key 不含主题，§13.2 项 7），分类与受控输入跨主题存活。
 //
-// 选择都持久化到 settings.ini（会话偏好）；超时/公共头写入
-// session.request_timeout_sec / session.global_headers 键，发送侧在 store 的
-// finalizeSpec 统一读取生效（见 src/store/requests.cppm）。preferences 键名、
-// 序列化格式与发送侧语义一个都不变（P1-B0.2 只动 UI 结构与文案）。
+// 选择都持久化到 settings.ini（会话偏好）；超时写入
+// session.request_timeout_sec，发送侧在 store 的 finalizeSpec 统一读取生效
+//（见 src/store/requests.cppm）。
 #include <huxerui/huxerui.h>
 
 #include <cstddef>
@@ -26,11 +25,9 @@
 #include <vector>
 
 #include "ui.h"
-#include "draft.h"
 
 import apitab.config;
 import apitab.preferences;
-import nlohmann.json;
 
 // 应用版本：CMake 注入（CMakeLists.txt 的 target_compile_definitions
 // APITAB_VERSION="${PROJECT_VERSION}"，随顶层 project(VERSION) 自动同步）；
@@ -42,127 +39,6 @@ import nlohmann.json;
 namespace apitab::ui {
 
 namespace {
-
-// 全局公共头数组 → 单行紧凑 JSON（{"k","v","on","t","r"}，与 db 侧同格式；
-// t/r 恒写空串——store 的 parseSettingKv 按这五个键读）。ini 是行式存储，
-// dump() 无缩进且转义串内换行，结果必为单行。
-std::string SerializeGlobalHeaders(const std::vector<KvRow>& rows) {
-    nlohmann::json arr = nlohmann::json::array();
-    for (const KvRow& row : rows) {
-        nlohmann::json::object_t obj;
-        obj["k"] = row.key.text;
-        obj["v"] = row.value.text;
-        obj["on"] = row.enabled;
-        obj["t"] = "";
-        obj["r"] = "";
-        arr.push_back(std::move(obj));
-    }
-    return arr.dump();
-}
-
-// settings.ini 的 global_headers 文本 → KvRow 数组（非法/非数组/字段类型
-// 不符一律按空表处理，与 store 侧读取兜底一致）。
-std::vector<KvRow> ParseGlobalHeaders(const std::string& text) {
-    std::vector<KvRow> out;
-    try {
-        const nlohmann::json arr = nlohmann::json::parse(text, nullptr, false);
-        if (!arr.is_array()) return {};
-        for (const auto& item : arr) {
-            if (!item.is_object()) continue;
-            KvRow row;
-            row.enabled = item.value("on", true);
-            row.key.text = item.value("k", std::string {});
-            row.value.text = item.value("v", std::string {});
-            row.type.text = item.value("t", std::string {});
-            row.remark.text = item.value("r", std::string {});
-            out.push_back(std::move(row));
-        }
-    } catch (...) {
-        return {};
-    }
-    return out;
-}
-
-// 全局公共头表：MockHeaderTable 同语义的两列 KV 表（启用 Checkbox / 键 /
-// 值 / ✕）——末尾恒渲染一个虚拟空行，对它写入键或值即物化为真实行（仅
-// 聚焦/移动光标触发的空 OnChanged 不追加）；✕ 只给真实行，删除会卸载本
-// 按钮所在行，推迟出指针事件路径（CLAUDE.md 约定 6）。
-// KvRow 的 type/remark 不使用（序列化时写空串）。
-[[huxerui::composable]] huxerui::View GlobalHeadersTable(
-    std::vector<KvRow> rows, const huxerui::ThemeSpec& theme,
-    std::function<void(std::vector<KvRow>)> onChanged) {
-    auto tasks = huxerui::UseTaskScope();
-    std::vector<huxerui::View> children{
-        huxerui::Row {
-            huxerui::Text("", huxerui::TextRole::Label)
-                .With(huxerui::Frame{.width = 24.0F}),
-            huxerui::Text("头名称", huxerui::TextRole::Label)
-                .With(huxerui::Grow(1.0F)),
-            huxerui::Text("头值", huxerui::TextRole::Label)
-                .With(huxerui::Grow(1.0F)),
-        }
-            .With(huxerui::Spacing(theme.spacing.small),
-                  huxerui::Foreground(theme.colors.on_surface_variant)),
-    };
-    for (std::size_t i = 0; i <= rows.size(); ++i) {
-        const bool phantom = i == rows.size();
-        const KvRow row = phantom ? KvRow {} : rows[i];
-        // 行写入：i 越界（虚拟行）时物化新行，否则改写原行。
-        auto applyRow = [rows, onChanged](std::size_t i, KvRow updated) {
-            std::vector<KvRow> copy = rows;
-            if (i < copy.size()) {
-                copy[i] = std::move(updated);
-            } else {
-                if (updated.key.text.empty() && updated.value.text.empty()) return;
-                copy.push_back(std::move(updated));
-            }
-            onChanged(std::move(copy));
-        };
-        children.push_back(
-            huxerui::Row {
-                huxerui::Checkbox(row.enabled).OnChanged([row, i, applyRow](bool checked) {
-                    KvRow updated = row;
-                    updated.enabled = checked;
-                    applyRow(i, std::move(updated));
-                }),
-                huxerui::TextField(row.key)
-                    .Label("键")
-                    .Variant(huxerui::TextFieldVariant::Standard)
-                    .OnChanged([row, i, applyRow](const huxerui::TextEditingValue& value) {
-                        KvRow updated = row;
-                        updated.key = value;
-                        applyRow(i, std::move(updated));
-                    })
-                    .With(huxerui::Grow(1.0F)),
-                huxerui::TextField(row.value)
-                    .Label("值")
-                    .Variant(huxerui::TextFieldVariant::Standard)
-                    .OnChanged([row, i, applyRow](const huxerui::TextEditingValue& value) {
-                        KvRow updated = row;
-                        updated.value = value;
-                        applyRow(i, std::move(updated));
-                    })
-                    .With(huxerui::Grow(1.0F)),
-                phantom
-                    ? huxerui::View {huxerui::Row{}.With(
-                          huxerui::Frame{.width = 28.0F, .height = 28.0F})}
-                    : AppIconButton("✕", "删除此行", [tasks, rows, i, onChanged] {
-                        // 删除会卸载本按钮所在行：推迟出指针事件路径
-                        tasks.Launch([=]() -> huxerui::Task<void> {
-                            co_await huxerui::Delay(std::chrono::duration<double> {0});
-                            std::vector<KvRow> copy = rows;
-                            if (i < copy.size()) copy.erase(copy.begin() + static_cast<long>(i));
-                            onChanged(std::move(copy));
-                        });
-                    }, AppIconButtonShape::Bare),
-            }
-                .With(huxerui::Spacing(theme.spacing.small),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
-    }
-    return huxerui::Column(std::move(children))
-        .With(huxerui::Spacing(theme.spacing.small),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-}
 
 // ---- 分类模型（island-structure-theme.md §13.3）---------------------------
 // 下标即分类 State 值；标准/Compact 两种形态共用同一 State。
@@ -262,12 +138,10 @@ constexpr float kCategoryRailWidth = 192.0F;
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
-// ---- 通用分区：关闭行为、默认请求超时、应用级公共请求头、数据目录 ---------
-// 文案约定（§13.4 B0.2）：公共头等应用级配置不再单独用"全局"表述，与项目级
-// 的项目 Cookie/环境明确区分。
+// ---- 通用分区：关闭行为、默认请求超时、数据目录 -------------------------
 [[huxerui::composable]] huxerui::View GeneralSettingsSection(
-    huxerui::State<int> closeBehavior, huxerui::State<huxerui::TextEditingValue> timeoutSec,
-    huxerui::State<std::vector<KvRow>> globalHeaders) {
+    huxerui::State<int> closeBehavior,
+    huxerui::State<huxerui::TextEditingValue> timeoutSec) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Column {
         PageHeader("通用", "应用级默认行为，保存于 settings.ini。"),
@@ -301,20 +175,6 @@ constexpr float kCategoryRailWidth = 192.0F;
                           .With(huxerui::Frame{.max_width = 240.0F}),
                       "作用于单次 HTTP 请求（curl 引擎），k6 压测不受影响；留空或非法按 "
                       "30 秒，下次发送即生效。"),
-        // 应用级公共请求头（原"全局公共请求头"改名表述；preferences 键
-        // global_headers 与序列化格式不变）。任何增删改都全量序列化后落盘，
-        // store 的 finalizeSpec 每次发送现读。
-        SettingsGroup("应用级公共请求头",
-                      GlobalHeadersTable(globalHeaders.Get(), theme,
-                                         [globalHeaders](std::vector<KvRow> rows) {
-                                             const std::string serialized =
-                                                 SerializeGlobalHeaders(rows);
-                                             saveSessionPreference("global_headers", serialized);
-                                             globalHeaders = std::move(rows);
-                                         }),
-                      "属于整个应用（区别于项目级的项目 Cookie 与环境）：对本应用所有"
-                      "项目的请求生效；同名头（大小写不敏感）时请求显式头优先、项目"
-                      "公共头次之，不重复注入。"),
         // 数据目录：用 cfg::dataDir() 取真实路径（与 SQLite 落盘位置同一来源，
         // 不写死第二份）。
         SettingsGroup("数据目录",
@@ -453,10 +313,6 @@ constexpr AboutDependency kAboutDependencies[] = {
     // 默认请求超时：初始读 session.request_timeout_sec。
     auto timeoutSec = huxerui::UseState(
         huxerui::TextEditingValue {sessionPreference("request_timeout_sec")});
-    // 应用级公共请求头：初始解析 session.global_headers（单行 JSON，见上）。
-    auto globalHeaders =
-        huxerui::UseState(ParseGlobalHeaders(sessionPreference("global_headers")));
-
     // 分类 State 由 AppRoot 持有（P1-B0.5 状态保活）：设置标签仍打开但切到项目后
     // 再切回保留原分类；未保存请求草稿的保活见 draftMap（AppRoot）。
     // 主题切换只重组不重挂载（AppRoot 渲染键不含主题），分类跨主题存活（§13.2 项 7）。
@@ -502,16 +358,12 @@ constexpr AboutDependency kAboutDependencies[] = {
         break;
     case kCategoryGeneral:
     default:
-        section = GeneralSettingsSection(closeBehavior, timeoutSec, globalHeaders)
-                      .Key(kCategoryNames[0]);
+        section = GeneralSettingsSection(closeBehavior, timeoutSec).Key(kCategoryNames[0]);
         break;
     }
 
     // 页面根：标准 = 双岛（左分类岛 + 右内容岛）；Compact = 单内容岛 + 岛内
     // 顶部分类选择器。section 只在当前分支消费一次（两分支各自组岛）。
-    const std::string pageSubtitle =
-        "应用级配置，保存于 settings.ini；项目级的项目 Cookie 与环境在项目工作区"
-        "内配置";
     huxerui::View page;
     if (huxerui::UseViewportClass() == huxerui::ViewportClass::Compact) {
         // Compact：左栏折叠为内容岛内的顶部分类选择器（官方 SegmentedButton，
@@ -519,7 +371,6 @@ constexpr AboutDependency kAboutDependencies[] = {
         // 海面（岛屿设计语言）；选择器在滚动内容上方、不随之滚走。与标准
         // 形态共用同一个分类 State，键盘 Left/Right/Home/End 由组件自带。
         page = IslandSurface(huxerui::Column {
-                                 PageHeader("全局设置", pageSubtitle),
                                  huxerui::SegmentedButton(
                                      std::vector<huxerui::StringVariant>{
                                          kCategoryNames[0], kCategoryNames[1],
@@ -548,7 +399,6 @@ constexpr AboutDependency kAboutDependencies[] = {
         // 只用 small 间距（8pt），不套页面级 page_gap；避免两个相邻岛被拉得过散。
         huxerui::View contentIsland = IslandSurface(
             huxerui::Column {
-                PageHeader("全局设置", pageSubtitle),
                 huxerui::ScrollView{std::move(section)}
                     .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
             }

@@ -79,6 +79,14 @@ namespace {
 // 文本/描边只用地道中灰，状态色仅 error 保留柔和红。
 huxerui::ThemeSpec MinimalDarkThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
+    spec.typography = huxerui::TypographyScheme{
+        .body_large = 16.0F,
+        .body_medium = font_size::kBody,
+        .body_small = font_size::kChip,
+        .label_large = font_size::kBody,
+        .title_large = font_size::kTitle,
+        .headline_small = 24.0F,
+    };
     spec.colors.primary = huxerui::Color::Rgb(255, 255, 255);      // 纯白主色
     spec.colors.on_primary = huxerui::Color::Rgb(10, 10, 12);      // 白底上翻黑
     spec.colors.secondary = huxerui::Color::Rgb(214, 214, 217);
@@ -102,6 +110,14 @@ huxerui::ThemeSpec MinimalDarkThemeSpec() {
 
 huxerui::ThemeSpec MinimalLightThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialLightThemeSpec();
+    spec.typography = huxerui::TypographyScheme{
+        .body_large = 16.0F,
+        .body_medium = font_size::kBody,
+        .body_small = font_size::kChip,
+        .label_large = font_size::kBody,
+        .title_large = font_size::kTitle,
+        .headline_small = 24.0F,
+    };
     // 冷中性灰白：保留柔和层级，但去掉上一版米白中过强的黄/棕分量。
     spec.colors.primary = huxerui::Color::Rgb(37, 40, 45);         // #25282D
     spec.colors.on_primary = huxerui::Color::Rgb(250, 250, 251);   // #FAFAFB
@@ -215,6 +231,31 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     selects.indication = selectIndication;
     selects.item_indication = selectIndication;
     definition.Set(selects);
+
+    // 菜单类弹层统一 8px 圆角。自绘的三点菜单、方法/类型选择菜单读取
+    // MenuStyle；系统 Select 使用上面的 SelectStyle；可搜索环境选择读取
+    // ComboBoxStyle。三条路径保持相同表面、阴影和交互反馈。
+    huxerui::MenuStyle menus = huxerui::MenuStyle::Default();
+    menus.background = spec.colors.surface_container;
+    menus.foreground = spec.colors.on_surface;
+    menus.icon_tint = spec.colors.on_surface_variant;
+    menus.separator_color = spec.colors.outline;
+    menus.shadow = huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.24F), {}, 8.0F, 0.0F};
+    menus.corner_radius = spec.shapes.small;
+    menus.item_indication = selectIndication;
+    definition.Set(menus);
+
+    huxerui::ComboBoxStyle combos;
+    combos.popup_background = spec.colors.surface_container;
+    combos.foreground = spec.colors.on_surface;
+    combos.active_item_background = withAlpha(spec.colors.primary, 0.08F);
+    combos.item_padding = selects.item_padding;
+    combos.popup_shadow = selects.popup_shadow;
+    combos.minimum_item_height = selects.minimum_item_height;
+    combos.maximum_popup_height = selects.maximum_popup_height;
+    combos.popup_corner_radius = spec.shapes.small;
+    combos.item_indication = selectIndication;
+    definition.Set(combos);
 
     return huxerui::Theme(std::move(definition), content);
 }

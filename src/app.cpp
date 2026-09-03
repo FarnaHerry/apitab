@@ -18,6 +18,7 @@ const huxerui::Application application{
         .window = {
             .title = "apitab — API 测试与压测",
             .initial_size = {1180.0F, 760.0F},
+            .minimum_size = huxerui::Size{800.0F, 600.0F},
             .chrome_mode = huxerui::WindowChromeMode::Custom,
             // 内容统一 20pt（kTitleBarContentHeight），期望高度 24pt 留出呼吸空间。
             // 若框架窗口按钮（─▢✕）的系统最小值更大，SDK 会保留下限——

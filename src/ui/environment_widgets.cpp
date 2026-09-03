@@ -114,6 +114,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
 [[huxerui::composable]] huxerui::View EnvironmentDialog(huxerui::DialogContext ctx,
                                                         huxerui::State<int> envVersion) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
     auto toast = huxerui::UseToast();
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
@@ -139,7 +140,9 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                 // 选中区：名称占满行宽；点击挂在整行 Row 上（见下方 .OnClick），
                 // ✎/✕ 是最深命中节点、点击不冒泡，各触发各的。
                 huxerui::Text(e.name.empty() ? "（未命名）" : e.name, huxerui::TextRole::Body)
-                    .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
+                    .With(huxerui::Grow(1.0F), huxerui::ClipChildren(),
+                          huxerui::Foreground(selected ? theme.colors.on_surface
+                                                       : theme.colors.on_surface_variant)),
                 // ✎ 重命名：弹输入框小弹窗（renameValue 寄宿本弹窗作用域）。
                 AppIconButton("✎", "重命名环境", [dialog, tasks, toast, renameValue, envVersion, id,
                               name = e.name] {
@@ -213,13 +216,12 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
             }
                 .With(huxerui::Spacing(0.0F),
                       huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
-                      // 选中态底色与活跃标签 chip 一致（surface_container_highest）；
-                      // 悬停（含悬停 ✎/✕，Hover 事件通道非独占）亮一档。
-                      huxerui::Background(selected ? theme.colors.surface_container_highest
-                                          : hoveredEnv.Get() == id
-                                              ? theme.colors.surface_container_high
-                                              : theme.colors.surface_container),
-                      huxerui::CornerRadius(theme.shapes.small),
+                      // 与设置分类等选择列表统一：常态透明、悬停 raised、选中 active；
+                      // 选中优先，悬停选中行不会退回另一种底色。
+                      huxerui::Background(selected ? islands.active
+                                          : hoveredEnv.Get() == id ? islands.raised
+                                                                   : huxerui::Color::Transparent()),
+                      huxerui::CornerRadius(islands.nested_radius),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                       // 行自身压掉默认 Indication：悬停反馈由手工底色承担，避免叠加。
                       huxerui::Indication{})

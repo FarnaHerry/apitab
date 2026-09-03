@@ -27,7 +27,7 @@ struct DraftTabDragPayload {
 // 环境配置弹窗）。envVersion 由 RequestPage 持有：环境 CRUD 后 bump，本条按它重读 store。
 [[huxerui::composable]] huxerui::View RequestTabStrip(
     huxerui::State<std::vector<RequestDraft>> drafts, huxerui::State<std::size_t> activeTab,
-    huxerui::State<int> envVersion) {
+    huxerui::State<int> envVersion, huxerui::State<bool> newTabOpen) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
@@ -105,7 +105,7 @@ struct DraftTabDragPayload {
     };
     std::vector<huxerui::View> chips;
     for (std::size_t i = 0; i < snapshot.size(); ++i) {
-        const bool active = i == activeTab.Get();
+        const bool active = !newTabOpen.Get() && i == activeTab.Get();
         const bool chipHovered = hoveredChip.Get() == snapshot[i].uid;
         // 背景默认不显示（透明）：激活 = 最高层级容器底，悬停 = 略深容器底，
         // 常态下只靠竖线分隔标签。
@@ -127,9 +127,12 @@ struct DraftTabDragPayload {
                         .foreground = MethodColor(theme, chipBadge)})
                     .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(2.0F, 2.0F)),
                           huxerui::Indication{})
-                    .OnClick([drafts, activeTab, i] {
+                    .OnClick([drafts, activeTab, newTabOpen, i] {
                         // 切换标签不卸载被点节点：同步写即可
-                        if (i < drafts.Get().size()) activeTab = i;
+                        if (i < drafts.Get().size()) {
+                            activeTab = i;
+                            newTabOpen = false;
+                        }
                     }),
                 huxerui::Text(DraftDisplayName(snapshot[i]), huxerui::TextRole::Label)
                     .Style(huxerui::TextStyle{.font = chipFont, .foreground = foreground})
@@ -137,9 +140,12 @@ struct DraftTabDragPayload {
                           // 限宽给行尾 ✕ 留位（固定宽 160：徽标+名称+✕）。
                           huxerui::Frame{.max_width = 100.0F},
                           huxerui::Indication{})
-                    .OnClick([drafts, activeTab, i] {
+                    .OnClick([drafts, activeTab, newTabOpen, i] {
                         // 切换标签不卸载被点节点：同步写即可
-                        if (i < drafts.Get().size()) activeTab = i;
+                        if (i < drafts.Get().size()) {
+                            activeTab = i;
+                            newTabOpen = false;
+                        }
                     }),
                 // 弹性占位把 ✕ 顶到固定宽 chip 的右缘（Spacer 自带 Grow(1)）。
                 huxerui::Spacer{},
@@ -246,12 +252,35 @@ struct DraftTabDragPayload {
             chips.push_back(chipDivider(sepVisible));
         }
     }
-    // 末尾 "＋"：新建草稿标签（不卸载任何节点，同步写即可）。
-    chips.push_back(AppIconButton("+", "新建请求标签", [drafts, activeTab] {
-                            std::vector<RequestDraft> copy = drafts.Get();
-                            copy.push_back(RequestDraft{});
-                            drafts = copy;
-                            activeTab = copy.size() - 1;
+    // 临时“新建请求”标签：不提前制造 HTTP 草稿；选中类型后才转为正式草稿。
+    if (newTabOpen.Get()) {
+        if (!snapshot.empty()) chips.push_back(chipDivider(false));
+        chips.push_back(
+            huxerui::Row {
+                huxerui::Text("+", huxerui::TextRole::Label)
+                    .Style(huxerui::TextStyle{.font = badgeFont,
+                                              .foreground = theme.colors.on_surface_variant}),
+                huxerui::Text("新建请求", huxerui::TextRole::Label)
+                    .Style(huxerui::TextStyle{.font = chipFont,
+                                              .foreground = theme.colors.on_surface}),
+                huxerui::Spacer{},
+                AppIconButton("✕", "关闭新建请求标签", [tasks, newTabOpen] {
+                    tasks.Launch([newTabOpen]() -> huxerui::Task<void> {
+                        co_await huxerui::Delay(std::chrono::duration<double>{0});
+                        newTabOpen = false;
+                    });
+                }, AppIconButtonShape::Bare),
+            }
+                .With(huxerui::Spacing(0.0F),
+                      huxerui::Background(theme.colors.surface_container_highest),
+                      huxerui::CornerRadius(theme.shapes.small),
+                      huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
+                      huxerui::Frame{.width = kChipDragWidth, .height = 28.0F},
+                      huxerui::ClipChildren()));
+    }
+    // 末尾 "＋"：只打开新建状态标签，类型卡片确认后才创建草稿。
+    chips.push_back(AppIconButton("+", "新建请求标签", [newTabOpen] {
+                            newTabOpen = true;
                         }, AppIconButtonShape::Circular));
 
     // 拖拽覆盖层：被拖 chip 的视觉克隆（纯展示，无事件/悬停 handler——命中
@@ -262,7 +291,7 @@ struct DraftTabDragPayload {
     if (dragUid.Get() != 0) {
         for (std::size_t j = 0; j < snapshot.size(); ++j) {
             if (snapshot[j].uid != dragUid.Get()) continue;
-            const bool overlayActive = j == activeTab.Get();
+            const bool overlayActive = !newTabOpen.Get() && j == activeTab.Get();
             const huxerui::Color overlayFill =
                 overlayActive ? theme.colors.surface_container_highest
                               : theme.colors.surface_container;

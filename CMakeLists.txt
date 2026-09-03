@@ -303,7 +303,7 @@ if (APITAB_HAS_COMBOBOX)
     message(STATUS "apitab: ComboBox available（源码通道）")
 endif()
 
-# ---- sweetedit_core（SweetEditor 代码编辑器组件库，HuxerUI 依赖库）------------
+# ---- CodeEditor（SweetEditor 代码编辑器组件库，HuxerUI 依赖库）---------------
 # huxerui_use_library 官方机制：add_subdirectory + 链接 + 资源包合并进 app 包。
 # HuxerUI 目标已存在（源码或 SDK 模式都一样），sweetedit 不再自行获取 HuxerUI；
 # HUXERUI_HOME 仅供它做新版钩子（ShouldCommitFocusOnPointerUp）的特性检测。
@@ -315,8 +315,32 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/CMakeLists
         set(HUXERUI_HOME "${HUXERUI_SDK_DIR}"
             CACHE PATH "HuxerUI SDK dir (sweetedit feature detection)" FORCE)
     endif ()
-    huxerui_use_library(apitab TARGET sweetedit_core
+    huxerui_use_library(apitab TARGET codeeditor
         PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit")
+
+    # CodeEditor keeps syntax analysis optional. Reuse its upstream-maintained
+    # SweetLine provider so JSON/XML/GraphQL/JavaScript editors retain syntax
+    # colors, folding, indent guides, bracket matching, and incremental updates.
+    if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
+        set(SWEETLINE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(SWEETLINE_BUILD_STATIC ON CACHE BOOL "" FORCE)
+        set(SWEETLINE_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+        set(SWEETLINE_BUILD_ANDROID_JNI OFF CACHE BOOL "" FORCE)
+        set(SWEETLINE_BUILD_WASM_EMBIND OFF CACHE BOOL "" FORCE)
+        set(SWEETLINE_BUILD_APPLE_FRAMEWORK OFF CACHE BOOL "" FORCE)
+        add_subdirectory(
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/3dparty/SweetLine"
+            "${CMAKE_BINARY_DIR}/sweetline"
+            EXCLUDE_FROM_ALL
+        )
+        target_sources(apitab PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/examples/preview/src/sweetline_provider.cpp"
+        )
+        target_include_directories(apitab PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/examples/preview/src"
+        )
+        target_link_libraries(apitab PRIVATE SweetLine::sweetline_static)
+    endif ()
 endif ()
 
 if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
