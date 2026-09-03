@@ -47,6 +47,7 @@ enum PageIndex : std::size_t {
     kHistory = 2,
     kProjectSettings = 3,
     kHttpTest = 4, // 遗留：框架 HTTP 协程压测实验页（标题栏闪电图标进入，全宽显示）
+    kSearchablePickerTest = 5, // 控件实验页（标题栏测试入口进入，全宽显示）
 };
 
 [[huxerui::composable]] huxerui::View PageFor(std::size_t index,
@@ -448,7 +449,9 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
         }
         // 遗留 HttpTest（navPage=kHttpTest，标题栏闪电入口）不是项目工作区页面：
         // 任何顶级激活都退出它，避免「顶级标签已切换仍停在 HttpTest」的双状态残留。
-        if (navPage.Get() == pages::kHttpTest) navPage = pages::kRequest;
+        if (navPage.Get() == pages::kHttpTest ||
+            navPage.Get() == pages::kSearchablePickerTest)
+            navPage = pages::kRequest;
         if (after.active.kind == TopTabKind::Project) {
             syncDomainProject(after.active.project_id);
         }
@@ -469,7 +472,9 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
             saveSessionPreference("active_project", "0");
             activeProject = 0;
         }
-        if (!(before.active == after.active) && navPage.Get() == pages::kHttpTest) {
+        if (!(before.active == after.active) &&
+            (navPage.Get() == pages::kHttpTest ||
+             navPage.Get() == pages::kSearchablePickerTest)) {
             // 同 activateTopTabNow：活动顶级标签变化后退出遗留 HttpTest 全宽页
             //（它不属于任何顶级标签）；关非活动标签不动当前页面。
             navPage = pages::kRequest;
@@ -546,10 +551,15 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     // 不变量 1 保证 active 项目在 open_projects 中）。
     const TopTabId activeTab = activeTopTab.Get();
     const bool legacyHttpTest = navPage.Get() == pages::kHttpTest;
+    const bool searchablePickerTest = navPage.Get() == pages::kSearchablePickerTest;
     bool showSideShell = false;
     huxerui::View page;
     if (legacyHttpTest) {
         page = huxerui::View{HttpTestPage()}.Key(std::string{"httptest"}).With(huxerui::Grow(1.0F));
+    } else if (searchablePickerTest) {
+        page = huxerui::View{SearchablePickerTestPage()}
+                  .Key(std::string{"searchable-picker-test"})
+                  .With(huxerui::Grow(1.0F));
     } else {
         // P1-B0.5 状态保活：顶级标签内容用 IndexedPages 保持所有页面挂载（设置↔项目切换不卸载，草稿保活）
         std::vector<huxerui::View> indexed;
@@ -610,6 +620,15 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
             // 偏上的根因：gear.svg 画布 24x24，大于 14pt 的 Frame——未指定
             // Fit 时按画布原始尺寸绘制并从边缘锚定。显式 Fit(Contain) +
             // Align(Center, Center) 让图案缩放后钉在框中心。
+            // 测试入口：SearchablePicker 独立控件实验页，紧邻左侧的闪电协程测试入口。
+            AppIconButton("⌕", "SearchablePicker 控件测试",
+                          [tasks, navPage] {
+                              tasks.Launch([=]() -> huxerui::Task<void> {
+                                  co_await huxerui::Delay(std::chrono::duration<double>{0});
+                                  navPage = pages::kSearchablePickerTest;
+                              });
+                          },
+                          AppIconButtonShape::Bare, 28.0F),
             // 闪电：框架 HTTP 协程压测实验页（遗留顶级入口，保持现状：写
             // navPage=kHttpTest 全宽显示，不表达顶级标签）。§13.1 要求记录后续
             // 选择：要么升级为同类单例顶级标签，要么改为 Dialog/工具窗口

@@ -14,6 +14,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -592,7 +593,8 @@ huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
 // vertical=true 用于 Compact 视口（列表改顶部横岛，限高撑宽）。
 huxerui::View RequestListIsland(huxerui::State<std::vector<RequestDraft>> drafts,
                                 huxerui::State<std::size_t> activeTab,
-                                huxerui::State<int> listVersion, bool vertical);
+                                huxerui::State<int> listVersion, bool vertical,
+                                float horizontalWidth = 260.0F);
 
 // request_page.cpp（P1-C1 起外部链接）— 导入接口弹窗内容：左岛“+”菜单 → 导入
 // 接口…；文件选择（FilePicker）或粘贴退化 + OpenAPI/Postman 解析预览 + 同步落库。
@@ -610,6 +612,19 @@ huxerui::View MockPage(RequestDraft snapshot,
 
 // loadtest_page.cpp
 huxerui::View LoadTestPage();
+
+// searchable_picker.cpp：作者推荐的受控可搜索组合框及独立测试页。
+struct SearchItem {
+    std::string id;
+    std::string label;
+};
+huxerui::View SearchablePicker(
+    const std::vector<SearchItem>& items,
+    huxerui::State<std::optional<std::string>> selectedId,
+    huxerui::ImageVariant dropdownIcon, huxerui::ImageVariant searchIcon,
+    std::function<void(const std::string&)> onSelected = {},
+    bool clearSelectionOnSearch = false);
+huxerui::View SearchablePickerTestPage();
 
 // websocket_page.cpp
 huxerui::View WebSocketPage();

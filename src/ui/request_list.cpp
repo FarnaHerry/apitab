@@ -126,7 +126,7 @@ struct GroupDragPayload {
 // vertical=true 用于 Compact 视口：列表改为顶部横岛（限高、宽度撑满）。
 [[huxerui::composable]] huxerui::View RequestListIsland(
     huxerui::State<std::vector<RequestDraft>> drafts, huxerui::State<std::size_t> activeTab,
-    huxerui::State<int> listVersion, bool vertical) {
+    huxerui::State<int> listVersion, bool vertical, float horizontalWidth) {
 
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
@@ -756,9 +756,9 @@ struct GroupDragPayload {
                                      huxerui::Background(theme.colors.surface_container_low),
                                      huxerui::CornerRadius(theme.shapes.large),
                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    // 方向相关尺寸：竖排（Compact）限高撑宽；横排固定宽 260。
+    // 方向相关尺寸：竖排（Compact）限高撑宽；横排宽度由请求页拖拽状态控制。
     return vertical ? std::move(island).With(huxerui::Frame{.max_height = 220.0F})
-                    : std::move(island).With(huxerui::Frame{.width = 260.0F});
+                    : std::move(island).With(huxerui::Frame{.width = horizontalWidth});
 }
 
 } // namespace apitab::ui

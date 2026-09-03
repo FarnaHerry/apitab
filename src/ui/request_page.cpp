@@ -102,6 +102,77 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     return 2;
 }
 
+// Chrome 风格的连续标签轮廓：外层轮廓只负责绘制表面和边界，实际 Tabs
+// 与页面内容保持透明并叠在 Canvas 之上。选中标签的顶部使用一个浅拱形连接，
+// 看起来像浏览器标签页而不是一组彼此分离的卡片。
+huxerui::Path MakeConnectedTabOutline(huxerui::Size size, std::size_t selectedIndex) {
+    const float w = size.width;
+    const float h = size.height;
+    const float radius = 12.0F;
+    const float stride = 160.0F + 1.0F + 2.0F * 8.0F;
+    const float tabStart = std::clamp(static_cast<float>(selectedIndex) * stride, 0.0F,
+                                      std::max(0.0F, w - 160.0F));
+    const float tabEnd = std::min(w, tabStart + 160.0F);
+    const float bump = std::min(10.0F, std::max(4.0F, h * 0.08F));
+    return huxerui::Path()
+        .MoveTo({radius, 0.0F})
+        .LineTo({tabStart, 0.0F})
+        .CubicTo({tabStart + 4.0F, 0.0F}, {tabStart + 5.0F, bump},
+                 {tabStart + 12.0F, bump})
+        .LineTo({tabEnd - 12.0F, bump})
+        .CubicTo({tabEnd - 5.0F, bump}, {tabEnd - 4.0F, 0.0F}, {tabEnd, 0.0F})
+        .LineTo({w - radius, 0.0F})
+        .CubicTo({w - radius * 0.45F, 0.0F}, {w, radius * 0.45F}, {w, radius})
+        .LineTo({w, std::max(radius, h - radius)})
+        .CubicTo({w, h - radius * 0.45F}, {w - radius * 0.45F, h}, {w - radius, h})
+        .LineTo({radius, h})
+        .CubicTo({radius * 0.45F, h}, {0.0F, h - radius * 0.45F}, {0.0F, h - radius})
+        .LineTo({0.0F, radius})
+        .CubicTo({0.0F, radius * 0.45F}, {radius * 0.45F, 0.0F}, {radius, 0.0F})
+        .Close();
+}
+
+huxerui::View ResizeHandle(huxerui::Axis axis, huxerui::State<float> value,
+                           huxerui::State<float> origin, float minimum, float maximum,
+                           bool reverse = false) {
+    const bool horizontal = axis == huxerui::Axis::Horizontal;
+    const huxerui::Axis dragAxis = horizontal ? huxerui::Axis::Vertical
+                                              : huxerui::Axis::Horizontal;
+    huxerui::Frame frame;
+    if (horizontal)
+        frame.height = 8.0F;
+    else
+        frame.width = 8.0F;
+    return huxerui::Stack {huxerui::Divider(axis)}
+        .With(frame,
+              huxerui::PointerCursor(horizontal ? huxerui::PointerCursorKind::ResizeVertical
+                                                 : huxerui::PointerCursorKind::ResizeHorizontal),
+              huxerui::DragGesture{.axis = dragAxis, .minimum_distance = 0.0F})
+        .On<huxerui::DragEvents::Started>([origin, value](const huxerui::DragEvent&) {
+            origin = value.Get();
+        })
+        .On<huxerui::DragEvents::Changed>([origin, value, minimum, maximum, reverse, horizontal](const huxerui::DragEvent& event) {
+            const float delta = horizontal ? event.translation.y : event.translation.x;
+            const float signedDelta = reverse ? -delta : delta;
+            value = std::clamp(origin.Get() + signedDelta, minimum, maximum);
+        });
+}
+
+huxerui::View GoogleRequestSurface(huxerui::View content, std::size_t selectedIndex,
+                                   const huxerui::ThemeSpec& theme) {
+    const huxerui::Color surface = theme.colors.surface_container_low;
+    const huxerui::Color border = theme.colors.outline;
+    return huxerui::Stack {
+        huxerui::Canvas([surface, border, selectedIndex](huxerui::PaintContext& paint,
+                                                           huxerui::Size size) {
+            const huxerui::Path outline = MakeConnectedTabOutline(size, selectedIndex);
+            paint.FillPath(outline, surface);
+            paint.StrokePath(outline, border, huxerui::StrokeStyle{.width = 1.0F});
+        }),
+        std::move(content),
+    }.With(huxerui::Grow(1.0F), huxerui::ClipChildren());
+}
+
 
 } // namespace
 
@@ -321,7 +392,9 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
 
     // 未打开项目的兜底已删：主页整宽覆盖侧栏后本页在 opened==0 时不可达。
-    (void)opened;
+    // 仍订阅 opened：切换项目时，保活的请求页需要重组一次，让环境选择器从
+    // 当前项目游标重新读取并显示对应环境。
+    (void)opened.Get();
 
     // 内部标签页：每个打开的请求一个草稿；响应区状态为页面级（单引擎）。
     auto openDrafts = huxerui::UseState<std::vector<RequestDraft>>({});
@@ -337,6 +410,10 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     auto responseBody = huxerui::UseState(std::string{"（尚未发送请求）"});
     auto responseHeaders = huxerui::UseState<std::vector<std::string>>({});
     auto responseCookies = huxerui::UseState<std::vector<std::string>>({});
+    auto leftIslandWidth = huxerui::UseState(260.0F);
+    auto leftIslandOrigin = huxerui::UseState(260.0F);
+    auto responseIslandHeight = huxerui::UseState(260.0F);
+    auto responseIslandOrigin = huxerui::UseState(260.0F);
 
     // 响应式：Compact（<600pt）改上下堆叠，Medium/Expanded 保持左右双岛。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
@@ -366,85 +443,84 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
             activeTab = copy.size() - 1;
             newTabOpen = false;
         };
-        rightArea = huxerui::Column {
-                        RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
-                        NewRequestChooser(createDraft),
-                    }
-                        .With(huxerui::Spacing(theme.spacing.medium),
-                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-                              huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-                              huxerui::Background(theme.colors.surface_container_low),
-                              huxerui::CornerRadius(theme.shapes.large),
-                              huxerui::Padding(theme.spacing.medium),
-                              huxerui::Grow(1.0F));
+        rightArea = GoogleRequestSurface(
+            huxerui::Column {
+                RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
+                NewRequestChooser(createDraft),
+            }
+                .With(huxerui::Spacing(theme.spacing.medium),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                      huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                      huxerui::Padding(theme.spacing.medium),
+                      huxerui::Grow(1.0F)),
+            current, theme);
     } else if (currentKind == 1 || currentKind == 2) {
         huxerui::View content = currentKind == 1
                                     ? WebSocketPage().With(huxerui::Grow(1.0F)).Key(contentKey)
                                     : TcpPage().With(huxerui::Grow(1.0F)).Key(contentKey);
-        rightArea = huxerui::Column {
-                        RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
-                        std::move(content),
-                    }
-                        .With(huxerui::Spacing(theme.spacing.medium),
-                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                              huxerui::Background(theme.colors.surface_container_low),
-                              huxerui::CornerRadius(theme.shapes.large),
-                              huxerui::Padding(theme.spacing.medium),
-                              huxerui::Grow(1.0F));
+        rightArea = GoogleRequestSurface(
+            huxerui::Column {
+                RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
+                std::move(content),
+            }
+                .With(huxerui::Spacing(theme.spacing.medium),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                      huxerui::Padding(theme.spacing.medium),
+                      huxerui::Grow(1.0F)),
+            current, theme);
     } else if (currentKind == 3) {
         // gRPC 占位页：支持规划中——只给标签条 + 居中提示，无操作栏/分区。
-        rightArea = huxerui::Column {
-                        RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
-                        huxerui::Column {
-                            huxerui::Text("gRPC 请求：支持规划中（暂不可保存/发送）",
-                                          huxerui::TextRole::Title),
-                            huxerui::Text("协议引擎尚未接入，本标签仅作占位，可直接关闭。",
-                                          huxerui::TextRole::Body)
-                                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-                        }
-                            .With(huxerui::Spacing(theme.spacing.small),
-                                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-                                  huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-                                  huxerui::Grow(1.0F))
-                            .Key(contentKey),
-                    }
-                        .With(huxerui::Spacing(theme.spacing.medium),
-                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                              huxerui::Background(theme.colors.surface_container_low),
-                              huxerui::CornerRadius(theme.shapes.large),
-                              huxerui::Padding(theme.spacing.medium),
-                              huxerui::Grow(1.0F));
+        rightArea = GoogleRequestSurface(
+            huxerui::Column {
+                RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
+                huxerui::Column {
+                    huxerui::Text("gRPC 请求：支持规划中（暂不可保存/发送）",
+                                  huxerui::TextRole::Title),
+                    huxerui::Text("协议引擎尚未接入，本标签仅作占位，可直接关闭。",
+                                  huxerui::TextRole::Body)
+                        .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+                }
+                    .With(huxerui::Spacing(theme.spacing.small),
+                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                          huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                          huxerui::Grow(1.0F))
+                    .Key(contentKey),
+            }
+                .With(huxerui::Spacing(theme.spacing.medium),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                      huxerui::Padding(theme.spacing.medium),
+                      huxerui::Grow(1.0F)),
+            current, theme);
     } else {
         // 非调试子页（文档/测试用例/Mock）：编辑器占满右岛，响应下岛让位。
         const bool debugging = editorPage.Get() == 0;
         std::vector<huxerui::View> islands;
-        islands.push_back(
-            huxerui::Column {
-                RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
-                RequestEditor(openDrafts, current, activeTab, listVersion,
-                              inFlight, responseBody, responseHeaders,
-                              responseCookies, envVersion, editorPage)
-                    .Key(contentKey)
-                    .With(huxerui::Grow(1.0F)),
-            }
-                .With(huxerui::Spacing(theme.spacing.medium),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                      huxerui::Background(theme.colors.surface_container_low),
-                      huxerui::CornerRadius(theme.shapes.large),
-                      huxerui::Padding(theme.spacing.medium),
-                      huxerui::Grow(debugging ? 3.0F : 1.0F)));
+        huxerui::View editorIsland = huxerui::Column {
+            RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
+            RequestEditor(openDrafts, current, activeTab, listVersion,
+                          inFlight, responseBody, responseHeaders,
+                          responseCookies, envVersion, editorPage)
+                .Key(contentKey)
+                .With(huxerui::Grow(1.0F)),
+        }
+            .With(huxerui::Spacing(theme.spacing.medium),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                  huxerui::Padding(theme.spacing.medium),
+                  huxerui::Grow(debugging ? 3.0F : 1.0F));
+        islands.push_back(GoogleRequestSurface(std::move(editorIsland), current,
+                                                theme));
         if (debugging) {
-            islands.push_back(
-                huxerui::Column {
+            islands.push_back(ResizeHandle(huxerui::Axis::Horizontal, responseIslandHeight,
+                                           responseIslandOrigin, 140.0F, 640.0F,
+                                           true));
+            islands.push_back(huxerui::Column {
                     ResponseArea(responseBody, responseHeaders, responseCookies, theme)
                         .With(huxerui::Grow(1.0F)),
                 }
                     .With(huxerui::Spacing(theme.spacing.small),
                           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                          huxerui::Background(theme.colors.surface_container_low),
-                          huxerui::CornerRadius(theme.shapes.large),
                           huxerui::Padding(theme.spacing.medium),
-                          huxerui::Grow(2.0F)));
+                          huxerui::Frame{.height = responseIslandHeight.Get()}));
         }
         rightArea = huxerui::Column(std::move(islands))
                         .With(huxerui::Spacing(theme.spacing.small),
@@ -455,7 +531,7 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     if (compact) {
         // Compact：上 = 请求列表（限高 220、宽度撑满），下 = 编辑区（撑满剩余）。
         return huxerui::Column {
-                   RequestListIsland(openDrafts, activeTab, listVersion, true),
+                   RequestListIsland(openDrafts, activeTab, listVersion, true, 260.0F),
                    std::move(rightArea),
                }
             .With(huxerui::Spacing(theme.spacing.small),
@@ -463,7 +539,10 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
     return huxerui::Row {
-               RequestListIsland(openDrafts, activeTab, listVersion, false),
+               RequestListIsland(openDrafts, activeTab, listVersion, false,
+                                 leftIslandWidth.Get()),
+               ResizeHandle(huxerui::Axis::Vertical, leftIslandWidth, leftIslandOrigin,
+                            180.0F, 420.0F),
                std::move(rightArea),
            }
         .With(huxerui::Spacing(theme.spacing.small),

@@ -3,9 +3,13 @@
 #include <huxerui/huxerui.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "ui.h"
@@ -32,7 +36,6 @@ struct DraftTabDragPayload {
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
     auto toast = huxerui::UseToast();
-    auto envEditing = huxerui::UseState(false);
     (void)envVersion.Get(); // 订阅环境版本：环境增删改/切换后重组本条
     const auto chipFont = huxerui::Font::System(font_size::kChip);
     const auto badgeFont =
@@ -329,67 +332,40 @@ struct DraftTabDragPayload {
         }
     }
 
-    // 环境下拉：选项 = "无" + 当前项目环境（组合期按 envVersion 重读 store）。
+    // 环境选择 + ☰ 合并控件。选项 = "无" + 当前项目环境；搜索、展开/收起和
+    // 闭合态选中项显示统一由作者推荐的 SearchablePicker 负责。
     const std::vector<db::Environment>& envs = g_requests.environments();
-    std::vector<std::string> envNames;
-    envNames.reserve(envs.size() + 1);
-    envNames.push_back("无");
-    std::size_t currentEnv = 0;
-    for (const db::Environment& e : envs) {
-        if (e.id == g_requests.currentEnvId()) currentEnv = envNames.size();
-        envNames.push_back(e.name.empty() ? "（未命名）" : e.name);
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    std::vector<SearchItem> envItems{{.id = "0", .label = "无"}};
+    envItems.reserve(envs.size() + 1);
+    for (const db::Environment& env : envs)
+        envItems.push_back(SearchItem{.id = std::to_string(env.id),
+                                      .label = env.name.empty() ? "（未命名）" : env.name});
+
+    auto selectedEnvId = huxerui::UseState<std::optional<std::string>>(
+        std::to_string(g_requests.currentEnvId()));
+    const std::string storeEnvId = std::to_string(g_requests.currentEnvId());
+    if (!selectedEnvId.Get() || *selectedEnvId.Get() != storeEnvId) {
+        selectedEnvId = storeEnvId;
     }
 
-    // 环境选择 + ☰ 合并控件。HuxerUI 2659a55 起 ComboBox 原生提供尾图标
-    // 和展开状态事件：展开=进搜索态并清空查询，收起=回闭合态。闭合态显示
-    // 在组合期从 store 现值派生，保证默认始终是当前环境名，不再自行拼
-    // TextField + Popup。
-    const IslandTheme islands = ResolveIslandTheme(theme);
-    struct EnvChoice {
-        std::int64_t id = 0;
-        std::string label;
-    };
-    std::vector<EnvChoice> allChoices{{.id = 0, .label = "无"}};
-    for (const db::Environment& env : envs)
-        allChoices.push_back(EnvChoice{.id = env.id,
-                                       .label = env.name.empty() ? "（未命名）" : env.name});
-
-    // envQuery 只承载搜索态的查询文本；闭合态显示值在组合期从 store 现值
-    // 派生（不依赖 State 快照回写——快照漏一次写回就空白/陈旧，默认必须
-    // 始终显示当前环境名）。
-    auto envQuery = huxerui::UseState(huxerui::TextEditingValue::FromText(""));
-    const huxerui::TextEditingValue envValue =
-        envEditing.Get()
-            ? envQuery.Get()
-            : huxerui::TextEditingValue::FromText(envNames.at(currentEnv));
-    // 统一切环境出口：菜单点击/键盘 Enter 唯一命中/提交都走这里，失败只弹 toast
-    // 不改搜索态。成功则退出搜索态并 bump envVersion 重组（显示随即跟上新值）。
-    auto applyEnvChoice = [envEditing, envQuery, envVersion, toast](std::int64_t id) {
-        if (const std::string err = g_requests.selectEnv(id); !err.empty()) {
-            toast.Show("切换环境失败: " + err);
+    // 统一切环境出口：菜单点击/键盘 Enter 唯一命中都走这里，失败只弹 toast；
+    // 成功 bump envVersion，让闭合态标签和 URL 基础地址同步刷新。
+    auto applyEnvChoice = [selectedEnvId, envVersion, toast](const std::string& id) {
+        std::int64_t envId = 0;
+        const auto [end, error] = std::from_chars(id.data(), id.data() + id.size(), envId);
+        if (error != std::errc{} || end != id.data() + id.size()) {
+            toast.Show("切换环境失败: 环境标识无效");
+            selectedEnvId = std::to_string(g_requests.currentEnvId());
             return;
         }
-        envQuery = huxerui::TextEditingValue::FromText("");
-        envEditing = false;
+        if (const std::string err = g_requests.selectEnv(envId); !err.empty()) {
+            toast.Show("切换环境失败: " + err);
+            selectedEnvId = std::to_string(g_requests.currentEnvId());
+            return;
+        }
         envVersion = envVersion.Get() + 1;
     };
-    std::vector<std::string> filteredEnvironments;
-    std::vector<std::int64_t> filteredEnvironmentIds;
-    const std::string query = envEditing.Get() ? envQuery.Get().text : std::string{};
-    for (const EnvChoice& choice : allChoices) {
-        std::string candidate = choice.label;
-        std::string needle = query;
-        std::ranges::transform(candidate, candidate.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        std::ranges::transform(needle, needle.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        if (needle.empty() || candidate.find(needle) != std::string::npos) {
-            filteredEnvironments.push_back(choice.label);
-            filteredEnvironmentIds.push_back(choice.id);
-        }
-    }
     huxerui::TextFieldStyle envFieldStyle =
         huxerui::UseEnvironment<huxerui::TextFieldStyle>();
     // 顶部标签条自身使用弱前景色；ComboBox 的内部 TextField 不能依赖祖先
@@ -398,6 +374,17 @@ struct DraftTabDragPayload {
     envFieldStyle.placeholder_style.foreground = theme.colors.on_surface_variant;
     envFieldStyle.label_style.foreground = theme.colors.on_surface_variant;
     envFieldStyle.floating_label_style.foreground = theme.colors.on_surface_variant;
+    // 标签条中的环境选择器是 32pt 紧凑控件；Material TextField 默认最小高
+    // 度为 56pt、上下 padding 为 16pt，放进固定高度并裁剪的环境区后会把
+    // 编辑文字挤出可视区域。这里沿用 URL 工具栏的紧凑尺寸，同时把外框交给
+    // envTrigger，避免内部描边覆盖主题边界。
+    envFieldStyle.variant = huxerui::TextFieldVariant::Outlined;
+    envFieldStyle.outlined.minimum_height = islands.control_height;
+    envFieldStyle.outlined.border = huxerui::Color::Transparent();
+    envFieldStyle.outlined.hovered_border = huxerui::Color::Transparent();
+    envFieldStyle.outlined.focused_border = huxerui::Color::Transparent();
+    envFieldStyle.corner_radius = 0.0F;
+    envFieldStyle.padding = huxerui::EdgeInsets::Symmetric(8.0F, 6.0F);
     envFieldStyle.caret = theme.colors.primary;
     envFieldStyle.composition = theme.colors.primary;
     envFieldStyle.selection = huxerui::Color{
@@ -406,48 +393,13 @@ struct DraftTabDragPayload {
     envFieldStyle.trailing_icon = theme.colors.on_surface_variant;
     envFieldStyle.focused_trailing_icon = theme.colors.primary;
 
+    huxerui::View envPicker = SearchablePicker(envItems, selectedEnvId, app::images::chevron_down,
+                                               app::images::search, applyEnvChoice, true);
     huxerui::View envTrigger = huxerui::ProvideEnvironment(
         envFieldStyle,
-        huxerui::View{
-        huxerui::ComboBox(envValue, filteredEnvironments)
-            .Placeholder(envEditing.Get() ? envNames.at(currentEnv) : "搜索环境")
-            .Variant(huxerui::TextFieldVariant::Outlined)
-            .TrailingIcon(envEditing.Get() ? app::images::search : app::images::chevron_down)
-            // ComboBox 在候选为空且没有 EmptyContent 时会主动关闭。搜索首字
-            // 暂无匹配是正常中间态，必须保留弹层和原生输入会话。
-            .EmptyContent([] {
-                return huxerui::Text("没有匹配的环境", huxerui::TextRole::Label)
-                    .With(huxerui::Padding(10.0F));
-            })
-            .OnExpandedChanged([envEditing, envQuery](bool expanded) {
-                if (expanded) {
-                    envEditing = true;
-                    envQuery = huxerui::TextEditingValue::FromText("");
-                    return;
-                }
-                // 无选中关闭（Escape / 点外部 / 失焦 / 卸载）同样发收起事件：
-                // 退出搜索态即可，闭合显示值由组合期从 store 现值派生，无需回写。
-                envEditing = false;
-            })
-            .OnChanged([envEditing, envQuery](const huxerui::TextEditingValue& value) {
-                envEditing = true;
-                envQuery = value;
-            })
-            .OnSelected([applyEnvChoice, filteredEnvironmentIds](
-                            std::size_t index, const huxerui::TextEditingValue&) {
-                if (index >= filteredEnvironmentIds.size()) return;
-                applyEnvChoice(filteredEnvironmentIds[index]);
-            })
-            // 无高亮项时按 Enter 框架发 Submitted（先收起再发）。搜索场景里
-            // "输查询词 + Enter"是自然完成手势：唯一命中直接采用；多命中/
-            // 无命中回到闭合态（显示仍为当前环境）。
-            .OnSubmitted([applyEnvChoice, query, filteredEnvironments,
-                          filteredEnvironmentIds] {
-                if (query.empty() || filteredEnvironments.size() != 1) return;
-                applyEnvChoice(filteredEnvironmentIds[0]);
-            })
+        std::move(envPicker)
             .With(huxerui::Frame{.width = 136.0F, .height = islands.control_height},
-                  huxerui::ClipChildren())});
+                  huxerui::ClipChildren()));
 
     // ☰：环境配置弹窗（自定义内容层，DialogFactory）。P1-A4 收口：原
     // Text("☰")+Padding 热区不足 28pt 且无语义标签/Tooltip，迁为统一 Bare
