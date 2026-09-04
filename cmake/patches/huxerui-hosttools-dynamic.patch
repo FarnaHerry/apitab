@@ -1,0 +1,30 @@
+diff --git a/tools/codegen/CMakeLists.txt b/tools/codegen/CMakeLists.txt
+index 7bc5932..559da07 100644
+--- a/tools/codegen/CMakeLists.txt
++++ b/tools/codegen/CMakeLists.txt
+@@ -18,7 +18,9 @@ target_compile_options(huxerui_codegen PRIVATE
+         "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wno-missing-field-initializers>"
+ )
+ 
+-if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
++# apitab local patch: static libstdc++ is unavailable on the dev host
++# (libstdc++-static not installed); tools run on this machine only, link dynamically.
++if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT APITAB_HOST_TOOLS_DYNAMIC)
+     target_link_options(huxerui_codegen PRIVATE -static-libstdc++ -static-libgcc)
+ endif ()
+ 
+diff --git a/tools/resource_compiler/CMakeLists.txt b/tools/resource_compiler/CMakeLists.txt
+index 1834e48..58fa116 100644
+--- a/tools/resource_compiler/CMakeLists.txt
++++ b/tools/resource_compiler/CMakeLists.txt
+@@ -19,7 +19,9 @@ target_compile_options(huxerui_resource_compiler PRIVATE
+         "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wno-missing-field-initializers>"
+ )
+ 
+-if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
++# apitab local patch: static libstdc++ is unavailable on the dev host
++# (libstdc++-static not installed); tools run on this machine only, link dynamically.
++if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT APITAB_HOST_TOOLS_DYNAMIC)
+     target_link_options(huxerui_resource_compiler PRIVATE -static-libstdc++ -static-libgcc)
+ endif ()
+ 

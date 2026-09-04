@@ -50,6 +50,11 @@ jobs:
           git -C third_party/huxerui checkout d3da824
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
+          # 上游预置宿主工具与源码版本脱节：d3da824 的 linux 预置 hrc 会把资源包
+          # 编成 v2，而该提交运行库只读 v1 → 启动即抛 "resource index version is
+          # unsupported: 2"。改按固定提交自编译 hrc/hcg，保证写端==读端。此补丁
+          # 放开 Linux 的 -static-libstdc++（容器没有 libstdc++-static）。
+          git -C third_party/huxerui apply ../../cmake/patches/huxerui-hosttools-dynamic.patch
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
           git -C third_party/huxerui-sweetedit checkout ca96393
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
@@ -70,7 +75,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get install -y --no-install-recommends \
-            clang-21 libc++-21-dev ninja-build pkg-config file python3 python3-pip \
+            clang-21 libc++-21-dev g++ ninja-build pkg-config file python3 python3-pip \
             libssl-dev libgtk-4-dev libsoup-3.0-dev patchelf
           # 26.04 的 apt cmake 是 3.31（无 GNU 发现模块且全局 token 不匹配），固定 pip 4.4.2
           python3 -m pip install --break-system-packages -q cmake==4.4.2
@@ -85,6 +90,25 @@ jobs:
               m['source-path'] = '/usr/lib/llvm-21/share/libc++/v1/' + m['source-path'].split('/')[-1]
               m['local-arguments']['system-include-directories'] = ['/usr/lib/llvm-21/share/libc++/v1']
           json.dump(d, open(p, 'w'), indent=1)"
+
+      - name: Build HuxerUI host tools (source)
+        run: |
+          set -euo pipefail
+          # HuxerUI 预置的 linux hrc 与固定提交的读端版本脱节（见 fetch 步骤注释）。
+          # 用同一固定提交自编译 hcg/hrc 落到 third_party/huxerui-tools，顶层
+          # CMakeLists 的 HUXERUI_HOST_TOOL_ROOT 会优先使用它——资源包写端与运行
+          # 库读端来自同一份源码。工具是纯 C++20 宿主程序，按 CLAUDE.md 本机流程
+          # 用 g++ 动态编译即可（此处的 hosttools-dynamic 补丁已放开 -static）。
+          tools_root="third_party/huxerui-tools/linux/x86_64"
+          mkdir -p "$tools_root"
+          for tool in codegen resource_compiler; do
+            build_dir="host-tools-build/$tool"
+            cmake -S "third_party/huxerui/tools/$tool" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Release -DAPITAB_HOST_TOOLS_DYNAMIC=ON
+            cmake --build "$build_dir" --config Release --parallel
+            cmake --install "$build_dir" --config Release --strip --prefix "$tools_root"
+          done
+          ls -la "$tools_root"
+          ./"$tools_root"/hrc 2>&1 | head -1 || true
 
       - name: Configure
         run: |
