@@ -390,9 +390,7 @@ constexpr AboutDependency kAboutDependencies[] = {
     const float imageLeft = (kStageSize - imageWidth) / 2.0F;
     const float imageTop = (kStageSize - imageHeight) / 2.0F;
     const float maxSide = std::min(imageWidth, imageHeight);
-    const float minCropSide = std::min(maxSide, 160.0F);
-    auto cropSideState = huxerui::UseState(maxSide);
-    const float cropSide = ClampCropValue(cropSideState.Get(), minCropSide, maxSide);
+    const float cropSide = maxSide;
     const float cropLeft = (kStageSize - cropSide) / 2.0F;
     const float cropTop = (kStageSize - cropSide) / 2.0F;
     auto imageScale = huxerui::UseState(1.0F);
@@ -574,22 +572,22 @@ constexpr AboutDependency kAboutDependencies[] = {
         huxerui::Text("拖动底图调整位置，滚轮缩放；触控板双指可缩放和旋转，中心圆形区域是头像预览。",
                       huxerui::TextRole::Body),
         huxerui::Row {
-            huxerui::Text("裁剪大小", huxerui::TextRole::Label),
-            huxerui::Slider(cropSide)
-                .Range(minCropSide, maxSide)
-                .Step(1.0F)
+            huxerui::Text("图片缩放", huxerui::TextRole::Label),
+            huxerui::Slider(imageScale)
+                .Range(1.0F, 8.0F)
+                .Step(0.01F)
                 .With(huxerui::Grow(1.0F))
-                .OnChanged([cropSideState, imageScale, imageRotation, imageOffsetX,
-                            imageOffsetY, clampOffsetForCrop, minCropSide, maxSide](float value) {
-                    const float nextSide = ClampCropValue(value, minCropSide, maxSide);
-                    const huxerui::Point offset = clampOffsetForCrop(
-                        nextSide, imageScale.Get(), imageRotation.Get(),
+                .OnChanged([imageScale, imageRotation, imageOffsetX, imageOffsetY,
+                            clampOffset](float value) {
+                    const float nextScale = ClampCropValue(value, 1.0F, 8.0F);
+                    const huxerui::Point offset = clampOffset(
+                        nextScale, imageRotation.Get(),
                         {imageOffsetX.Get(), imageOffsetY.Get()});
-                    cropSideState = nextSide;
+                    imageScale = nextScale;
                     imageOffsetX = offset.x;
                     imageOffsetY = offset.y;
                 }),
-            huxerui::Text(std::to_string(static_cast<int>(cropSide)) + " px",
+            huxerui::Text(std::to_string(static_cast<int>(imageScale.Get() * 100.0F)) + "%",
                           huxerui::TextRole::Label)
                 .With(huxerui::Frame{.width = 56.0F}),
         }.With(huxerui::Spacing(theme.spacing.small),
