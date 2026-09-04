@@ -184,6 +184,11 @@ ctest --test-dir build             # 冒烟测试（test_smoke）
 ./run.sh                           # 启动 GUI（切到仓库根 + INTEL_FORCE_PROBE=1）
 ```
 
+- **发布/打包规范先读 skill**：`.claude/skills/apitab-release/SKILL.md`——产物命名用
+  `<os>-<arch>` 全称（`linux-x86_64`/`macos-arm64`/`windows-x86_64`，禁 `win64` 等简称）、
+  每平台一份规范产物（同 tag 重发前先清陈旧资产）、Linux 随包带 `lib/`+`apitab.resources/`
+  且 RUNPATH 用 `$ORIGIN`（不烘焙 CI 绝对路径）。改 `.github/workflows/build.yml`、
+  `packaging/*` 或生成/清理 release 产物前先读它。
 - 项目结构对齐 `huxerui create app` 生成格式：顶部 plan 自省块（CLI
   识别项目的依据）、`platform/<平台>/main.cpp` 平台入口（`main()` 里先
   `loadSessionPreferences()` 再 `RunApplication()`）、`src/app.cpp` 只持有
