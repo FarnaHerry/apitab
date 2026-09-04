@@ -23,6 +23,20 @@ cp -r "$root/assets" "$dist/assets"
 cp "$k6" "$dist/engines/k6"
 chmod +x "$dist/engines/k6"
 
+# Linux：把构建期预置的运行库（libhuxerui.so + libc++/libc++abi，RUNPATH=$ORIGIN/lib）
+# 与框架资源索引（apitab.resources/huxerui/resources.bin）一并放进发布目录，
+# 否则安装后缺 libhuxerui.so 直接无法启动。
+if [[ "$os" == linux ]]; then
+    exedir="$(cd "$(dirname "$exe")" && pwd)"
+    if [[ -d "$exedir/lib" && -n "$(ls -A "$exedir/lib")" ]]; then
+        mkdir -p "$dist/lib"
+        cp -a "$exedir/lib/". "$dist/lib/"
+    fi
+    if [[ -d "$exedir/apitab.resources" ]]; then
+        cp -a "$exedir/apitab.resources" "$dist/apitab.resources"
+    fi
+fi
+
 if [[ "$os" == linux ]]; then
     cat > "$dist/run.sh" <<'EOF'
 #!/usr/bin/env bash

@@ -47,6 +47,8 @@ testing with SQLite-backed collections and history.
 %install
 mkdir -p %{buildroot}/opt/apitab %{buildroot}/usr/bin %{buildroot}/usr/share/applications %{buildroot}/usr/share/icons/hicolor/256x256/apps
 cp -r %{distdir}/. %{buildroot}/opt/apitab/
+test ! -d %{distdir}/lib || cp -r %{distdir}/lib %{buildroot}/opt/apitab/lib
+test ! -d %{distdir}/apitab.resources || cp -r %{distdir}/apitab.resources %{buildroot}/opt/apitab/apitab.resources
 install -m 0755 %{srcdir}/apitab-wrapper.sh %{buildroot}/usr/bin/apitab
 install -m 0644 %{srcdir}/apitab.desktop %{buildroot}/usr/share/applications/apitab.desktop
 if [ -f %{buildroot}/opt/apitab/assets/icon.png ]; then

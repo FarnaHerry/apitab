@@ -29,6 +29,8 @@ cp -r "$dist/apitab" "$stage/opt/apitab/apitab"
 chmod +x "$stage/opt/apitab/apitab"
 cp -r "$dist/assets" "$stage/opt/apitab/assets"
 cp -r "$dist/engines" "$stage/opt/apitab/engines"
+if [ -d "$dist/lib" ]; then cp -r "$dist/lib" "$stage/opt/apitab/lib"; fi
+if [ -d "$dist/apitab.resources" ]; then cp -r "$dist/apitab.resources" "$stage/opt/apitab/apitab.resources"; fi
 
 cp "$root/packaging/apitab-wrapper.sh" "$stage/usr/bin/apitab"
 chmod +x "$stage/usr/bin/apitab"
@@ -45,7 +47,7 @@ Section: devel
 Priority: optional
 Architecture: ${debarch}
 Maintainer: FarnaHerry <farnaherry@users.noreply.github.com>
-Depends: libx11-6, libxrandr2, libxcursor1, libxinerama1, libxi6, libgl1
+Depends: libgtk-4-1, libsoup-3.0-0, libx11-6, libxrandr2, libxcursor1, libxinerama1, libxi6, libgl1
 Description: API testing and load testing tool
  Single-request API debugging, WebSocket/TCP clients and k6 load
  testing with SQLite-backed collections and history.

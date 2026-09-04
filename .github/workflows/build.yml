@@ -71,7 +71,7 @@ jobs:
         run: |
           apt-get install -y --no-install-recommends \
             clang-21 libc++-21-dev ninja-build pkg-config file python3 python3-pip \
-            libssl-dev libgtk-4-dev libsoup-3.0-dev
+            libssl-dev libgtk-4-dev libsoup-3.0-dev patchelf
           # 26.04 的 apt cmake 是 3.31（无 GNU 发现模块且全局 token 不匹配），固定 pip 4.4.2
           python3 -m pip install --break-system-packages -q cmake==4.4.2
           cmake --version | head -1
@@ -103,12 +103,31 @@ jobs:
       - name: Build release
         run: cmake --build build --config Release --parallel
 
-      - name: Stage executable
+      - name: Stage runtime bundle
         run: |
-          mkdir -p dist-src
+          set -euo pipefail
+          mkdir -p dist-src/lib
           cp build/apitab dist-src/apitab
           chmod +x dist-src/apitab
+          # HuxerUI 源码通道按 shared 编译，libhuxerui.so 只存在于构建树，
+          # 发布包必须把它随 exe 带出，并让动态加载器按 $ORIGIN/lib 解析。
+          huxerui_lib="$(find build -name 'libhuxerui.so' -print -quit)"
+          test -n "$huxerui_lib" || { echo 'libhuxerui.so not found' >&2; exit 1; }
+          cp -L "$huxerui_lib" dist-src/lib/libhuxerui.so
+          # apitab 用 clang + libc++ 编译/链接；libc++/libc++abi 大多数发行版
+          # 不会预装（Fedora/Debian 默认只带 libstdc++），同样随包带出。
+          for lib in libc++.so.1 libc++abi.so.1 libunwind.so.1; do
+            p="$(find /usr/lib -name "$lib" -print -quit 2>/dev/null || true)"
+            if [ -n "$p" ]; then cp -L "$p" "dist-src/lib/$lib"; fi
+          done
+          # 框架资源索引：运行时按 <exeDir>/apitab.resources/huxerui/resources.bin 读取
+          # （顶层 CMakeLists 的 POST_BUILD 已把它放到 exe 旁，直接取用）。
+          mkdir -p dist-src/apitab.resources/huxerui
+          cp build/apitab.resources/huxerui/resources.bin dist-src/apitab.resources/huxerui/resources.bin
+          # 覆盖构建期指向 CI 工作区的 RUNPATH，改为相对 $ORIGIN
+          patchelf --set-rpath '$ORIGIN/lib' dist-src/apitab
           file dist-src/apitab
+          ls -la dist-src/lib
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
