@@ -46,6 +46,7 @@ struct DraftTabDragPayload {
     // 生命周期：指针进入 chip 呈现边界发 Enter、离开才发 Leave，在子组件
     // （徽标/名称/✕）之间移动不重触发——挂在 chip 最外层即覆盖整 chip。
     auto hoveredChip = huxerui::UseState<std::uint64_t>(0);
+    auto newTabHovered = huxerui::UseState(false);
     // 拖拽中的水平位移（Chrome 式贴条滑动，同顶级标签）：被拖 chip 的 uid +
     // X 位移（已按条内容范围钳制）。被拖 chip 本体变透明占位，视觉由条内
     // 覆盖层克隆接管（见下方 overlayChip）——覆盖层无任何事件 handler，
@@ -282,9 +283,21 @@ struct DraftTabDragPayload {
                       huxerui::ClipChildren()));
     }
     // 末尾 "＋"：只打开新建状态标签，类型卡片确认后才创建草稿。
-    chips.push_back(AppIconButton("+", "新建请求标签", [newTabOpen] {
-                            newTabOpen = true;
-                        }, AppIconButtonShape::Circular));
+    // 常态保持透明且无轮廓，悬停时仅显示圆形轮廓。
+    huxerui::View newTabButton = AppIconButton(
+        "+", "新建请求标签", [newTabOpen] { newTabOpen = true; },
+        AppIconButtonShape::Bare);
+    newTabButton = std::move(newTabButton)
+                       .With(huxerui::CornerRadius(theme.shapes.full),
+                             huxerui::Border(newTabHovered.Get()
+                                                 ? theme.colors.outline
+                                                 : huxerui::Color::Transparent(),
+                                             1.0F))
+                       .On<huxerui::ViewEvents::Hover>(
+                           [newTabHovered](const huxerui::HoverEvent& e) {
+                               newTabHovered = e.type != huxerui::HoverEventType::Leave;
+                           });
+    chips.push_back(std::move(newTabButton));
 
     // 拖拽覆盖层：被拖 chip 的视觉克隆（纯展示，无事件/悬停 handler——命中
     // 测试穿透到下方静止 chip）。Stack 中最后声明 = 绘制最上层（充当

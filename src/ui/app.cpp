@@ -1,7 +1,7 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 托盘）：
 //   标题栏岛：Logo(AT) + 顶级标签条（TopTabStrip：主页钉在最左、项目标签横向滚动、
-//     设置单例标签固定追加在所有项目标签之后）+ 闪电（遗留 HttpTest 入口）+ 齿轮
-//     (全局设置单例标签) + 框架窗口按钮；收窄为 24px 高、去背景直接融入窗口底色，
+//     设置单例标签固定追加在所有项目标签之后）+ 齿轮（全局设置单例标签）+
+//     框架窗口按钮；收窄为 24px 高、去背景直接融入窗口底色，
 //     主题为极简 AI 黑白风（MinimalDark/MinimalLightThemeSpec，对齐 tinynext 配色）。
 //   下方：左侧图标侧边栏（无岛屿包裹，直接落在窗口背景上）｜内容区（页面自己的
 //   一级岛屿划分区域，外壳不再套岛）。根节点刷整窗底色（rootSpec.colors.background——
@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <filesystem>
 #include <limits>
 #include <string>
 #include <vector>
@@ -40,14 +41,12 @@ namespace pages {
 // 项目工作区内部页（navPage 只表达项目工作区内的页面；顶级目的地由 activeTopTab
 // 表达——island-structure-theme.md §13.1，P1-B0.1）。旧 kHome/kAppSettings 已删除
 //（不再有双状态竞争路径），kWebSocket/kTcp 本就不可达（已并入请求页内部标签）
-// 一并清理；kHttpTest 为遗留全宽顶级入口（见 AppRoot 内容区与闪电按钮注释）。
+// 一并清理。
 enum PageIndex : std::size_t {
     kRequest = 0,
     kLoad = 1,
     kHistory = 2,
     kProjectSettings = 3,
-    kHttpTest = 4, // 遗留：框架 HTTP 协程压测实验页（标题栏闪电图标进入，全宽显示）
-    kSearchablePickerTest = 5, // 控件实验页（标题栏测试入口进入，全宽显示）
 };
 
 [[huxerui::composable]] huxerui::View PageFor(std::size_t index,
@@ -59,8 +58,6 @@ enum PageIndex : std::size_t {
             return HistoryPage();
         case kProjectSettings:
             return ProjectSettingsPage();
-        // kHttpTest 不走本函数：它是遗留的全宽顶级入口，由 AppRoot 内容区直接渲染
-        //（§13.1：P1-B1 项 4 评估其顶级身份），不属于项目工作区页面。
         case kRequest:
         default:
             // 主页已整宽覆盖侧栏：未打开项目时本页不可达，无需兜底。
@@ -338,6 +335,14 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     // 这里在组合期订阅，可用性翻转后本作用域重组、托盘随后注册。
     const bool trayAvailable = tray.IsAvailable();
     auto tasks = huxerui::UseTaskScope();
+    auto loggedIn = huxerui::UseState(true);
+    auto loginDialog = huxerui::UseDialog();
+    huxerui::ImageAsset initialAvatar;
+    const std::filesystem::path avatarPath = cfg::dataDir() / "avatar.png";
+    if (std::filesystem::exists(avatarPath)) {
+        try { initialAvatar = huxerui::ImageAsset::FromFile(avatarPath); } catch (const std::exception&) {}
+    }
+    auto avatarImage = huxerui::UseState(initialAvatar);
 
     // 初始值在 UseState 之前算好（组合体内不写 State）：
     // 主题模式 0=跟随系统 1=深色 2=浅色，未保存偏好时默认深色（极简黑白黑底）。
@@ -350,8 +355,8 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     if (sessionPreference("close_behavior") == "2") initialCloseBehavior = 2;
 
     // ---- 顶级标签状态（island-structure-theme.md §13.1/§13.2，P1-B0.1）----
-    // navPage：项目工作区内部页（kRequest/kLoad/kHistory/kProjectSettings + 遗留
-    //   kHttpTest），不再包含 kHome/kAppSettings 等顶级目的地。
+    // navPage：项目工作区内部页（kRequest/kLoad/kHistory/kProjectSettings），不再包含
+    // kHome/kAppSettings 等顶级目的地。
     // tabs：打开的项目标签顺序（= 持久化 open_projects 的 CSV 格式）。
     // activeProject：领域当前项目游标——不再兼任「当前顶级标签」；设置激活时
     //   不清空（避免返回项目后重新加载，§13.1），视觉 active 由 activeTopTab 决定。
@@ -447,11 +452,6 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
                 after = ActivateSettings(before);
                 break;
         }
-        // 遗留 HttpTest（navPage=kHttpTest，标题栏闪电入口）不是项目工作区页面：
-        // 任何顶级激活都退出它，避免「顶级标签已切换仍停在 HttpTest」的双状态残留。
-        if (navPage.Get() == pages::kHttpTest ||
-            navPage.Get() == pages::kSearchablePickerTest)
-            navPage = pages::kRequest;
         if (after.active.kind == TopTabKind::Project) {
             syncDomainProject(after.active.project_id);
         }
@@ -471,13 +471,6 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
             g_loadtest.setProject(0);
             saveSessionPreference("active_project", "0");
             activeProject = 0;
-        }
-        if (!(before.active == after.active) &&
-            (navPage.Get() == pages::kHttpTest ||
-             navPage.Get() == pages::kSearchablePickerTest)) {
-            // 同 activateTopTabNow：活动顶级标签变化后退出遗留 HttpTest 全宽页
-            //（它不属于任何顶级标签）；关非活动标签不动当前页面。
-            navPage = pages::kRequest;
         }
         commitTopTab(before, after);
     };
@@ -543,61 +536,63 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
 
     // 内容区（P1-B0.1）：按 activeTopTab 切换顶级标签内容。主页 / 全局设置整宽
     // 覆盖侧栏（都与项目无关，未打开项目就点不到任何项目相关入口）；Project(id)
-    // → 侧栏 + PageFor（项目工作区内部页，navPage 表达）。遗留 HttpTest
-    //（navPage=kHttpTest，闪电入口）优先显示且全宽——它不表达顶级标签（§13.1：
-    // P1-B1 项 4 再决定其顶级身份），任何顶级激活都会重置 navPage（见
-    // activateTopTabNow）。防御：active 项目 id 不在 tabs（open_projects）时回落
-    // 主页——该路径不应发生（activeTopTab 只经 ActivateProject/CloseTopTab 变更，
-    // 不变量 1 保证 active 项目在 open_projects 中）。
+    // → 侧栏 + PageFor（项目工作区内部页，navPage 表达）。防御：active 项目 id 不在
+    // tabs（open_projects）时回落主页——该路径不应发生（activeTopTab 只经
+    // ActivateProject/CloseTopTab 变更，不变量 1 保证 active 项目在 open_projects 中）。
     const TopTabId activeTab = activeTopTab.Get();
-    const bool legacyHttpTest = navPage.Get() == pages::kHttpTest;
-    const bool searchablePickerTest = navPage.Get() == pages::kSearchablePickerTest;
     bool showSideShell = false;
-    huxerui::View page;
-    if (legacyHttpTest) {
-        page = huxerui::View{HttpTestPage()}.Key(std::string{"httptest"}).With(huxerui::Grow(1.0F));
-    } else if (searchablePickerTest) {
-        page = huxerui::View{SearchablePickerTestPage()}
-                  .Key(std::string{"searchable-picker-test"})
-                  .With(huxerui::Grow(1.0F));
-    } else {
-        // P1-B0.5 状态保活：顶级标签内容用 IndexedPages 保持所有页面挂载（设置↔项目切换不卸载，草稿保活）
-        std::vector<huxerui::View> indexed;
-        indexed.reserve(1 + tabs.Get().size() + (settingsOpen.Get() ? 1 : 0));
-        indexed.push_back(HomePage(onOpenProject, activeProject).Key(std::int64_t{0}).With(huxerui::Grow(1.0F)));
-        std::unordered_map<std::int64_t, std::size_t> projIdx;
-        for (std::int64_t id : tabs.Get()) {
-            const std::size_t idx = indexed.size();
-            projIdx[id] = idx;
-            indexed.push_back(pages::PageFor(navPage.Get(), activeProject).Key(id).With(huxerui::Grow(1.0F)));
-        }
-        if (settingsOpen.Get()) {
-            indexed.push_back(GlobalSettingsPage(themeMode, closeBehavior, settingsCategory)
-                                   .Key(kSettingsTabDisplayKey)
-                                   .With(huxerui::Grow(1.0F)));
-        }
-        std::size_t selected = 0;
-        if (activeTab.kind == TopTabKind::Home) {
-            selected = 0;
-        } else if (activeTab.kind == TopTabKind::Project) {
-            const auto it = projIdx.find(activeTab.project_id);
-            if (it != projIdx.end()) {
-                selected = it->second;
-                showSideShell = true;
-            } else {
-                selected = 0;
-            }
-        } else if (activeTab.kind == TopTabKind::GlobalSettings) {
-            selected = indexed.size() > 0 ? indexed.size() - 1 : 0;
-        }
-        if (selected >= indexed.size()) selected = 0;
-        page = huxerui::IndexedPages(std::move(indexed), selected);
+    // P1-B0.5 状态保活：顶级标签内容用 IndexedPages 保持所有页面挂载（设置↔项目切换不卸载，草稿保活）
+    std::vector<huxerui::View> indexed;
+    indexed.reserve(1 + tabs.Get().size() + (settingsOpen.Get() ? 1 : 0));
+    indexed.push_back(HomePage(onOpenProject, activeProject));
+    std::unordered_map<std::int64_t, std::size_t> projIdx;
+    for (std::int64_t id : tabs.Get()) {
+        const std::size_t idx = indexed.size();
+        projIdx[id] = idx;
+        indexed.push_back(pages::PageFor(navPage.Get(), activeProject).Key(id).With(huxerui::Grow(1.0F)));
     }
+    if (settingsOpen.Get()) {
+        indexed.push_back(GlobalSettingsPage(themeMode, closeBehavior, settingsCategory, avatarImage)
+                               .Key(kSettingsTabDisplayKey)
+                               .With(huxerui::Grow(1.0F)));
+    }
+    std::size_t selected = 0;
+    if (activeTab.kind == TopTabKind::Project) {
+        const auto it = projIdx.find(activeTab.project_id);
+        if (it != projIdx.end()) {
+            selected = it->second;
+            showSideShell = true;
+        }
+    } else if (activeTab.kind == TopTabKind::GlobalSettings) {
+        selected = indexed.size() > 0 ? indexed.size() - 1 : 0;
+    }
+    if (selected >= indexed.size()) selected = 0;
+    huxerui::View page = huxerui::IndexedPages(std::move(indexed), selected);
     // IndexedPages keep-alive（P1-B0.5）：切主题只是根重组、IndexedPages 保持所有页面挂载
     // （设置↔项目切换不卸载，草稿与设置分类保活）；切项目/切内部页仅切换 selected 索引。
 
+    huxerui::View topAvatarContent = avatarImage.Get().HasValue()
+        ? huxerui::View{huxerui::Image(avatarImage.Get()).Fit(huxerui::ImageFit::Cover)
+                            .With(huxerui::Frame{.width = 28.0F, .height = 28.0F})}
+        : huxerui::View{huxerui::Text("U", huxerui::TextRole::Label)
+                            .With(huxerui::Foreground(rootSpec.colors.on_primary))};
+    huxerui::View topAvatar = huxerui::Stack{std::move(topAvatarContent)}.With(
+        huxerui::Frame{.width = 28.0F, .height = 28.0F},
+        huxerui::Background(rootSpec.colors.primary), huxerui::CornerRadius(rootSpec.shapes.full),
+        huxerui::ClipChildren(), huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center), huxerui::Tooltip("用户登录"),
+        huxerui::Focusable(true),
+        huxerui::Semantics{.role = huxerui::SemanticRole::Button, .label = "用户登录"});
+    topAvatar = std::move(topAvatar).OnClick([dark, loginDialog, loggedIn] {
+        loginDialog.Show(
+            [dark, loggedIn](huxerui::DialogContext ctx) -> huxerui::View {
+                return MinimalThemed(dark, LoginPage(ctx, loggedIn));
+            },
+            huxerui::DialogOptions{});
+    });
+
     huxerui::View content = huxerui::Column {
-        // 自定义标题栏岛：Logo + 顶级标签条 + 闪电/齿轮（框架在其右侧渲染窗口按钮）。
+        // 自定义标题栏岛：Logo + 顶级标签条 + 齿轮（框架在其右侧渲染窗口按钮）。
         // 全部内容统一 24pt 高（kTitleBarContentHeight = title_bar_height）；
         // WindowTitleBar 构造即带交叉轴居中，这里给中间标签条包装 Row 也补上
         // 居中，任何一侧偏高都不漂移。
@@ -620,45 +615,6 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
             // 偏上的根因：gear.svg 画布 24x24，大于 14pt 的 Frame——未指定
             // Fit 时按画布原始尺寸绘制并从边缘锚定。显式 Fit(Contain) +
             // Align(Center, Center) 让图案缩放后钉在框中心。
-            // 测试入口：SearchablePicker 独立控件实验页，紧邻左侧的闪电协程测试入口。
-            AppIconButton("⌕", "SearchablePicker 控件测试",
-                          [tasks, navPage] {
-                              tasks.Launch([=]() -> huxerui::Task<void> {
-                                  co_await huxerui::Delay(std::chrono::duration<double>{0});
-                                  navPage = pages::kSearchablePickerTest;
-                              });
-                          },
-                          AppIconButtonShape::Bare, 28.0F),
-            // 闪电：框架 HTTP 协程压测实验页（遗留顶级入口，保持现状：写
-            // navPage=kHttpTest 全宽显示，不表达顶级标签）。§13.1 要求记录后续
-            // 选择：要么升级为同类单例顶级标签，要么改为 Dialog/工具窗口
-            //（P1-B1 项 4 评估）；禁止继续新增把它当项目页面 navPage 的入口。
-            // 与齿轮同款裸 Image 热区（不写背景、24pt 等高垂直居中、Tint 跟随
-            // 深浅色）。
-            huxerui::Row {
-                huxerui::Image(app::images::bolt)
-                    .Fit(huxerui::ImageFit::Contain)
-                    .Align(huxerui::HorizontalAlignment::Center,
-                           huxerui::VerticalAlignment::Center)
-                    .Tint(rootSpec.colors.on_surface)
-                    .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}),
-            }
-                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
-                      huxerui::Frame{.height = kTitleBarContentHeight},
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-                      huxerui::Tooltip("HTTP 协程压测"),
-                      // 键盘/语义（P1-B0.4）：裸 Image 热区默认不可聚焦，补
-                      // Focusable + Button 语义后键盘可激活（§13.6）。
-                      huxerui::Focusable(true),
-                      huxerui::Semantics{.role = huxerui::SemanticRole::Button,
-                                         .label = "HTTP 协程压测"})
-                .OnClick([tasks, navPage] {
-                    // 切页会卸载内容子树：推迟出指针事件路径
-                    tasks.Launch([=]() -> huxerui::Task<void> {
-                        co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        navPage = pages::kHttpTest;
-                    });
-                }),
             // 齿轮：打开/激活设置单例标签（未开则开、已开仅激活，§13.1）；激活
             // 经 activateTopTab 的推迟任务（约定 6），顶级状态写回见上。
             huxerui::Row {
@@ -673,7 +629,7 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
                       huxerui::Frame{.height = kTitleBarContentHeight},
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                       huxerui::Tooltip("全局设置"),
-                      // 键盘/语义（P1-B0.4）：同闪电按钮——键盘可打开/激活设置
+                      // 键盘/语义（P1-B0.4）：裸图标按钮支持键盘激活设置
                       // 单例标签（§13.6 键盘要求）。
                       huxerui::Focusable(true),
                       huxerui::Semantics{.role = huxerui::SemanticRole::Button,
@@ -685,6 +641,8 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
                         activateTopTab(TopTabId{TopTabKind::GlobalSettings, 0});
                     });
                 }),
+            // 用户头像：固定圆形命中区；点击打开登录弹窗。
+            std::move(topAvatar),
         }
             // 标签栏收窄 + 去背景：直接融入窗口底色，不再垫 surface_container_low。
             // 垂直零内边距：内容本身 24pt 高，与 title_bar_height 对齐，避免
@@ -694,7 +652,7 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
                   huxerui::Spacing(gap)),
         // 主行：侧栏（无岛屿包裹）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
-        // 仅 Project(id) 顶级标签显示侧栏；主页/设置/遗留 HttpTest 整宽覆盖。
+        // 仅 Project(id) 顶级标签显示侧栏；主页/设置整宽覆盖。
         // 占位必须用空 Row——Spacer 自带 Grow(1)，会分走一半宽度。
         huxerui::Row {
             showSideShell ? huxerui::View{SideShell(navPage)}

@@ -1,6 +1,6 @@
 // settings_page.cpp — 全局设置工作区（顶级"设置"单例标签的内容，AppRoot 全宽
 // 渲染）。岛屿式双岛布局（island-structure-theme.md §13.3）：左侧分类岛
-// （通用 / 外观 / 关于，固定宽不随内容滚动）+ 右侧内容岛（独立滚动）；
+// （通用 / 外观 / 个人信息 / 关于，固定宽不随内容滚动）+ 右侧内容岛（独立滚动）；
 // Compact 视口下左栏折叠为内容岛上方的横向三分段条（官方 SegmentedButton，
 // 不引入 Drawer），标准/Compact 共用同一个分类 State。
 //
@@ -17,6 +17,9 @@
 #include <huxerui/huxerui.h>
 
 #include <cstddef>
+#include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -44,13 +47,94 @@ namespace {
 // 下标即分类 State 值；标准/Compact 两种形态共用同一 State。
 constexpr std::size_t kCategoryGeneral = 0;
 constexpr std::size_t kCategoryAppearance = 1;
-constexpr std::size_t kCategoryAbout = 2;
-constexpr std::size_t kCategoryCount = 3;
-constexpr std::string_view kCategoryNames[kCategoryCount] = {"通用", "外观", "关于"};
+constexpr std::size_t kCategoryProfile = 2;
+constexpr std::size_t kCategoryAbout = 3;
+constexpr std::size_t kCategoryCount = 4;
+constexpr std::string_view kCategoryNames[kCategoryCount] = {"通用", "外观", "个人信息", "关于"};
 
 // 左栏固定宽档位：取 §13.3 允许的 176–208pt 档的中值 192pt——三字分类名加
 // 行内边距舒适，且与主页 240pt 组织岛拉开层次。
 constexpr float kCategoryRailWidth = 192.0F;
+
+std::string ShellQuote(const std::string& value) {
+    std::string quoted{"'"};
+    for (const char c : value) {
+        if (c == '\'') quoted += "'\\''";
+        else quoted += c;
+    }
+    quoted += '\'';
+    return quoted;
+}
+
+float ClampCropValue(float value, float lower, float upper) {
+    if (upper < lower) std::swap(lower, upper);
+    return std::clamp(value, lower, upper);
+}
+
+huxerui::Transform2D MultiplyTransform(const huxerui::Transform2D& outer,
+                                        const huxerui::Transform2D& inner) {
+    return {
+        outer.m11 * inner.m11 + outer.m21 * inner.m12,
+        outer.m12 * inner.m11 + outer.m22 * inner.m12,
+        outer.m11 * inner.m21 + outer.m21 * inner.m22,
+        outer.m12 * inner.m21 + outer.m22 * inner.m22,
+        outer.m11 * inner.translate_x + outer.m21 * inner.translate_y + outer.translate_x,
+        outer.m12 * inner.translate_x + outer.m22 * inner.translate_y + outer.translate_y,
+    };
+}
+
+huxerui::Transform2D CropUserTransform(float scale, float rotationDegrees,
+                                       huxerui::Point offset, float stageSize) {
+    constexpr float kPi = 3.14159265358979323846F;
+    const float radians = rotationDegrees * kPi / 180.0F;
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    const huxerui::Point center{stageSize / 2.0F, stageSize / 2.0F};
+    const huxerui::Transform2D translateOffset{1.0F, 0.0F, 0.0F, 1.0F,
+                                               offset.x, offset.y};
+    const huxerui::Transform2D translateCenter{1.0F, 0.0F, 0.0F, 1.0F,
+                                                center.x, center.y};
+    const huxerui::Transform2D rotate{cosine, sine, -sine, cosine};
+    const huxerui::Transform2D scaleTransform{scale, 0.0F, 0.0F, scale};
+    const huxerui::Transform2D translateBack{1.0F, 0.0F, 0.0F, 1.0F,
+                                             -center.x, -center.y};
+    return MultiplyTransform(
+        translateOffset,
+        MultiplyTransform(translateCenter,
+                          MultiplyTransform(rotate,
+                                            MultiplyTransform(scaleTransform, translateBack))));
+}
+
+huxerui::Transform2D CropSourceTransform(float scale, float rotationDegrees,
+                                         huxerui::Point offset, float imageLeft,
+                                         float imageTop, float fitScale,
+                                         float stageSize) {
+    const huxerui::Transform2D fitBase{fitScale, 0.0F, 0.0F, fitScale,
+                                       imageLeft, imageTop};
+    const huxerui::Transform2D user =
+        CropUserTransform(scale, rotationDegrees, offset, stageSize);
+    return MultiplyTransform(user, fitBase);
+}
+
+huxerui::Rect TransformedBounds(const huxerui::Transform2D& transform,
+                                float rectLeft, float rectTop, float width, float height) {
+    const huxerui::Point points[] = {{rectLeft, rectTop}, {rectLeft + width, rectTop},
+                                     {rectLeft, rectTop + height},
+                                     {rectLeft + width, rectTop + height}};
+    float left = transform.Apply(points[0]).x;
+    float right = left;
+    float top = transform.Apply(points[0]).y;
+    float bottom = top;
+    for (int index = 1; index < 4; ++index) {
+        const huxerui::Point point = points[index];
+        const huxerui::Point transformed = transform.Apply(point);
+        left = std::min(left, transformed.x);
+        right = std::max(right, transformed.x);
+        top = std::min(top, transformed.y);
+        bottom = std::max(bottom, transformed.y);
+    }
+    return {left, top, right - left, bottom - top};
+}
 
 // 分类行：整行可点、统一选中/hover/focus 表面（参考 home_page OrgRow 的手工
 // 悬停配方：显式压掉 OnClick 自动追加的默认 Indication，由手工底色承担整行
@@ -290,11 +374,353 @@ constexpr AboutDependency kAboutDependencies[] = {
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
+[[huxerui::composable]] huxerui::View AvatarCropDialog(
+    huxerui::DialogContext ctx, std::string sourcePath,
+    huxerui::State<std::string> avatarName,
+    huxerui::State<huxerui::ImageAsset> avatarImage) {
+    const auto& theme = huxerui::UseTheme();
+    huxerui::ImageAsset source;
+    try { source = huxerui::ImageAsset::FromFile(sourcePath); } catch (const std::exception&) {}
+    constexpr float kStageSize = 480.0F;
+    const float sourceWidth = source.HasValue() ? static_cast<float>(source.PixelWidth()) : 1.0F;
+    const float sourceHeight = source.HasValue() ? static_cast<float>(source.PixelHeight()) : 1.0F;
+    const float fitScale = std::min(kStageSize / sourceWidth, kStageSize / sourceHeight);
+    const float imageWidth = sourceWidth * fitScale;
+    const float imageHeight = sourceHeight * fitScale;
+    const float imageLeft = (kStageSize - imageWidth) / 2.0F;
+    const float imageTop = (kStageSize - imageHeight) / 2.0F;
+    const float maxSide = std::min(imageWidth, imageHeight);
+    const float minCropSide = std::min(maxSide, 160.0F);
+    auto cropSideState = huxerui::UseState(maxSide);
+    const float cropSide = ClampCropValue(cropSideState.Get(), minCropSide, maxSide);
+    const float cropLeft = (kStageSize - cropSide) / 2.0F;
+    const float cropTop = (kStageSize - cropSide) / 2.0F;
+    auto imageScale = huxerui::UseState(1.0F);
+    auto imageRotation = huxerui::UseState(0.0F);
+    auto imageOffsetX = huxerui::UseState(0.0F);
+    auto imageOffsetY = huxerui::UseState(0.0F);
+    auto originOffsetX = huxerui::UseState(0.0F);
+    auto originOffsetY = huxerui::UseState(0.0F);
+    const std::string outputPath = (cfg::dataDir() / "avatar.png").string();
+    const auto transformFor = [imageLeft, imageTop, fitScale, kStageSize](
+                                  float scale, float rotation, huxerui::Point offset) {
+        return CropSourceTransform(scale, rotation, offset, imageLeft, imageTop,
+                                   fitScale, kStageSize);
+    };
+    const auto clampOffsetForCrop = [=](float side, float scale, float rotation,
+                                        huxerui::Point desired) {
+        const huxerui::Transform2D transform = transformFor(scale, rotation, {});
+        const huxerui::Rect bounds = TransformedBounds(transform, 0.0F, 0.0F,
+                                                       sourceWidth, sourceHeight);
+        const float left = (kStageSize - side) / 2.0F;
+        const float top = (kStageSize - side) / 2.0F;
+        const float minX = left + side - bounds.x - bounds.width;
+        const float maxX = left - bounds.x;
+        const float minY = top + side - bounds.y - bounds.height;
+        const float maxY = top - bounds.y;
+        return huxerui::Point{ClampCropValue(desired.x, minX, maxX),
+                              ClampCropValue(desired.y, minY, maxY)};
+    };
+    const auto clampOffset = [=](float scale, float rotation, huxerui::Point desired) {
+        return clampOffsetForCrop(cropSide, scale, rotation, desired);
+    };
+    auto crop = [ctx, sourcePath, outputPath, avatarName, avatarImage, imageScale,
+                 imageRotation, imageOffsetX, imageOffsetY, transformFor,
+                 sourceWidth, sourceHeight, cropLeft, cropTop, cropSide] {
+        const std::string sourceArg = ShellQuote(sourcePath);
+        const std::string outputArg = ShellQuote(outputPath);
+        const int width = std::max(1, static_cast<int>(sourceWidth));
+        const int height = std::max(1, static_cast<int>(sourceHeight));
+        const huxerui::Transform2D transform = transformFor(
+            imageScale.Get(), imageRotation.Get(),
+            {imageOffsetX.Get(), imageOffsetY.Get()});
+        const huxerui::Point cropPoints[] = {
+            {cropLeft, cropTop}, {cropLeft + cropSide, cropTop},
+            {cropLeft, cropTop + cropSide}, {cropLeft + cropSide, cropTop + cropSide}};
+        const auto first = transform.Inverse(cropPoints[0]);
+        if (!first) return;
+        float left = first->x;
+        float right = first->x;
+        float top = first->y;
+        float bottom = first->y;
+        for (int index = 1; index < 4; ++index) {
+            const huxerui::Point point = cropPoints[index];
+            const auto sourcePoint = transform.Inverse(point);
+            if (!sourcePoint) return;
+            left = std::min(left, sourcePoint->x);
+            right = std::max(right, sourcePoint->x);
+            top = std::min(top, sourcePoint->y);
+            bottom = std::max(bottom, sourcePoint->y);
+        }
+        const float square = std::min(right - left, bottom - top);
+        if (!std::isfinite(square) || square <= 0.0F) return;
+        const float centerX = (left + right) / 2.0F;
+        const float centerY = (top + bottom) / 2.0F;
+        const int side = std::max(1, std::min(
+            static_cast<int>(square), std::min(width, height)));
+        const int x = std::clamp(static_cast<int>(centerX - static_cast<float>(side) / 2.0F),
+                                 0, width - side);
+        const int y = std::clamp(static_cast<int>(centerY - static_cast<float>(side) / 2.0F),
+                                 0, height - side);
+        const std::string command =
+            "(command -v magick >/dev/null 2>&1 && magick " + sourceArg +
+            " -crop " + std::to_string(side) + "x" + std::to_string(side) + "+" +
+            std::to_string(x) + "+" + std::to_string(y) + " +repage -resize 1024x1024 " +
+            outputArg + ") || (command -v convert >/dev/null 2>&1 && convert " +
+            sourceArg + " -crop " + std::to_string(side) + "x" + std::to_string(side) + "+" +
+            std::to_string(x) + "+" + std::to_string(y) + " +repage -resize 1024x1024 " +
+            outputArg + ")";
+        const bool cropped = std::system(command.c_str()) == 0;
+        if (cropped) {
+            avatarImage = huxerui::ImageAsset::FromFile(outputPath);
+            avatarName = "avatar.png";
+            saveSessionPreference("profile_avatar_name", "avatar.png");
+            ctx.Dismiss();
+        }
+    };
+    huxerui::View mask = huxerui::Canvas([cropLeft, cropTop, cropSide](huxerui::PaintContext& paint,
+                                                                        huxerui::Size) {
+        const huxerui::Color shade = huxerui::Color::Rgb(0, 0, 0, 0.58F);
+        const huxerui::Point center{cropLeft + cropSide / 2.0F,
+                                    cropTop + cropSide / 2.0F};
+        const float radius = cropSide / 2.0F;
+        huxerui::Path shaded;
+        shaded.MoveTo({0.0F, 0.0F})
+            .LineTo({kStageSize, 0.0F})
+            .LineTo({kStageSize, kStageSize})
+            .LineTo({0.0F, kStageSize})
+            .Close();
+        shaded.MoveTo({center.x + radius, center.y})
+            .ArcTo({radius, radius}, 0.0F, huxerui::ArcSize::Small,
+                   huxerui::ArcDirection::Clockwise, {center.x - radius, center.y})
+            .ArcTo({radius, radius}, 0.0F, huxerui::ArcSize::Small,
+                   huxerui::ArcDirection::Clockwise, {center.x + radius, center.y})
+            .Close();
+        paint.FillPath(shaded, shade, huxerui::PathFillRule::EvenOdd);
+    });
+    huxerui::View controls = huxerui::Canvas([cropLeft, cropTop, cropSide](huxerui::PaintContext& paint,
+                                                                            huxerui::Size) {
+        const huxerui::Color outline = huxerui::Color::Rgb(255, 255, 255, 0.95F);
+        paint.DrawBorder({cropLeft, cropTop, cropSide, cropSide}, outline,
+                         huxerui::StrokeStyle{.width = 1.0F});
+        paint.DrawArc({cropLeft + cropSide / 2.0F, cropTop + cropSide / 2.0F}, cropSide / 2.0F,
+                       0.0F,
+                       6.2831853F, outline, huxerui::StrokeStyle{.width = 2.0F});
+    });
+    huxerui::View image = source.HasValue()
+        ? huxerui::View{
+              huxerui::Stack{
+                  huxerui::Image(source)
+                      .Fit(huxerui::ImageFit::Contain)
+                      .With(huxerui::Frame{.width = kStageSize, .height = kStageSize},
+                            huxerui::Scale(imageScale.Get()),
+                            huxerui::Rotation(imageRotation.Get()))}
+                  .With(huxerui::Frame{.width = kStageSize, .height = kStageSize},
+                        huxerui::Offset(huxerui::Point{imageOffsetX.Get(), imageOffsetY.Get()}))}
+        : huxerui::View{huxerui::Text("无法预览", huxerui::TextRole::Body)};
+    huxerui::View stage = huxerui::Stack {
+        std::move(image),
+        std::move(mask).With(huxerui::Frame{.width = kStageSize, .height = kStageSize}),
+        std::move(controls).With(huxerui::Frame{.width = kStageSize, .height = kStageSize}),
+    }.With(huxerui::Frame{.width = kStageSize, .height = kStageSize},
+           huxerui::Background(theme.colors.surface_container_high), huxerui::ClipChildren(),
+           huxerui::DragGesture{.minimum_distance = 0.0F}, huxerui::TransformGesture{})
+        .On<huxerui::DragEvents::Started>(
+            [imageOffsetX, imageOffsetY, originOffsetX, originOffsetY](const huxerui::DragEvent&) {
+                originOffsetX = imageOffsetX.Get();
+                originOffsetY = imageOffsetY.Get();
+            })
+        .On<huxerui::DragEvents::Changed>(
+            [imageScale, imageRotation, imageOffsetX, imageOffsetY, originOffsetX,
+             originOffsetY, clampOffset](const huxerui::DragEvent& event) {
+                const huxerui::Point offset = clampOffset(
+                    imageScale.Get(), imageRotation.Get(),
+                    {originOffsetX.Get() + event.translation.x,
+                     originOffsetY.Get() + event.translation.y});
+                imageOffsetX = offset.x;
+                imageOffsetY = offset.y;
+            })
+        .On<huxerui::TransformEvents::Changed>(
+            [imageScale, imageRotation, imageOffsetX, imageOffsetY, clampOffset](
+                const huxerui::TransformEvent& event) {
+                if (event.pointer_count < 2) return;
+                const float nextScale = ClampCropValue(imageScale.Get() * event.scale, 1.0F, 8.0F);
+                const float nextRotation = imageRotation.Get() +
+                    event.rotation * 180.0F / 3.14159265358979323846F;
+                const huxerui::Point offset = clampOffset(
+                    nextScale, nextRotation,
+                    {imageOffsetX.Get() + event.pan.x, imageOffsetY.Get() + event.pan.y});
+                imageScale = nextScale;
+                imageRotation = nextRotation;
+                imageOffsetX = offset.x;
+                imageOffsetY = offset.y;
+            })
+        .On<huxerui::ViewEvents::ScrollInput>(
+            [imageScale, imageRotation, imageOffsetX, imageOffsetY, clampOffset](
+                const huxerui::ScrollInputEvent& event) {
+                const float nextScale = ClampCropValue(
+                    imageScale.Get() * std::exp(-event.delta_y * 0.002F), 1.0F, 8.0F);
+                const huxerui::Point offset = clampOffset(
+                    nextScale, imageRotation.Get(),
+                    {imageOffsetX.Get(), imageOffsetY.Get()});
+                imageScale = nextScale;
+                imageOffsetX = offset.x;
+                imageOffsetY = offset.y;
+                return true;
+            });
+    return DialogCard(huxerui::Column {
+        huxerui::Text("裁剪头像", huxerui::TextRole::Title),
+        std::move(stage),
+        huxerui::Text("拖动底图调整位置，滚轮缩放；触控板双指可缩放和旋转，中心圆形区域是头像预览。",
+                      huxerui::TextRole::Body),
+        huxerui::Row {
+            huxerui::Text("裁剪大小", huxerui::TextRole::Label),
+            huxerui::Slider(cropSide)
+                .Range(minCropSide, maxSide)
+                .Step(1.0F)
+                .With(huxerui::Grow(1.0F))
+                .OnChanged([cropSideState, imageScale, imageRotation, imageOffsetX,
+                            imageOffsetY, clampOffsetForCrop, minCropSide, maxSide](float value) {
+                    const float nextSide = ClampCropValue(value, minCropSide, maxSide);
+                    const huxerui::Point offset = clampOffsetForCrop(
+                        nextSide, imageScale.Get(), imageRotation.Get(),
+                        {imageOffsetX.Get(), imageOffsetY.Get()});
+                    cropSideState = nextSide;
+                    imageOffsetX = offset.x;
+                    imageOffsetY = offset.y;
+                }),
+            huxerui::Text(std::to_string(static_cast<int>(cropSide)) + " px",
+                          huxerui::TextRole::Label)
+                .With(huxerui::Frame{.width = 56.0F}),
+        }.With(huxerui::Spacing(theme.spacing.small),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        huxerui::Row {
+            huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+            huxerui::Button("设置新头像").OnClick(crop),
+        }.With(huxerui::Spacing(theme.spacing.small),
+               huxerui::MainAlign(huxerui::MainAxisAlignment::End)),
+    }.With(huxerui::Spacing(theme.spacing.medium), huxerui::Frame{.width = 520.0F},
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+}
+
+// ---- 个人信息分区：账号摘要与本地个人资料 -------------------------------
+[[huxerui::composable]] huxerui::View PersonalInfoSettingsSection(
+    huxerui::State<huxerui::TextEditingValue> displayName,
+    huxerui::State<huxerui::TextEditingValue> email,
+    huxerui::State<huxerui::TextEditingValue> organization,
+    huxerui::State<std::string> avatarName,
+    huxerui::State<huxerui::ImageAsset> avatarImage) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    auto tasks = huxerui::UseTaskScope();
+    auto cropDialog = huxerui::UseDialog();
+    std::shared_ptr<huxerui::FilePicker> picker;
+    try { picker = huxerui::UseService<huxerui::FilePicker>(); } catch (const std::exception&) {}
+    const bool canPick = picker != nullptr && picker->CanOpenFiles();
+    auto uploadAvatar = [tasks, picker, cropDialog, avatarName, avatarImage] {
+        if (!picker) return;
+        tasks.Launch([picker, cropDialog, avatarName, avatarImage]() -> huxerui::Task<void> {
+            const auto ref = co_await picker->OpenFileAsync(
+                huxerui::FilePickerFilter{.name = "图片",
+                                          .extensions = {"png", "jpg", "jpeg"},
+                                          .content_types = {"image/*"}});
+            if (!ref) co_return;
+            const huxerui::File target((cfg::dataDir() / "avatar_source").string());
+            if (co_await ref->ImportToAsync(target, true)) {
+                cropDialog.Show(
+                    [target, avatarName, avatarImage](huxerui::DialogContext ctx) -> huxerui::View {
+                        return AvatarCropDialog(ctx, target.Path(), avatarName, avatarImage);
+                    },
+                    huxerui::DialogOptions{});
+            }
+        });
+    };
+    auto avatarHovered = huxerui::UseState(false);
+    huxerui::View avatarContent = avatarImage.Get().HasValue()
+        ? huxerui::View{huxerui::Image(avatarImage.Get()).Fit(huxerui::ImageFit::Cover)
+                            .With(huxerui::Frame{.width = 64.0F, .height = 64.0F})}
+        : huxerui::View{huxerui::Text("U", huxerui::TextRole::Title)
+                            .With(huxerui::Foreground(theme.colors.on_primary))};
+    huxerui::View avatarHoverLayer = huxerui::Canvas([](huxerui::PaintContext& paint,
+                                                        huxerui::Size) {
+        paint.DrawCircle({32.0F, 32.0F}, 32.0F, huxerui::Color::Rgb(0, 0, 0, 0.48F));
+        const huxerui::Color icon = huxerui::Color::Rgb(255, 255, 255, 0.96F);
+        paint.DrawRect({20.0F, 25.0F, 24.0F, 16.0F}, icon, huxerui::CornerRadii{4.0F});
+        paint.DrawRect({27.0F, 21.0F, 10.0F, 5.0F}, icon, huxerui::CornerRadii{2.0F});
+        paint.DrawCircle({32.0F, 33.0F}, 6.0F, huxerui::Color::Rgb(35, 35, 35, 0.92F));
+        paint.DrawCircle({32.0F, 33.0F}, 3.0F, icon);
+    }).With(huxerui::Frame{.width = 64.0F, .height = 64.0F},
+            huxerui::Opacity(avatarHovered.Get() ? 1.0F : 0.0F));
+    huxerui::View avatarView = huxerui::Stack{
+        std::move(avatarContent), std::move(avatarHoverLayer)}.With(
+        huxerui::Frame{.width = 64.0F, .height = 64.0F},
+        huxerui::Background(theme.colors.primary), huxerui::CornerRadius(theme.shapes.full),
+        huxerui::ClipChildren(), huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+        huxerui::Tooltip(canPick ? "点击更换头像" : "文件选择不可用"), huxerui::Focusable(true),
+        huxerui::Semantics{.role = huxerui::SemanticRole::Button, .label = "更换头像"},
+        huxerui::Enabled(canPick));
+    avatarView = std::move(avatarView)
+                     .OnClick(uploadAvatar)
+                     .On<huxerui::ViewEvents::Hover>(
+                         [avatarHovered](const huxerui::HoverEvent& event) {
+                             avatarHovered = event.type != huxerui::HoverEventType::Leave;
+                         });
+    return huxerui::Column {
+        PageHeader("个人信息", "管理本机保存的显示资料，不会自动上传到服务器。"),
+        SettingsGroup("当前账号",
+                      huxerui::Row {
+                          huxerui::Text("admin", huxerui::TextRole::Body),
+                          huxerui::Text("演示账号", huxerui::TextRole::Body)
+                              .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+                      }
+                          .With(huxerui::Spacing(theme.spacing.medium)),
+                      "登录页当前使用本地演示账号：admin / admin。"),
+        SettingsGroup("显示名称",
+                      huxerui::TextField(displayName.Get())
+                          .Label("姓名或昵称")
+                          .Placeholder("请输入显示名称")
+                          .Variant(huxerui::TextFieldVariant::Outlined)
+                          .OnChanged([displayName](const huxerui::TextEditingValue& value) {
+                              displayName = value;
+                              saveSessionPreference("profile_display_name", value.text);
+                          }),
+                      "用于应用内的个人标识。"),
+        SettingsGroup("头像",
+                      huxerui::Row {
+                          std::move(avatarView),
+                      }.With(huxerui::Spacing(theme.spacing.medium)),
+                      "支持 PNG、JPG、JPEG；头像文件保存在本机数据目录。"),
+        SettingsGroup("邮箱",
+                      huxerui::TextField(email.Get())
+                          .Label("邮箱地址")
+                          .Placeholder("name@example.com")
+                          .Variant(huxerui::TextFieldVariant::Outlined)
+                          .OnChanged([email](const huxerui::TextEditingValue& value) {
+                              email = value;
+                              saveSessionPreference("profile_email", value.text);
+                          }),
+                      "仅保存到本机设置文件。"),
+        SettingsGroup("组织",
+                      huxerui::TextField(organization.Get())
+                          .Label("组织或团队")
+                          .Placeholder("例如：研发部")
+                          .Variant(huxerui::TextFieldVariant::Outlined)
+                          .OnChanged([organization](const huxerui::TextEditingValue& value) {
+                              organization = value;
+                              saveSessionPreference("profile_organization", value.text);
+                          }),
+                      "可选，用于区分不同工作环境。"),
+    }
+        .With(huxerui::Spacing(theme.spacing.medium),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
 } // namespace
 
 [[huxerui::composable]] huxerui::View GlobalSettingsPage(huxerui::State<int> themeMode,
                                                          huxerui::State<int> closeBehavior,
-                                                         huxerui::State<std::size_t> category) {
+                                                         huxerui::State<std::size_t> category,
+                                                         huxerui::State<huxerui::ImageAsset> avatarImage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     // 场景过渡：主题切换（整树换色）用圆形揭示动画包一层；reduced motion
@@ -313,6 +739,13 @@ constexpr AboutDependency kAboutDependencies[] = {
     // 默认请求超时：初始读 session.request_timeout_sec。
     auto timeoutSec = huxerui::UseState(
         huxerui::TextEditingValue {sessionPreference("request_timeout_sec")});
+    auto profileDisplayName = huxerui::UseState(
+        huxerui::TextEditingValue {sessionPreference("profile_display_name")});
+    auto profileEmail = huxerui::UseState(
+        huxerui::TextEditingValue {sessionPreference("profile_email")});
+    auto profileOrganization = huxerui::UseState(
+        huxerui::TextEditingValue {sessionPreference("profile_organization")});
+    auto avatarName = huxerui::UseState(sessionPreference("profile_avatar_name"));
     // 分类 State 由 AppRoot 持有（P1-B0.5 状态保活）：设置标签仍打开但切到项目后
     // 再切回保留原分类；未保存请求草稿的保活见 draftMap（AppRoot）。
     // 主题切换只重组不重挂载（AppRoot 渲染键不含主题），分类跨主题存活（§13.2 项 7）。
@@ -353,8 +786,13 @@ constexpr AboutDependency kAboutDependencies[] = {
     case kCategoryAppearance:
         section = AppearanceSettingsSection(themeMode, applyTheme).Key(kCategoryNames[1]);
         break;
+    case kCategoryProfile:
+        section = PersonalInfoSettingsSection(profileDisplayName, profileEmail,
+                                               profileOrganization, avatarName, avatarImage)
+                      .Key(kCategoryNames[2]);
+        break;
     case kCategoryAbout:
-        section = AboutSettingsSection().Key(kCategoryNames[2]);
+        section = AboutSettingsSection().Key(kCategoryNames[3]);
         break;
     case kCategoryGeneral:
     default:
@@ -374,7 +812,7 @@ constexpr AboutDependency kAboutDependencies[] = {
                                  huxerui::SegmentedButton(
                                      std::vector<huxerui::StringVariant>{
                                          kCategoryNames[0], kCategoryNames[1],
-                                         kCategoryNames[2]},
+                                         kCategoryNames[2], kCategoryNames[3]},
                                      category.Get())
                                      .OnChanged([tasks, category](std::size_t index) {
                                          // 分段条与内容分属不同子树，本组件切换分类

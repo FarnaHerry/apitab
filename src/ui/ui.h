@@ -170,8 +170,8 @@ inline huxerui::Color MethodColor(const huxerui::ThemeSpec& theme, std::string_v
 //   - 主页标签：固定最左，不可关闭、不参与拖拽；
 //   - 项目标签：可打开/关闭/拖拽换位/持久化（open_projects）；
 //   - 全局设置标签：单例（未开则开、已开仅激活），不参与拖拽与 open_projects 持久化。
-// navPage 从此只表达项目工作区内部页（kRequest/kLoad/kHistory/kProjectSettings
-// + 遗留 kHttpTest），不再包含 kHome/kAppSettings 等顶级目的地。
+// navPage 从此只表达项目工作区内部页（kRequest/kLoad/kHistory/kProjectSettings），
+// 不再包含 kHome/kAppSettings 等顶级目的地。
 enum class TopTabKind {
     Home,
     Project,
@@ -359,6 +359,7 @@ inline TopTabState RestoreTopTabs(const std::string& openCsv, const std::string&
 
 // common.cpp
 huxerui::View PageHeader(std::string title, std::string subtitle);
+huxerui::View DialogCard(huxerui::View content);
 huxerui::View MigrationPlaceholder(std::string pageName);
 enum class AppIconButtonShape {
     Circular,
@@ -532,6 +533,9 @@ huxerui::View MethodUrlBar(std::vector<std::string> methods, std::size_t methodI
 huxerui::View HomePage(std::function<void(std::int64_t)> onOpenProject,
                        huxerui::State<std::int64_t> activeProject);
 
+huxerui::View LoginPage(huxerui::State<bool> loggedIn);
+huxerui::View LoginPage(huxerui::DialogContext ctx, huxerui::State<bool> loggedIn);
+
 // request_page.cpp — 请求工作区根编排（薄组合：左岛集合树 + 右岛 HTTP/WS/TCP/gRPC 分派）。
 huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject);
 
@@ -613,7 +617,7 @@ huxerui::View MockPage(RequestDraft snapshot,
 // loadtest_page.cpp
 huxerui::View LoadTestPage();
 
-// searchable_picker.cpp：作者推荐的受控可搜索组合框及独立测试页。
+// searchable_picker.cpp：作者推荐的受控可搜索组合框。
 struct SearchItem {
     std::string id;
     std::string label;
@@ -624,7 +628,6 @@ huxerui::View SearchablePicker(
     huxerui::ImageVariant dropdownIcon, huxerui::ImageVariant searchIcon,
     std::function<void(const std::string&)> onSelected = {},
     bool clearSelectionOnSearch = false);
-huxerui::View SearchablePickerTestPage();
 
 // websocket_page.cpp
 huxerui::View WebSocketPage();
@@ -637,13 +640,11 @@ huxerui::View HistoryPage();
 
 // settings_page.cpp（全局设置：主题模式 + 关闭行为，状态由 AppRoot 持有）
 huxerui::View GlobalSettingsPage(huxerui::State<int> themeMode, huxerui::State<int> closeBehavior,
-                               huxerui::State<std::size_t> category);
+                                 huxerui::State<std::size_t> category,
+                                 huxerui::State<huxerui::ImageAsset> avatarImage);
 
 // project_settings_page.cpp（当前项目设置）
 huxerui::View ProjectSettingsPage();
-
-// http_test_page.cpp（框架自带 HTTP + 协程的并发压测实验页）
-huxerui::View HttpTestPage();
 
 // ---- P1-C2 应用壳拆分（app.cpp → title_bar / global_status_bar / app_dialogs / app_shell）----
 // 跨 TU 引用的壳组件声明：普通 .cpp 经 huxerui::composable 调用，签名仅用 State/draft.h/std/huxerui

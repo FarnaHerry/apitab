@@ -1,20 +1,14 @@
-// searchable_picker.cpp — 作者推荐的可搜索组合框及独立控件测试页。
+// searchable_picker.cpp — 作者推荐的可搜索组合框。
 #include <huxerui/huxerui.h>
 
 #include <cctype>
-#include <charconv>
 #include <functional>
 #include <optional>
 #include <ranges>
 #include <string>
-#include <system_error>
 #include <vector>
 
 #include "ui.h"
-#include "app_resources.h"
-
-import apitab.db;
-import apitab.store.requests;
 
 namespace apitab::ui {
 
@@ -120,55 +114,6 @@ bool MatchesSearch(const std::string& label, const std::string& query) {
             }
             expanded = open;
         });
-}
-
-[[huxerui::composable]] huxerui::View SearchablePickerTestPage() {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const std::vector<db::Environment>& environments = g_requests.environments();
-    std::vector<SearchItem> items{{.id = "0", .label = "无"}};
-    items.reserve(environments.size() + 1);
-    for (const db::Environment& environment : environments) {
-        items.push_back(SearchItem{.id = std::to_string(environment.id),
-                                   .label = environment.name.empty() ? "（未命名）"
-                                                                      : environment.name});
-    }
-    auto selectedId = huxerui::UseState<std::optional<std::string>>(
-        std::to_string(g_requests.currentEnvId()));
-    const std::string storeEnvId = std::to_string(g_requests.currentEnvId());
-    if (!selectedId.Get() || *selectedId.Get() != storeEnvId) selectedId = storeEnvId;
-    std::string selectedLabel = "（未选择）";
-    if (selectedId.Get()) {
-        if (const auto it = std::ranges::find(items, *selectedId.Get(), &SearchItem::id);
-            it != items.end()) {
-            selectedLabel = it->label;
-        }
-    }
-
-    auto applySelection = [selectedId](const std::string& id) {
-        std::int64_t environmentId = 0;
-        const auto [end, error] = std::from_chars(
-            id.data(), id.data() + id.size(), environmentId);
-        if (error == std::errc{} && end == id.data() + id.size() &&
-            g_requests.selectEnv(environmentId).empty()) {
-            selectedId = id;
-        }
-    };
-    return huxerui::Column{
-        PageHeader("SearchablePicker 控件测试", "直接读取当前项目环境，验证选中项回显与搜索过滤"),
-        huxerui::Text("当前选中：" + selectedLabel + "（ID " + storeEnvId + "）",
-                      huxerui::TextRole::Title),
-        SearchablePicker(items, selectedId, app::images::chevron_down, app::images::search,
-                         applySelection, true)
-            .With(huxerui::Frame{.width = 260.0F}),
-        huxerui::Text("输入关键字后选择候选项；切换后返回请求页，顶部环境选择应保持一致。",
-                      huxerui::TextRole::Body)
-            .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-    }
-        .With(huxerui::Padding(theme.spacing.large),
-              huxerui::Spacing(theme.spacing.medium),
-              huxerui::Background(theme.colors.surface_container_low),
-              huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Start));
 }
 
 } // namespace apitab::ui

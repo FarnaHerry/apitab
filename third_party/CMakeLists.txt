@@ -7,9 +7,9 @@
 #
 # 产物 target：
 #   HuxerUI::huxerui  HuxerUI 0.2.0 SDK（shared；见文件尾 find_package）
-#   asio          Asio 1.38.1（standalone，separate compilation，SSL）+ `import asio` 模块
+#   asio          Asio 1.38.2（standalone，separate compilation，SSL）+ `import asio` 模块
 #   ixwebsocket   IXWebSocket 12.0.1（client-only，无 TLS/无 zlib，与 compat.websocket 一致）
-#   CURL::libcurl curl 8.21.0（OpenSSL 后端，静态库，不编 curl.exe）
+#   CURL::libcurl curl 8.22.0（OpenSSL 后端，静态库，不编 curl.exe）
 #   SQLiteCpp     SQLiteCpp 3.3.3（内置 sqlite3 amalgamation）
 #   apitab_json   nlohmann::json 3.12.0（single header）
 #
@@ -30,11 +30,11 @@ target_sources(apitab_json PUBLIC FILE_SET json_modules TYPE CXX_MODULES
 set_target_properties(apitab_json PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON CXX_MODULE_STD ON)
 target_include_directories(apitab_json PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/json")
 
-# ---- curl 8.21.0（静态库，OpenSSL 后端，仅 lib）------------------------------
+# ---- curl 8.22.0（静态库，OpenSSL 后端，仅 lib）------------------------------
 apitab_extract(curl
-    "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/curl-8.21.0.tar.gz"
-    "ec753aa6f408a3ca9f0d6d5f7a77417aecd1544db13c03ae5d443612bf367364"
-    "curl-curl-8_21_0")
+    "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/curl-8.22.0.tar.gz"
+    "d54dd598bf05927a726deb38df31c6a255ba83ff1de57c5d1464dac3ed8f44a1"
+    "curl-8.22.0")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
 set(BUILD_LIBCURL_DOCS OFF CACHE BOOL "" FORCE)
@@ -50,14 +50,14 @@ set(CURL_DISABLE_LDAPS ON CACHE BOOL "" FORCE)
 add_subdirectory("${curl_SOURCE_DIR}" "curl-build")
 
 
-# ---- Asio 1.38.1：standalone + separate compilation + `import asio` 模块 -----
+# ---- Asio 1.38.2：standalone + separate compilation + `import asio` 模块 -----
 # cmake/asio.cppm 承接原 mcpp chriskohlhoff.asio 包生成的模块接口（SSL 宏改名为
 # APITAB_ASIO_SSL）。ASIO_SEPARATE_COMPILATION 必须对模块 TU 和 src/asio.cpp 同时
 # 生效，否则 inline 定义会双重编译（见原包描述的注释）。
 apitab_extract(asio
-    "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/asio-1.38.1.tar.gz"
-    "2827b229972be80cdb14e5497962fa393d1adf036b5869e2b9c99f644daadacc"
-    "asio-asio-1-38-1")
+    "${CMAKE_CURRENT_SOURCE_DIR}/tarballs/asio-1.38.2.tar.gz"
+    "4893ad026013d1f64bf111c606e6abd857bb953823a4744e449969f1063fd9ce"
+    "asio-1.38.2")
 add_library(asio STATIC
     "${asio_SOURCE_DIR}/src/asio.cpp"
     "${asio_SOURCE_DIR}/src/asio_ssl.cpp")

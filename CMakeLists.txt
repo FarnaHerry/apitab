@@ -286,6 +286,27 @@ huxerui_add_app(apitab
     BUNDLE_IDENTIFIER "dev.farna.apitab"
 )
 
+# 官方扩展库（激进接入）：通过 HuxerUI 的标准库消费机制锁定 tag。
+# CodeEditor 仍由本地兼容分支提供，待官方库与当前 SweetLine 集成完成后切换。
+option(APITAB_ENABLE_OFFICIAL_HUXERUI_LIBS "Fetch HuxerUI official extension libraries" ON)
+if (APITAB_ENABLE_OFFICIAL_HUXERUI_LIBS)
+    huxerui_use_library(apitab
+        TARGET HuxerUI::Charts
+        URL "https://github.com/HuxerUI/Lib-Charts.git"
+        COMMIT "ea0010caba137faedddf6c70624c7646d2bfa0a4"
+    )
+    huxerui_use_library(apitab
+        TARGET HuxerUI::SQLite
+        URL "https://github.com/HuxerUI/Lib-SQLite.git"
+        TAG "v0.1.0"
+    )
+    huxerui_use_library(apitab
+        TARGET HuxerUI::WebView
+        URL "https://github.com/HuxerUI/Lib-WebView.git"
+        TAG "v0.1.0"
+    )
+endif ()
+
 # P1-B1.1 ComboBox 能力检测（937efb1 源码有，0.2.0 SDK 无）——决定是否编译 ComboBox 分支
 set(APITAB_HAS_COMBOBOX OFF)
 if (APITAB_HUXERUI_FROM_SOURCE AND EXISTS "${APITAB_HUXERUI_SOURCE_DIR}/include/huxerui/view.h")

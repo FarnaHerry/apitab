@@ -2,7 +2,7 @@
 //   LogoBadge（apitab_mark 矢量徽标）+ TopTab（单个项目/主页/设置标签，激活态/悬停/关闭 ✕）+
 //   TopTabStrip（主页钉最左、项目标签横向滚动、设置单例标签固定队尾、分隔竖线、拖拽换位与
 //   让位滑动、覆盖层克隆）。命中区规则见 island-structure-theme.md §15：Logo 区与标签条
-//   空白为拖动区、标签本体/✕/闪电/齿轮为交互区、弹性 Grow(1) 空白为 WindowDragRegion。
+//   空白为拖动区、标签本体/✕/齿轮为交互区、弹性 Grow(1) 空白为 WindowDragRegion。
 //   本文件仅承载标题栏职责，不含侧栏/内容区/状态条/对话框（见 app.cpp / global_status_bar.cpp / app_dialogs.cpp）。
 #include <huxerui/huxerui.h>
 
