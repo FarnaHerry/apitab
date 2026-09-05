@@ -306,7 +306,32 @@ jobs:
           $candidate = '${{ matrix.binary }}'
           if (-not (Test-Path $candidate)) { throw "$candidate not found" }
           New-Item -ItemType Directory -Force dist-src | Out-Null
-          Copy-Item $candidate dist-src/$(Split-Path -Leaf $candidate)
+          $candidatePath = (Resolve-Path $candidate).Path
+          $candidateDirectory = Split-Path -Parent $candidatePath
+          $artifactName = Split-Path -Leaf $candidate
+          Copy-Item $candidatePath (Join-Path $PWD "dist-src\$artifactName")
+
+          if ('${{ runner.os }}' -eq 'Windows') {
+            # HuxerUI and its Windows runtime dependencies are emitted in
+            # different subdirectories of the build tree. The executable alone
+            # is not a runnable artifact, so flatten every generated DLL next
+            # to apitab.exe.
+            $runtimeDlls = @(Get-ChildItem -Path build -Recurse -File -Filter '*.dll')
+            if ($runtimeDlls.Count -eq 0) {
+              throw 'No Windows runtime DLLs were produced under build'
+            }
+            foreach ($runtimeDll in $runtimeDlls) {
+              Copy-Item $runtimeDll.FullName (Join-Path $PWD "dist-src\$($runtimeDll.Name)") -Force
+            }
+
+            # The HuxerUI resource package is also required at runtime and is
+            # generated beside the executable by the app post-build step.
+            $resources = Join-Path $candidateDirectory 'apitab.resources'
+            if (-not (Test-Path $resources -PathType Container)) {
+              throw "$resources not found"
+            }
+            Copy-Item $resources (Join-Path $PWD 'dist-src\apitab.resources') -Recurse -Force
+          }
           Get-Item dist-src/*
 
       - name: Check source whitespace
