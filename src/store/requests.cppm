@@ -471,6 +471,9 @@ public:
     void cancelSend() { engine_->cancel(); }
     // UI 线程轮询：引擎有新完成的结果则取出并返回 true（一个结果只取一次）。
     bool takeResponse(api::ResponseView& out) { return engine_->takeResponse(out); }
+    // UI 线程轮询：在途传输有增量（响应头到达/正文新增）则取出当前累积快照。
+    // SSE 等流式响应经此呈现；快照按代际隔离，传输结束后进度槽即清空。
+    bool takeProgress(api::ResponseView& out) { return engine_->takeProgress(out); }
 
     // 组装最终请求规格：环境变量替换 + 基础 URL 拼接 + url 拼启用的 query 参数，
     // 合并全局 Cookie。

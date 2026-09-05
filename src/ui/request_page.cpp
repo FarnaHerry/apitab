@@ -514,7 +514,7 @@ huxerui::View GoogleRequestSurface(huxerui::View content, std::size_t selectedIn
                                            responseIslandOrigin, 140.0F, 640.0F,
                                            true));
             islands.push_back(huxerui::Column {
-                    ResponseArea(responseBody, responseHeaders, responseCookies, theme)
+                    ResponseArea(responseBody, responseHeaders, responseCookies, inFlight, theme)
                         .With(huxerui::Grow(1.0F)),
                 }
                     .With(huxerui::Spacing(theme.spacing.small),

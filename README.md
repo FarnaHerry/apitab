@@ -21,12 +21,12 @@ apitab 是一个使用 C++23 和 HuxerUI 构建的桌面 API 开发工具，面�
 - CMake 3.30 或更高版本
 - 支持 C++23 modules / `import std` 的编译器
 - Ninja（推荐）
-- Linux 源码构建需要 GTK 4 与 libsoup 3 开发包
+- Linux 源码构建需要 GTK ≥4.14、libepoxy ≥1.5 与 libsoup ≥3.0 开发包
 
 Fedora：
 
 ```bash
-sudo dnf install cmake ninja-build gcc-c++ gtk4-devel libsoup3-devel
+sudo dnf install cmake ninja-build gcc-c++ gtk4-devel libepoxy-devel libsoup3-devel
 ```
 
 HuxerUI 按以下顺序选择：显式 `HUXERUI_HOME` 源码、

@@ -37,6 +37,7 @@ std::string_view SyntaxForBodyKind(std::size_t kind) {
     const std::size_t kind = snapshot.bodyKindIndex;
     huxerui::codeeditor::EditorOptions options;
     ApplyEditorTypography(options);
+    ConfigureEditorMenu(options);
     options.theme = EditorTheme(theme);
     // document_key 绑定草稿 uid + body 类型：切请求或切 body 类型都会重载该
     // 类型自己存档的文本（各类型编辑框独立，输入不互通）。

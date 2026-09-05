@@ -109,6 +109,10 @@ public:
     virtual void cancel() = 0;
     // 是否有请求在途。
     virtual bool busy() const = 0;
+    // UI 线程轮询：在途传输的响应头到达或正文有新增时，把当前累积快照拷贝到
+    // out 并返回 true（快照按代际隔离，finish 后进度槽清空）。SSE
+    // （text/event-stream）等流式响应经本接口增量呈现；结果投递语义不变。
+    virtual bool takeProgress(ResponseView& out) = 0;
     // UI 线程轮询：有新完成的结果则取出并返回 true（一个结果只取一次）。
     virtual bool takeResponse(ResponseView& out) = 0;
 };

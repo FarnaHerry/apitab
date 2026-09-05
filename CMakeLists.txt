@@ -37,7 +37,7 @@ if (HUXERUI_PROJECT_PLAN_ONLY)
     return()
 endif ()
 
-project(apitab VERSION 0.1.1 DESCRIPTION "API testing and load testing tool" LANGUAGES NONE)
+project(apitab VERSION 0.1.0 DESCRIPTION "API testing and load testing tool" LANGUAGES NONE)
 
 # HUXERUI_LIBRARY_GRAPH_ONLY：CLI 扫描 huxerui 库依赖图时的特殊配置——
 # 不启用语言、不构建，huxerui_add_app 只写出库图 JSON 即返回（见 SDK
@@ -109,23 +109,26 @@ if (NOT APITAB_HUXERUI_SOURCE_DIR
     set(APITAB_HUXERUI_SOURCE_DIR "${APITAB_HUXERUI_BUNDLED_SOURCE_DIR}")
 endif ()
 
-# 源码依赖检查（Linux）：缺 gtk4/libsoup-3.0 开发包时醒目回落 SDK
+# 源码依赖检查（Linux）：与 HuxerUI 的 GTK Snapshot / GPU 纹理依赖保持一致。
 if (APITAB_HUXERUI_SOURCE_DIR
         AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
         AND NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     if (APITAB_HUXERUI_MOCK_MISSING_DEPS)
         set(APITAB_HUXERUI_GTK4_FOUND OFF)
+        set(APITAB_HUXERUI_EPOXY_FOUND OFF)
         set(APITAB_HUXERUI_LIBSOUP_FOUND OFF)
     else ()
         find_package(PkgConfig QUIET)
         if (PkgConfig_FOUND)
-            pkg_check_modules(APITAB_HUXERUI_GTK4 QUIET gtk4>=4.6)
+            pkg_check_modules(APITAB_HUXERUI_GTK4 QUIET gtk4>=4.14)
+            pkg_check_modules(APITAB_HUXERUI_EPOXY QUIET epoxy>=1.5)
             pkg_check_modules(APITAB_HUXERUI_LIBSOUP QUIET libsoup-3.0>=3.0)
         endif ()
     endif ()
-    if (NOT APITAB_HUXERUI_GTK4_FOUND OR NOT APITAB_HUXERUI_LIBSOUP_FOUND)
-        message(WARNING "apitab: ${APITAB_HUXERUI_SOURCE_DIR} 存在但缺 gtk4/libsoup-3.0 开发包"
-            "（sudo dnf install gtk4-devel libsoup3-devel），回落预编译 SDK —— 本次未使用源码")
+    if (NOT APITAB_HUXERUI_GTK4_FOUND OR NOT APITAB_HUXERUI_EPOXY_FOUND
+            OR NOT APITAB_HUXERUI_LIBSOUP_FOUND)
+        message(WARNING "apitab: ${APITAB_HUXERUI_SOURCE_DIR} 存在但缺 GTK >=4.14 / epoxy >=1.5 / libsoup >=3.0 开发包"
+            "（sudo dnf install gtk4-devel libepoxy-devel libsoup3-devel），回落预编译 SDK —— 本次未使用源码")
         set(APITAB_HUXERUI_SOURCE_DIR "")
     endif ()
 endif ()
@@ -455,6 +458,59 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                         "${APITAB_HUXERUI_DLL}" "$<TARGET_FILE_DIR:apitab>"
                 COMMENT "Copying huxerui.dll next to apitab")
+        endif ()
+
+        # OpenSSL 运行库：系统/安装版 OpenSSL（CI chocolatey）是共享库，
+        # apitab.exe 直接导入 libssl-N-x64.dll/libcrypto-N-x64.dll，干净
+        # Windows 上没有，必须随 exe 带出。静态 OpenSSL 时 bin 下无 dll，
+        # glob 为空自然跳过。DLL 统一在 <OpenSSL根>/bin（根由 include 目录推导）。
+        if (OPENSSL_INCLUDE_DIR)
+            get_filename_component(_apitab_openssl_root "${OPENSSL_INCLUDE_DIR}" DIRECTORY)
+            file(GLOB _apitab_openssl_dlls
+                "${_apitab_openssl_root}/bin/libssl-*.dll"
+                "${_apitab_openssl_root}/bin/libcrypto-*.dll")
+            if (_apitab_openssl_dlls)
+                add_custom_command(TARGET apitab POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            ${_apitab_openssl_dlls} "$<TARGET_FILE_DIR:apitab>"
+                    COMMENT "Copying OpenSSL runtime DLLs next to apitab")
+            elseif (NOT OPENSSL_USE_STATIC_LIBS)
+                message(WARNING
+                    "apitab: 未在 ${_apitab_openssl_root}/bin 找到 OpenSSL 运行库 dll，"
+                    "发布包缺 libssl/libcrypto 将无法在干净 Windows 上启动")
+            endif ()
+        endif ()
+
+        # MSVC 桌面 CRT：apitab.exe/huxerui.dll 都按 /MD 链接，导入
+        # msvcp140/vcruntime140/vcruntime140_1；没装 VC++ redist 的机器直接
+        # 起不来，随 exe 带出（许可允许 app-local 分发）。vcvars 环境（CI 的
+        # ilammy/msvc-dev-cmd、本机 VS 开发者命令行）提供 VCToolsRedistDir；
+        # 多版本目录并存时取最后一个（glob 字典序 = 版本序）。
+        if (MSVC AND NOT CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "Static")
+            set(_apitab_crt_dir "")
+            if (DEFINED ENV{VCToolsRedistDir})
+                file(TO_CMAKE_PATH "$ENV{VCToolsRedistDir}" _apitab_redist)
+                file(GLOB _apitab_crt_dirs LIST_DIRECTORIES true
+                    "${_apitab_redist}/x64/Microsoft.VC*.CRT")
+                foreach (_dir IN LISTS _apitab_crt_dirs)
+                    if (EXISTS "${_dir}/msvcp140.dll")
+                        set(_apitab_crt_dir "${_dir}")
+                    endif ()
+                endforeach()
+            endif ()
+            if (_apitab_crt_dir)
+                add_custom_command(TARGET apitab POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${_apitab_crt_dir}/msvcp140.dll"
+                            "${_apitab_crt_dir}/vcruntime140.dll"
+                            "${_apitab_crt_dir}/vcruntime140_1.dll"
+                            "$<TARGET_FILE_DIR:apitab>"
+                    COMMENT "Copying MSVC CRT runtime DLLs next to apitab")
+            else ()
+                message(WARNING
+                    "apitab: 未定位 MSVC CRT redist（VCToolsRedistDir 未设置），"
+                    "发布包缺 msvcp140/vcruntime140*.dll 将无法在干净 Windows 上启动")
+            endif ()
         endif ()
     endif ()
 

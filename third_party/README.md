@@ -9,7 +9,7 @@ SHA256 后解包到 `build/vendor/`，源码树不入库），nlohmann::json 是
 
 | 包 | 版本 | tarball | 来源 |
 |----|------|---------|------|
-| HuxerUI | 0.2.0 | `huxerui-sdk-0.2.0-linux-x86_64.tar.gz` | 由官方 0.2.0 SDK 安装前缀归档（shared 库 + headers + CMake 包 + hcg/hrc + 内置资源）。`HUXERUI_HOME` 可指向 0.2.0 SDK 安装目录或源码根目录；未设置时优先 `third_party/huxerui/` 源码，`APITAB_HUXERUI_FORCE_SDK=ON` 时使用 Linux 离线包。Linux 源码模式需 `gtk4-devel libsoup3-devel`；macOS/Windows 必须通过 `HUXERUI_HOME` 提供 0.2.0 源码或 SDK。 |
+| HuxerUI | 0.2.0 | `huxerui-sdk-0.2.0-linux-x86_64.tar.gz` | 由官方 0.2.0 SDK 安装前缀归档（shared 库 + headers + CMake 包 + hcg/hrc + 内置资源）。`HUXERUI_HOME` 可指向 0.2.0 SDK 安装目录或源码根目录；未设置时优先 `third_party/huxerui/` 源码，`APITAB_HUXERUI_FORCE_SDK=ON` 时使用 Linux 离线包。Linux 源码模式需 GTK ≥4.14、libepoxy ≥1.5、libsoup ≥3.0（Fedora：`gtk4-devel libepoxy-devel libsoup3-devel`）；macOS/Windows 必须通过 `HUXERUI_HOME` 提供 0.2.0 源码或 SDK。 |
 | Asio | 1.38.2 | `asio-1.38.2.tar.gz` | 上游 `chriskohlhoff/asio` tag asio-1-38-2，同 `chriskohlhoff.asio` |
 | IXWebSocket | 12.0.1 | `ixwebsocket-12.0.1.tar.gz` | 上游 `machinezone/IXWebSocket` v12.0.1，同 `compat.websocket`（client-only、无 TLS/无 zlib，32 个源文件） |
 | curl | 8.22.0 | `curl-8.22.0.tar.gz` | 上游 `curl/curl` release tarball，同 `compat.curl` |
@@ -31,3 +31,9 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
    里 `apitab_extract` 的 `topdir` 参数）；
 2. `sha256sum` 新值写回 `third_party/CMakeLists.txt`；
 3. 跑一次 configure 验证解包与 SHA 校验。
+
+### 2026-09-05 控件更新
+
+- HuxerUI 已合并至 `c00e72a`，sweetedit 保持 `d012eb7`，原本地补丁保留。
+- sweetedit `ContextMenuEntry::label` 改为拥有字符串，修复自定义菜单构建回调返回后
+  `item.label.c_str()` 悬空的问题；补丁见 `cmake/patches/sweetedit-context-menu-label.patch`。

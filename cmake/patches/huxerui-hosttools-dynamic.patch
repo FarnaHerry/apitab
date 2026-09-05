@@ -1,9 +1,9 @@
 diff --git a/tools/codegen/CMakeLists.txt b/tools/codegen/CMakeLists.txt
-index 7bc5932..559da07 100644
+index 47337af..7ed6ffc 100644
 --- a/tools/codegen/CMakeLists.txt
 +++ b/tools/codegen/CMakeLists.txt
-@@ -18,7 +18,9 @@ target_compile_options(huxerui_codegen PRIVATE
-         "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wno-missing-field-initializers>"
+@@ -17,7 +17,9 @@ target_compile_options(huxerui_codegen PRIVATE
+         "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wpedantic>"
  )
  
 -if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -14,11 +14,11 @@ index 7bc5932..559da07 100644
  endif ()
  
 diff --git a/tools/resource_compiler/CMakeLists.txt b/tools/resource_compiler/CMakeLists.txt
-index 1834e48..58fa116 100644
+index 37aa1cc..60da688 100644
 --- a/tools/resource_compiler/CMakeLists.txt
 +++ b/tools/resource_compiler/CMakeLists.txt
-@@ -19,7 +19,9 @@ target_compile_options(huxerui_resource_compiler PRIVATE
-         "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wno-missing-field-initializers>"
+@@ -18,7 +18,9 @@ target_compile_options(huxerui_resource_compiler PRIVATE
+         "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wpedantic>"
  )
  
 -if (CMAKE_SYSTEM_NAME STREQUAL "Linux")

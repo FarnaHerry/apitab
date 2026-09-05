@@ -97,6 +97,7 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
     // 生效，之后参数变了由「从参数重新生成」按钮 LoadDocument 回灌）。
     huxerui::codeeditor::EditorOptions scriptOptions;
     ApplyEditorTypography(scriptOptions);
+    ConfigureEditorMenu(scriptOptions);
     scriptOptions.document_key = "k6-script";
     scriptOptions.initial_text = MakeScriptTemplate(methodIndex.Get(), url.Get().text,
                                                     vus.Get().text, duration.Get().text);

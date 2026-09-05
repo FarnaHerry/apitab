@@ -571,19 +571,15 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     // IndexedPages keep-alive（P1-B0.5）：切主题只是根重组、IndexedPages 保持所有页面挂载
     // （设置↔项目切换不卸载，草稿与设置分类保活）；切项目/切内部页仅切换 selected 索引。
 
-    huxerui::View topAvatarContent = avatarImage.Get().HasValue()
-        ? huxerui::View{huxerui::Image(avatarImage.Get()).Fit(huxerui::ImageFit::Cover)
-                            .With(huxerui::Frame{.width = 28.0F, .height = 28.0F})}
-        : huxerui::View{huxerui::Text("U", huxerui::TextRole::Label)
-                            .With(huxerui::Foreground(rootSpec.colors.on_primary))};
-    huxerui::View topAvatar = huxerui::Stack{std::move(topAvatarContent)}.With(
-        huxerui::Frame{.width = 28.0F, .height = 28.0F},
-        huxerui::Background(rootSpec.colors.primary), huxerui::CornerRadius(rootSpec.shapes.full),
-        huxerui::ClipChildren(), huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center), huxerui::Tooltip("用户登录"),
+    auto topAvatarHovered = huxerui::UseState(false);
+    huxerui::View topAvatar = ProfileAvatar(avatarImage.Get(), 28.0F, rootSpec, topAvatarHovered.Get()).With(
+        huxerui::Tooltip("用户登录"),
         huxerui::Focusable(true),
         huxerui::Semantics{.role = huxerui::SemanticRole::Button, .label = "用户登录"});
-    topAvatar = std::move(topAvatar).OnClick([dark, loginDialog, loggedIn] {
+    topAvatar = std::move(topAvatar).On<huxerui::ViewEvents::Hover>(
+        [topAvatarHovered](const huxerui::HoverEvent& event) {
+            topAvatarHovered = event.type != huxerui::HoverEventType::Leave;
+        }).OnClick([dark, loginDialog, loggedIn] {
         loginDialog.Show(
             [dark, loggedIn](huxerui::DialogContext ctx) -> huxerui::View {
                 return MinimalThemed(dark, LoginPage(ctx, loggedIn));

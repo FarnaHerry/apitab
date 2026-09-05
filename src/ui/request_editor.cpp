@@ -435,6 +435,22 @@ inline api::RequestSpec SpecFromDraft(const RequestDraft& draft) {
     return spec;
 }
 
+// 响应头是否声明 SSE（引擎保证进度/结果快照里的头部来自最后一个头部块，
+// 重定向中间块不参与判断）。
+inline bool IsEventStreamResponse(const std::vector<api::KeyValue>& headers) {
+    for (const api::KeyValue& h : headers) {
+        std::string key = h.key;
+        std::ranges::transform(key, key.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+        if (key != "content-type") continue;
+        std::string value = h.value;
+        std::ranges::transform(value, value.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+        if (value.find("text/event-stream") != std::string::npos) return true;
+    }
+    return false;
+}
+
 // 从响应头里提取 Set-Cookie 条目（键大小写不敏感），一行一个：
 // "name = value; 属性..."（首个 '=' 换成 ' = ' 便于阅读，属性原样保留）。
 inline std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyValue>& headers) {
@@ -481,6 +497,8 @@ huxerui::View SplitActionButton(
     auto section = huxerui::UseState<std::size_t>(0); // 0=Params 1=Headers 2=Cookies 3=Body
     auto sendSeq = huxerui::UseState<std::uint64_t>(0); // 发送代际：取消/取代使旧结果失效
     auto sendTask = huxerui::UseState<huxerui::TaskHandle>(huxerui::TaskHandle{});
+    // 是否已收到在途传输的增量进度（流式/分块正文）；取消时据此保留已接收内容。
+    auto streamed = huxerui::UseState(false);
     // Body 编辑器控制器：格式化按钮与 BodyTextEditor 共享（SweetEditor 非受控，
     // 外部改文本须 LoadDocument）。在顶层创建保证切分区时 UseState 槽位稳定。
     auto bodyEditorController = huxerui::codeeditor::UseEditorController();
@@ -776,7 +794,18 @@ huxerui::View SplitActionButton(
                         g_requests.cancelSend();
                         sendTask.Get().Cancel();
                         inFlight = false;
-                        responseBody = "已取消";
+                        if (streamed.Get()) {
+                            // 流式响应：已接收内容保留，只把状态行标记为取消。
+                            // 进度文本格式固定为 "状态行\n\n正文"（本文件构建）。
+                            const std::string text = responseBody.Get();
+                            const auto sep = text.find("\n\n");
+                            responseBody = "已取消（流已断开）" +
+                                (sep == std::string::npos ? std::string{}
+                                                          : text.substr(sep));
+                            streamed = false;
+                        } else {
+                            responseBody = "已取消";
+                        }
                         co_return;
                     }
                     const std::vector<RequestDraft> current = drafts.Get();
@@ -842,9 +871,26 @@ huxerui::View SplitActionButton(
                     sendTask = tasks.Launch([=]() -> huxerui::Task<void> {
                         // 引擎结果按 30ms 节拍轮询取回（totalMs 由引擎计时）；恢复点
                         // 恒为 UI 线程，直接写 State 并落历史（见 task_bridge.h）。
+                        // 每拍先 drain 增量进度：SSE（逐条/逐字到达）与分块正文
+                        // 实时呈现，最终结果仍由 takeResponse 投递。
                         api::ResponseView view;
-                        co_await PollWhile(std::chrono::duration<double>{0.03},
-                                           [&view] { return !g_requests.takeResponse(view); });
+                        co_await PollWhile(std::chrono::duration<double>{0.03}, [&] {
+                            api::ResponseView progress;
+                            while (g_requests.takeProgress(progress)) {
+                                streamed = true;
+                                const std::string statusLine =
+                                    (IsEventStreamResponse(progress.headers) ? "SSE · " : "") +
+                                    std::format("HTTP {} · 接收中 · {} bytes", progress.status,
+                                                progress.body.size());
+                                responseBody = statusLine + "\n\n" + progress.body;
+                                std::vector<std::string> lines;
+                                for (const api::KeyValue& h : progress.headers)
+                                    lines.push_back(h.key + ": " + h.value);
+                                responseHeaders = lines;
+                                responseCookies = CookiesFromHeaders(progress.headers);
+                            }
+                            return !g_requests.takeResponse(view);
+                        });
                         if (seq != sendSeq.Get()) co_return; // 已取消/被新请求取代
                         g_requests.recordHistory(requestId, finalSpec.method, finalSpec.url, view);
                         if (view.ok) {
@@ -855,9 +901,18 @@ huxerui::View SplitActionButton(
                                 lines.push_back(h.key + ": " + h.value);
                             responseHeaders = lines;
                             responseCookies = CookiesFromHeaders(view.headers);
+                        } else if (streamed.Get() && !view.body.empty()) {
+                            // 流式传输中断（连接重置等）：保留已接收内容。
+                            responseBody = "连接中断: " + view.error + "\n\n" + view.body;
+                            std::vector<std::string> lines;
+                            for (const api::KeyValue& h : view.headers)
+                                lines.push_back(h.key + ": " + h.value);
+                            responseHeaders = lines;
+                            responseCookies = CookiesFromHeaders(view.headers);
                         } else {
                             responseBody = "请求失败: " + view.error;
                         }
+                        streamed = false;
                         inFlight = false;
                         if (download && view.ok)
                             co_await downloadResponse(view.body, current[index].name.text);
@@ -927,18 +982,39 @@ huxerui::View SplitActionButton(
 
 // 分裂动作按钮：左区执行默认动作，右侧固定 24pt 的无尾箭头在 hover-enter 或点击时
 // 展开替代动作。箭头使用 12×12 SVG 并在 32pt 热区内双轴居中，不受文字基线影响。
+// 悬停菜单必须关 outside-press：Barrier 层盖满视口会截断悬停路由，Show 后箭头立刻
+// 收到 Leave、Dismiss 后又收到 Enter，形成展开/关闭闪烁循环。改用 Content 层 +
+// 箭头/菜单双向悬停跟踪，双方都离开后经 150ms 宽限再关（指针跨过 4dp 间隙进菜单
+// 不会误关）；Esc/点条目仍经原 dismiss 链关闭。
 [[huxerui::composable]] huxerui::View SplitActionButton(
     std::string label, std::function<void(bool)> onAction, std::string alternateLabel,
     bool alternateEnabled) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     auto popup = huxerui::UsePopup();
+    auto tasks = huxerui::UseTaskScope();
     struct HoverMenuState {
         huxerui::LayerId layer = 0;
+        bool arrowHovered = false;
+        bool menuHovered = false;
+        std::uint64_t generation = 0; // 每次 Enter 递增，作废未生效的宽限关闭任务
     };
-    // 非响应式状态只记录当前层；Enter 只 Show 一次，Leave 立即 Dismiss，按钮不重组。
+    // 非响应式状态只记录当前层与悬停来源；Enter 只 Show 一次，关闭走宽限任务，
+    // 按钮不重组。
     auto hover = huxerui::UseState(std::make_shared<HoverMenuState>()).Get();
-    auto showAlternates = [popup, alternateLabel, onAction, alternateEnabled, hover] {
+    auto closeIfLeft = [popup, hover, tasks] {
+        if (hover->layer == 0) return;
+        const std::uint64_t generation = hover->generation;
+        tasks.Launch([popup, hover, generation]() -> huxerui::Task<void> {
+            co_await huxerui::Delay(std::chrono::duration<double>{0.15});
+            if (generation != hover->generation || hover->arrowHovered || hover->menuHovered ||
+                hover->layer == 0)
+                co_return;
+            popup.Dismiss(hover->layer);
+            hover->layer = 0;
+        });
+    };
+    auto showAlternates = [popup, alternateLabel, onAction, alternateEnabled, hover, closeIfLeft] {
         if (!alternateEnabled) return;
         if (hover->layer != 0) return; // 同一次 hover 只挂一层，避免重复 Show 闪烁
         hover->layer = ShowHoverAppMenu(
@@ -948,10 +1024,20 @@ huxerui::View SplitActionButton(
                              hover->layer = 0;
                              onAction(true);
                          }}},
-            [](bool) {},
+            [hover, closeIfLeft](bool menuHovered) {
+                if (menuHovered) {
+                    ++hover->generation;
+                    hover->menuHovered = true;
+                } else {
+                    hover->menuHovered = false;
+                    closeIfLeft();
+                }
+            },
             huxerui::PopupOptions{
                 .placement = {huxerui::AnchorSide::Below,
-                              huxerui::AnchorAlignment::End}});
+                              huxerui::AnchorAlignment::End},
+                .dismiss_on_outside_press = false,
+                .on_dismiss_request = [hover] { hover->layer = 0; }});
     };
     return huxerui::Row {
         huxerui::Row{huxerui::Text(std::move(label), huxerui::TextRole::Label)
@@ -975,12 +1061,14 @@ huxerui::View SplitActionButton(
                   huxerui::Opacity(alternateEnabled ? 1.0F : 0.4F))
             .OnClick(showAlternates)
             .On<huxerui::ViewEvents::Hover>(
-                [popup, hover, showAlternates](const huxerui::HoverEvent& event) {
+                [hover, showAlternates, closeIfLeft](const huxerui::HoverEvent& event) {
                     if (event.type == huxerui::HoverEventType::Enter) {
+                        ++hover->generation;
+                        hover->arrowHovered = true;
                         showAlternates();
                     } else if (event.type == huxerui::HoverEventType::Leave) {
-                        if (hover->layer != 0) popup.Dismiss(hover->layer);
-                        hover->layer = 0;
+                        hover->arrowHovered = false;
+                        closeIfLeft();
                     }
                 }),
     }.With(huxerui::Background(theme.colors.primary),

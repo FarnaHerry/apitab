@@ -103,6 +103,93 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
         huxerui::Padding(islands.island_padding));
 }
 
+namespace {
+
+// 声明式 Rotation 没有暂停/续播接口，改由节点保存光圈相位。
+struct AvatarRing {
+    class Extension;
+    float size;
+    float width;
+    bool flowing;
+    bool operator==(const AvatarRing&) const = default;
+};
+
+class AvatarRing::Extension final : public huxerui::NodeExtension {
+public:
+    Extension(huxerui::MountedNode& node, const AvatarRing& value) { Update(node, value); }
+
+    void Update(huxerui::MountedNode&, const AvatarRing& value) {
+        if (value.flowing != value_.flowing) firstFrame_ = true;
+        value_ = value;
+        InvalidatePaint();
+    }
+
+    FrameResult OnFrame(huxerui::MountedNode&, const huxerui::FrameInfo& frame) override {
+        if (!value_.flowing || frame.reduced_motion) {
+            firstFrame_ = true;
+            return {};
+        }
+        // 续播首帧不累计悬停前的时间，角度始终从最后绘制的位置继续。
+        if (firstFrame_) {
+            firstFrame_ = false;
+        } else {
+            constexpr double kTurn = 2.0 * std::numbers::pi;
+            angle_ = std::fmod(angle_ + frame.delta_time * kTurn / 2.4, kTurn);
+            InvalidatePaint();
+        }
+        return {.needs_frame = true};
+    }
+
+    void PaintAboveContent(const huxerui::MountedNode&, huxerui::PaintContext& paint) const override {
+        const float halfStroke = value_.width * 0.5F;
+        const auto circle = huxerui::Path::RoundedRect(
+            {halfStroke, halfStroke, value_.size - value_.width, value_.size - value_.width},
+            huxerui::CornerRadii{value_.size * 0.5F});
+        const float cosine = static_cast<float>(std::cos(angle_));
+        const float sine = static_cast<float>(std::sin(angle_));
+        const float dx = 0.35F * (cosine + sine);
+        const float dy = 0.35F * (sine - cosine);
+        paint.StrokePath(circle, huxerui::LinearGradient{
+            .start = {0.5F - dx, 0.5F - dy}, .end = {0.5F + dx, 0.5F + dy},
+            .stops = {{0.0F, huxerui::Color::Rgb(48, 128, 255)},
+                      {0.6F, huxerui::Color::Rgb(48, 128, 255)},
+                      {1.0F, huxerui::Color::Rgb(177, 159, 255)}},
+        }, huxerui::StrokeStyle{.width = value_.width});
+    }
+
+private:
+    AvatarRing value_{};
+    double angle_ = 0.0;
+    bool firstFrame_ = true;
+};
+
+} // namespace
+
+huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui::ThemeSpec& theme,
+                            bool hovered) {
+    const float ringWidth = size >= 48.0F ? size * (3.0F / 64.0F) : 1.5F;
+    const float inset = ringWidth + (size >= 48.0F ? size / 32.0F : 1.0F);
+    const float imageSize = size - inset * 2.0F;
+    const auto textRole = size >= 48.0F ? huxerui::TextRole::Title : huxerui::TextRole::Label;
+    huxerui::View portrait = image.HasValue()
+        ? huxerui::View{huxerui::Image(image).Fit(huxerui::ImageFit::Cover)
+                            .With(huxerui::Frame{.width = imageSize, .height = imageSize})}
+        : huxerui::View{huxerui::Text("U", textRole)
+                            .With(huxerui::Foreground(theme.colors.on_primary))};
+    huxerui::View ring = huxerui::Stack {}.With(
+        huxerui::Frame{.width = size, .height = size},
+        AvatarRing{size, ringWidth, hovered && !theme.motion.reduced_motion});
+    return huxerui::Stack {
+      ring,
+      huxerui::Stack { portrait }.With(
+          huxerui::Frame{.width = imageSize, .height = imageSize},
+          huxerui::Background(theme.colors.primary), huxerui::CornerRadius(imageSize * 0.5F),
+          huxerui::ClipChildren(),
+          huxerui::Align(huxerui::HorizontalAlignment::Center, huxerui::VerticalAlignment::Center)),
+    }.With(huxerui::Frame{.width = size, .height = size}, huxerui::CornerRadius(size * 0.5F),
+           huxerui::Align(huxerui::HorizontalAlignment::Center, huxerui::VerticalAlignment::Center));
+}
+
 // 统一图标动作：glyph 只负责绘制（固定 kIconGlyph 字号，不反向决定按钮大小），
 // 命中区固定 icon_button_compact/icon_button_regular 两档（size 只认 28/32，
 // 其他值就近收敛：>=30 归 regular，否则 compact）；圆形/圆角方形由 shape 显式
@@ -331,6 +418,21 @@ huxerui::codeeditor::EditorTheme EditorTheme(const huxerui::ThemeSpec& theme) {
     editor.gutter_background = editor.background;
     editor.separator_color = huxerui::Color::Transparent();
     return editor;
+}
+
+void ConfigureEditorMenu(huxerui::codeeditor::EditorOptions& options) {
+    options.context_menu_items = [readOnly = options.read_only] {
+        using Item = huxerui::codeeditor::EditorContextItem;
+        std::vector<Item> items;
+        if (!readOnly) items.push_back({"剪切", 0});
+        items.push_back({"复制", 1});
+        if (!readOnly) items.push_back({"粘贴", 2});
+        items.push_back({"全选", 3});
+        items.push_back({"查找", 4});
+        items.push_back({"全部折叠", 5});
+        items.push_back({"全部展开", 6});
+        return items;
+    };
 }
 
 void ApplyEditorTypography(huxerui::codeeditor::EditorOptions& options) {

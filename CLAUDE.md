@@ -25,10 +25,10 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   `third_party/huxerui` 源码（git clone 的上游仓库，`add_subdirectory` 编译，跟踪
   上游更新 `git pull` 即可；不入库，.gitignore 已忽略）。CLI 注入的已安装 SDK
   `HUXERUI_HOME` 不得压过仓库源码；只有 `HUXERUI_HOME` 明确指向源码目录时优先于
-  仓库源码。源码目录不存在或 Linux 缺 gtk4/libsoup-3.0 开发包时才自动回落
+  仓库源码。源码目录不存在或 Linux 缺 GTK ≥4.14 / libepoxy ≥1.5 / libsoup ≥3.0 开发包时才自动回落
   `third_party/tarballs` 的 Linux 0.2.0 预编译 SDK（`find_package(HuxerUI 0.2.0 CONFIG REQUIRED
   COMPONENTS shared)`，`HuxerUI_DIR` 指向 `build/vendor/huxerui/...`）。
-  源码模式编译 Linux 后端需要 `sudo dnf install gtk4-devel libsoup3-devel`。
+  源码模式编译 Linux 后端需要 `sudo dnf install gtk4-devel libepoxy-devel libsoup3-devel`。
   强制回落已安装/离线 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`；该通道是兼容与发布门禁，
   不阻塞开发期使用最新源码 API。
 - 源码 clone 当前带本地补丁：`tools/codegen/CMakeLists.txt` 与
@@ -42,6 +42,11 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   `cmake/patches/huxerui-window-p0960.patch` 形式在 CI 两个 fetch 步骤里
   `git apply`（改动处带 `NOTE(apitab local patch)`，上游 pull 后需核对/重导，
   建议反馈作者改用花括号）。
+  `platform/linux/` 的自定义边框缩放热区补丁
+  （`cmake/patches/huxerui-linux-resize-hitarea.patch`）把判定从 6dp 边/角不分
+  改为 10dp 边 + 14dp 角（`linux_internal.h` 的 `ResolveLinuxResizeEdge`），
+  并按方向切换 ns/ew/nesw/nwse 光标，附带 `linux_window_chrome.cpp` 单测；
+  同样在 CI 两个 fetch 步骤 `git apply`。
   原 `platform/linux/linux_adapter.cpp` 的 X11 `None` 冲突补丁已由上游
   `dcd41c4` 正式修复，937efb1 更新后本地补丁已删除。
 - **上游 linux 预置宿主工具可能落后于源码**：4a56daf 改了 svg 编译器/path
@@ -225,7 +230,7 @@ ctest --test-dir build             # 冒烟测试（test_smoke）
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `apitab.api_engine` | `src/api_engine.cppm` | 抽象接口 `ApiEngine` / `LoadEngine` / `WebSocketEngine` / `TcpEngine` + `RequestSpec` / `ResponseView` / `LoadOptions` / `LoadSummary` |
-| `apitab.curl_engine` | `src/curl_engine.cppm/.cpp` | 单次请求引擎的 curl 实现（常驻工作线程；send 纯入队、代际丢弃、cancel 协作打断且丢弃排队请求、取消后结果不投递；run 全 try/catch 兜底填错误结果）；`makeCurlEngine()` 工厂，curl 头只进实现单元 |
+| `apitab.curl_engine` | `src/curl_engine.cppm/.cpp` | 单次请求引擎的 curl 实现（常驻工作线程；send 纯入队、代际丢弃、cancel 协作打断且丢弃排队请求、取消后结果不投递；run 全 try/catch 兜底填错误结果）；传输期正文/头部累积进进度槽供 `takeProgress` 增量快照（SSE 用），头部块识别 `text/event-stream` 即关闭总超时（长连接唯一例外，取消仍走协作打断）；`makeCurlEngine()` 工厂，curl 头只进实现单元 |
 | `apitab.k6_engine` | `src/k6_engine.cppm/.cpp` | 压测引擎：生成 k6 脚本（`handleSummary` 打印 `K6SUMMARY {json}` 行）→ spawn 子进程 → 监视线程拆 `\r`/`\n` 行入队；stop=SIGINT，3s 宽限后 SIGKILL |
 | `apitab.db` | `src/db.cppm/.cpp` | SQLiteCpp：requests / history / load_tests 三表；KV 序列化为 JSON |
 | `apitab.config` | `src/config.cppm` | 数据目录（~/.local/share/apitab）/ k6 二进制解析 |
@@ -241,8 +246,9 @@ ctest --test-dir build             # 冒烟测试（test_smoke）
 
 **事件驱动**：HuxerUI 是 State 驱动失效模型。UI 线程 ↔ 任务线程的分离由
 `src/ui/task_bridge.h` 的协程桥承担：单次 HTTP 请求由 store 持有的 curl 引擎
-传输（send 纯入队，UI 协程 `PollWhile` 轮询 `takeResponse` 取回结果，恢复点
-恒为 UI 线程）；WS/TCP 会话由
+传输（send 纯入队，UI 协程 `PollWhile` 轮询 `takeResponse` 取回结果，每拍先
+drain `takeProgress` 增量快照——SSE/分块正文在传输中实时呈现在响应区流式
+视图，完成后才落只读编辑器；恢复点恒为 UI 线程）；WS/TCP 会话由
 页面协程直接持有（`ws_session`/`tcp_session`，应用侧不拥有线程：IX 自管线程，
 TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结果经
 `PollWhile` 轮询 `pollSummary/drainOutput` 并在 UI 线程写 State；阻塞/CPU
@@ -283,7 +289,10 @@ TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结
 ## CMake 迁移备注（原 mcpp 行为对照）
 
 - Windows：HuxerUI 运行时 dll 在 POST_BUILD 拷到 exe 旁；OpenSSL 走 chocolatey，
-  CI 里以 `OPENSSL_ROOT_DIR` 注入。
+  CI 里以 `OPENSSL_ROOT_DIR` 注入（共享库，其 `libssl-N-x64.dll`/`libcrypto-N-x64.dll`
+  与 MSVC 桌面 CRT `msvcp140/vcruntime140*` 同样在 POST_BUILD 拷到 exe 旁——干净
+  Windows 三者都没有；CI staging 只收 exe 旁的 dll 并断言齐全，不递归扫构建树，
+  避免卷入预置宿主工具的 .NET/WebView2 程序集和 `*_app` UWP CRT 变体）。
 - CI 的 linux job 用 ubuntu:26.04 容器 + clang-21/libc++；macOS job 整链 brew
   llvm clang/libc++（.mm 框架层只能 clang 编译，std 类型贯穿 .mm/.cpp 接口 →
   单进程必须单一标准库；此前的 brew GCC 混链 AppleClang 在 mangling 分叉上直接

@@ -1,9 +1,8 @@
 # CMake 构建产物
 build/
 # P1-B1.0a 三通道本地验证构建（源码 / SDK / 已安装 SDK 各自独立配置目录）
-build-old/
-build-sdk/
-build-sdk-home/
+# 及各种本地变体构建目录
+build-*/
 
 # HuxerUI CLI 构建/生成产物（huxerui build/run 的构建目录与依赖图）
 .huxerui/

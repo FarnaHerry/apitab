@@ -1,0 +1,264 @@
+diff --git a/platform/linux/linux_adapter.cpp b/platform/linux/linux_adapter.cpp
+index 60fae33..e87722f 100644
+--- a/platform/linux/linux_adapter.cpp
++++ b/platform/linux/linux_adapter.cpp
+@@ -52,8 +52,6 @@ namespace huxerui::detail {
+ namespace {
+ 
+ constexpr float kDipsPerScrollStep = 40.0F;
+-constexpr float kResizeBorderDips = 6.0F;
+-
+ const char* LinuxPointerCursorName(PointerCursorKind kind) noexcept {
+   switch (kind) {
+   case PointerCursorKind::Default:
+@@ -288,39 +286,32 @@ std::string KeyText(guint key_value, GdkModifierType state) {
+   return std::string(buffer, static_cast<std::size_t>(length));
+ }
+ 
+-std::optional<GdkSurfaceEdge> ResizeEdge(Point point, Size viewport, bool maximized) noexcept {
+-  if (maximized || viewport.width <= 0.0F || viewport.height <= 0.0F) {
+-    return std::nullopt;
+-  }
+-  const bool left = point.x <= kResizeBorderDips;
+-  const bool right = point.x >= viewport.width - kResizeBorderDips;
+-  const bool top = point.y <= kResizeBorderDips;
+-  const bool bottom = point.y >= viewport.height - kResizeBorderDips;
+-  if (top && left) {
+-    return GDK_SURFACE_EDGE_NORTH_WEST;
+-  }
+-  if (top && right) {
+-    return GDK_SURFACE_EDGE_NORTH_EAST;
+-  }
+-  if (bottom && left) {
+-    return GDK_SURFACE_EDGE_SOUTH_WEST;
+-  }
+-  if (bottom && right) {
+-    return GDK_SURFACE_EDGE_SOUTH_EAST;
+-  }
+-  if (left) {
+-    return GDK_SURFACE_EDGE_WEST;
+-  }
+-  if (right) {
+-    return GDK_SURFACE_EDGE_EAST;
+-  }
+-  if (top) {
+-    return GDK_SURFACE_EDGE_NORTH;
+-  }
+-  if (bottom) {
+-    return GDK_SURFACE_EDGE_SOUTH;
++GdkSurfaceEdge GdkResizeEdge(LinuxResizeEdge edge) noexcept {
++  switch (edge) {
++  case LinuxResizeEdge::NorthWest: return GDK_SURFACE_EDGE_NORTH_WEST;
++  case LinuxResizeEdge::North: return GDK_SURFACE_EDGE_NORTH;
++  case LinuxResizeEdge::NorthEast: return GDK_SURFACE_EDGE_NORTH_EAST;
++  case LinuxResizeEdge::East: return GDK_SURFACE_EDGE_EAST;
++  case LinuxResizeEdge::SouthEast: return GDK_SURFACE_EDGE_SOUTH_EAST;
++  case LinuxResizeEdge::South: return GDK_SURFACE_EDGE_SOUTH;
++  case LinuxResizeEdge::SouthWest: return GDK_SURFACE_EDGE_SOUTH_WEST;
++  case LinuxResizeEdge::West: return GDK_SURFACE_EDGE_WEST;
++  }
++  return GDK_SURFACE_EDGE_NORTH;
++}
++
++const char* LinuxResizeCursorName(LinuxResizeEdge edge) noexcept {
++  switch (edge) {
++  case LinuxResizeEdge::North:
++  case LinuxResizeEdge::South: return "ns-resize";
++  case LinuxResizeEdge::East:
++  case LinuxResizeEdge::West: return "ew-resize";
++  case LinuxResizeEdge::NorthEast:
++  case LinuxResizeEdge::SouthWest: return "nesw-resize";
++  case LinuxResizeEdge::NorthWest:
++  case LinuxResizeEdge::SouthEast: return "nwse-resize";
+   }
+-  return std::nullopt;
++  return "default";
+ }
+ 
+ std::shared_ptr<LinuxUIThreadDispatcher> InitializeGtk() {
+@@ -417,8 +408,9 @@ public:
+   }
+ 
+   void SetPointerCursor(PointerCursorKind kind) override {
++    requested_pointer_cursor_ = kind;
+     if (drawing_area_ != nullptr) {
+-      gtk_widget_set_cursor_from_name(GTK_WIDGET(drawing_area_), LinuxPointerCursorName(kind));
++      ApplyPointerCursor();
+     }
+   }
+ 
+@@ -871,9 +863,9 @@ private:
+         static_cast<float>(gtk_widget_get_width(GTK_WIDGET(drawing_area_))),
+         static_cast<float>(gtk_widget_get_height(GTK_WIDGET(drawing_area_))),
+     };
+-    if (const std::optional<GdkSurfaceEdge> edge =
+-            ResizeEdge(point, viewport, gtk_window_is_maximized(window_) != FALSE)) {
+-      gdk_toplevel_begin_resize(GDK_TOPLEVEL(surface), *edge, device, static_cast<int>(button), point.x, point.y, time);
++    if (const std::optional<LinuxResizeEdge> edge = ResolveLinuxResizeEdge(
++            point, viewport, gtk_window_is_maximized(window_) != FALSE)) {
++      gdk_toplevel_begin_resize(GDK_TOPLEVEL(surface), GdkResizeEdge(*edge), device, static_cast<int>(button), point.x, point.y, time);
+       return true;
+     }
+     if (runtime_->IsWindowDragRegion(point)) {
+@@ -897,6 +889,32 @@ private:
+         changed_button,
+         pressed_buttons,
+     });
++    UpdateResizeCursor(position);
++  }
++
++  void ApplyPointerCursor() noexcept {
++    if (drawing_area_ == nullptr) return;
++    const char* name = hovered_resize_edge_.has_value()
++                           ? LinuxResizeCursorName(*hovered_resize_edge_)
++                           : LinuxPointerCursorName(requested_pointer_cursor_);
++    gtk_widget_set_cursor_from_name(GTK_WIDGET(drawing_area_), name);
++  }
++
++  void UpdateResizeCursor(Point position) noexcept {
++    std::optional<LinuxResizeEdge> edge;
++    if (custom_chrome_ && drawing_area_ != nullptr && window_ != nullptr &&
++        pressed_buttons_ == PointerButton::None) {
++      edge = ResolveLinuxResizeEdge(
++          position,
++          {static_cast<float>(gtk_widget_get_width(GTK_WIDGET(drawing_area_))),
++           static_cast<float>(gtk_widget_get_height(GTK_WIDGET(drawing_area_)))},
++          gtk_window_is_maximized(window_) != FALSE
++      );
++    }
++    if (edge != hovered_resize_edge_) {
++      hovered_resize_edge_ = edge;
++      ApplyPointerCursor();
++    }
+   }
+ 
+   void CancelPointer() {
+@@ -1038,7 +1056,9 @@ private:
+   }
+ 
+   static void WindowMaximizedChanged(GObject*, GParamSpec*, gpointer data) {
+-    static_cast<LinuxPlatformAdapter*>(data)->UpdateRuntimeViewport();
++    auto& self = *static_cast<LinuxPlatformAdapter*>(data);
++    self.UpdateRuntimeViewport();
++    self.UpdateResizeCursor(self.last_pointer_position_);
+   }
+ 
+   static void ScaleChanged(GObject*, GParamSpec*, gpointer data) {
+@@ -1145,6 +1165,8 @@ private:
+     if (self.pressed_buttons_ == PointerButton::None) {
+       self.SendPointer(PointerEventType::Cancel, self.last_pointer_position_);
+     }
++    self.hovered_resize_edge_.reset();
++    self.ApplyPointerCursor();
+   }
+ 
+   static gboolean Scrolled(GtkEventControllerScroll* controller, double dx, double dy, gpointer data) {
+@@ -1218,6 +1240,8 @@ private:
+   bool suppress_pointer_release_ = false;
+   bool clipboard_read_active_ = false;
+   Point last_pointer_position_;
++  PointerCursorKind requested_pointer_cursor_ = PointerCursorKind::Default;
++  std::optional<LinuxResizeEdge> hovered_resize_edge_;
+   LinuxKeyTracker key_tracker_;
+   std::exception_ptr failure_;
+ };
+diff --git a/platform/linux/linux_internal.h b/platform/linux/linux_internal.h
+index 2eb1e89..e5a8a92 100644
+--- a/platform/linux/linux_internal.h
++++ b/platform/linux/linux_internal.h
+@@ -3,6 +3,7 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <cstdint>
++#include <optional>
+ #include <unordered_set>
+ 
+ #include <huxerui/app.h>
+@@ -12,6 +13,48 @@ namespace huxerui::detail {
+ 
+ inline constexpr float kLinuxCaptionButtonWidth = 46.0F;
+ inline constexpr float kLinuxMinTitleBarHeight = 32.0F;
++// NOTE(apitab local patch): Keep the visible border unchanged while making
++// custom-chrome resize targets practical to acquire.
++inline constexpr float kLinuxResizeBorderDips = 10.0F;
++inline constexpr float kLinuxResizeCornerDips = 14.0F;
++
++enum class LinuxResizeEdge {
++  NorthWest,
++  North,
++  NorthEast,
++  East,
++  SouthEast,
++  South,
++  SouthWest,
++  West,
++};
++
++inline std::optional<LinuxResizeEdge>
++ResolveLinuxResizeEdge(Point point, Size viewport, bool disabled) noexcept {
++  if (disabled || !std::isfinite(point.x) || !std::isfinite(point.y) ||
++      !std::isfinite(viewport.width) || !std::isfinite(viewport.height) ||
++      viewport.width <= 0.0F || viewport.height <= 0.0F || point.x < 0.0F || point.y < 0.0F ||
++      point.x > viewport.width || point.y > viewport.height) {
++    return std::nullopt;
++  }
++  const bool left = point.x <= kLinuxResizeBorderDips;
++  const bool right = point.x >= viewport.width - kLinuxResizeBorderDips;
++  const bool top = point.y <= kLinuxResizeBorderDips;
++  const bool bottom = point.y >= viewport.height - kLinuxResizeBorderDips;
++  const bool left_corner = point.x <= kLinuxResizeCornerDips;
++  const bool right_corner = point.x >= viewport.width - kLinuxResizeCornerDips;
++  const bool top_corner = point.y <= kLinuxResizeCornerDips;
++  const bool bottom_corner = point.y >= viewport.height - kLinuxResizeCornerDips;
++  if (top_corner && left_corner) return LinuxResizeEdge::NorthWest;
++  if (top_corner && right_corner) return LinuxResizeEdge::NorthEast;
++  if (bottom_corner && left_corner) return LinuxResizeEdge::SouthWest;
++  if (bottom_corner && right_corner) return LinuxResizeEdge::SouthEast;
++  if (left) return LinuxResizeEdge::West;
++  if (right) return LinuxResizeEdge::East;
++  if (top) return LinuxResizeEdge::North;
++  if (bottom) return LinuxResizeEdge::South;
++  return std::nullopt;
++}
+ 
+ inline WindowTitleBarMetrics ResolveLinuxTitleBarMetrics(
+     float preferred_height, Size viewport, bool maximized
+diff --git a/tests/platform/linux_window_chrome.cpp b/tests/platform/linux_window_chrome.cpp
+index 3ce39bd..e464453 100644
+--- a/tests/platform/linux_window_chrome.cpp
++++ b/tests/platform/linux_window_chrome.cpp
+@@ -42,6 +42,34 @@ TEST_CASE("LinuxApplicationLifecycleIncludesMinimizedToplevelState") {
+   );
+ }
+ 
++TEST_CASE("LinuxCustomChromeResizeEdgesUseLargerCornerTargets") {
++  using detail::LinuxResizeEdge;
++  const Size viewport{800.0F, 600.0F};
++  REQUIRE(detail::ResolveLinuxResizeEdge({0.0F, 0.0F}, viewport, false) == LinuxResizeEdge::NorthWest);
++  REQUIRE(detail::ResolveLinuxResizeEdge({799.0F, 1.0F}, viewport, false) == LinuxResizeEdge::NorthEast);
++  REQUIRE(detail::ResolveLinuxResizeEdge({1.0F, 599.0F}, viewport, false) == LinuxResizeEdge::SouthWest);
++  REQUIRE(detail::ResolveLinuxResizeEdge({799.0F, 599.0F}, viewport, false) == LinuxResizeEdge::SouthEast);
++  REQUIRE(detail::ResolveLinuxResizeEdge({5.0F, 300.0F}, viewport, false) == LinuxResizeEdge::West);
++  REQUIRE(detail::ResolveLinuxResizeEdge({795.0F, 300.0F}, viewport, false) == LinuxResizeEdge::East);
++  REQUIRE(detail::ResolveLinuxResizeEdge({400.0F, 5.0F}, viewport, false) == LinuxResizeEdge::North);
++  REQUIRE(detail::ResolveLinuxResizeEdge({400.0F, 595.0F}, viewport, false) == LinuxResizeEdge::South);
++
++  // The corner target is intentionally deeper than the straight edge target.
++  REQUIRE(detail::ResolveLinuxResizeEdge({12.0F, 12.0F}, viewport, false) == LinuxResizeEdge::NorthWest);
++  REQUIRE_FALSE(detail::ResolveLinuxResizeEdge({12.0F, 300.0F}, viewport, false).has_value());
++  REQUIRE_FALSE(detail::ResolveLinuxResizeEdge({400.0F, 300.0F}, viewport, false).has_value());
++}
++
++TEST_CASE("LinuxCustomChromeResizeEdgesRejectDisabledAndInvalidGeometry") {
++  const Size viewport{800.0F, 600.0F};
++  REQUIRE_FALSE(detail::ResolveLinuxResizeEdge({1.0F, 1.0F}, viewport, true).has_value());
++  REQUIRE_FALSE(detail::ResolveLinuxResizeEdge({-1.0F, 10.0F}, viewport, false).has_value());
++  REQUIRE_FALSE(detail::ResolveLinuxResizeEdge({801.0F, 10.0F}, viewport, false).has_value());
++  REQUIRE_FALSE(detail::ResolveLinuxResizeEdge({1.0F, 1.0F}, {0.0F, 600.0F}, false).has_value());
++  REQUIRE_FALSE(detail::ResolveLinuxResizeEdge(
++      {std::numeric_limits<float>::quiet_NaN(), 1.0F}, viewport, false).has_value());
++}
++
+ TEST_CASE("LinuxKeyTrackingBalancesInputMethodFilteringAndRepeat") {
+   detail::LinuxKeyTracker keys;
+   REQUIRE(keys.Press(38, false) == (detail::LinuxKeyPressResult{true, false}));

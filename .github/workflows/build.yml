@@ -47,12 +47,15 @@ jobs:
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout 4d4bba82158123856ae78cf15b722143656eb7a6
+          git -C third_party/huxerui checkout c00e72a76b5d44fc745a6734bfc9d8e255d9eb26
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
           # 预置宿主工具可能与运行库的资源索引格式脱节；Linux CI 后面会用同一
           # 源码编译 hcg/hrc，补丁放开容器中不可用的 -static-libstdc++。
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-hosttools-dynamic.patch
+          # 自定义窗口边框的缩放热区加宽（10dp 边 / 14dp 角）并补方向光标；
+          # 改动处带 NOTE(apitab local patch)。
+          git -C third_party/huxerui apply ../../cmake/patches/huxerui-linux-resize-hitarea.patch
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
           git -C third_party/huxerui-sweetedit checkout d012eb78bf2707f57c36caff75b6f361f62b6de2
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
@@ -60,6 +63,7 @@ jobs:
           # 补丁即本地源码微调：SweetEditor 的 FetchContent 兜底、行号右对齐、
           # 分隔线读主题色、sweetline_provider 日志静音（均带 NOTE(apitab local patch)）。
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-apitab.patch
+          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/sweetedit-context-menu-label.patch
           # SweetEditor/SweetLine 是 sweetedit 的 gitlink，但上游没有 .gitmodules，
           # 非递归 clone 拿不到内容；按 apitab 固定的 commit 显式 clone 并打本地
           # 防御性补丁（os_log 限 clang / wstring_convert 显式补 <locale>）。
@@ -211,9 +215,12 @@ jobs:
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout 4d4bba82158123856ae78cf15b722143656eb7a6
+          git -C third_party/huxerui checkout c00e72a76b5d44fc745a6734bfc9d8e255d9eb26
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
+          # 自定义窗口边框的缩放热区加宽（10dp 边 / 14dp 角）并补方向光标；
+          # 仅触 Linux 平台文件，改动处带 NOTE(apitab local patch)。
+          git -C third_party/huxerui apply ../../cmake/patches/huxerui-linux-resize-hitarea.patch
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
           git -C third_party/huxerui-sweetedit checkout d012eb78bf2707f57c36caff75b6f361f62b6de2
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
@@ -221,6 +228,7 @@ jobs:
           # 补丁即本地源码微调：SweetEditor 的 FetchContent 兜底、行号右对齐、
           # 分隔线读主题色、sweetline_provider 日志静音（均带 NOTE(apitab local patch)）。
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-apitab.patch
+          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/sweetedit-context-menu-label.patch
           # SweetEditor/SweetLine 是 sweetedit 的 gitlink，但上游没有 .gitmodules，
           # 非递归 clone 拿不到内容；按 apitab 固定的 commit 显式 clone 并打本地
           # 防御性补丁（os_log 限 clang / wstring_convert 显式补 <locale>）。
@@ -391,16 +399,31 @@ jobs:
           Copy-Item $candidatePath (Join-Path $PWD "dist-src\$artifactName")
 
           if ('${{ runner.os }}' -eq 'Windows') {
-            # HuxerUI and its Windows runtime dependencies are emitted in
-            # different subdirectories of the build tree. The executable alone
-            # is not a runnable artifact, so flatten every generated DLL next
-            # to apitab.exe.
-            $runtimeDlls = @(Get-ChildItem -Path build -Recurse -File -Filter '*.dll')
+            # Every runtime dependency apitab.exe imports (huxerui.dll, OpenSSL
+            # libssl/libcrypto, the MSVC desktop CRT) is copied next to the
+            # executable by CMake POST_BUILD steps, so stage exactly the DLLs
+            # beside it. A recursive sweep of the build tree also dragged in the
+            # prebuilt .NET host-tool assemblies (Antlr/System.*/WebView2
+            # wrappers, *_app CRT variants) that apitab never loads.
+            $runtimeDlls = @(Get-ChildItem -Path $candidateDirectory -File -Filter '*.dll')
             if ($runtimeDlls.Count -eq 0) {
-              throw 'No Windows runtime DLLs were produced under build'
+              throw 'No Windows runtime DLLs beside apitab.exe'
             }
             foreach ($runtimeDll in $runtimeDlls) {
               Copy-Item $runtimeDll.FullName (Join-Path $PWD "dist-src\$($runtimeDll.Name)") -Force
+            }
+
+            # A clean Windows machine has none of these; fail here instead of
+            # shipping a package that cannot start.
+            foreach ($required in @('huxerui.dll', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+              if (-not (Test-Path (Join-Path $PWD "dist-src\$required") -PathType Leaf)) {
+                throw "required runtime DLL missing from dist-src: $required"
+              }
+            }
+            foreach ($opensslPattern in @('libssl-*.dll', 'libcrypto-*.dll')) {
+              if (@(Get-ChildItem dist-src -File -Filter $opensslPattern).Count -eq 0) {
+                throw "required OpenSSL runtime DLL missing from dist-src: $opensslPattern"
+              }
             }
 
             # The HuxerUI resource package is also required at runtime and is

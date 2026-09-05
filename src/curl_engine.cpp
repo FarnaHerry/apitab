@@ -11,11 +11,17 @@
 // 健壮性保证：
 // - 任何端点（DNS 失败 / 连接拒绝 / 不可路由）都在 timeoutSec 内返回错误结果
 //   （CURLOPT_TIMEOUT 覆盖 DNS+连接+传输全程，CONNECTTIMEOUT 单独兜底连接段）；
+//   唯一例外是 SSE：头部块结束时识别 text/event-stream 即关闭总超时（长连接
+//   推流本身永不"完成"），取消仍走 XFERINFO 协作打断；
 // - 工作线程全程 try/catch：任何异常都落成错误结果写进结果槽，线程不静默死亡
 //   （否则结果槽永远不填，UI 永远停在"发送中…"）；
 // - curl 回调 noexcept：异常不得穿过 libcurl 的 C 栈帧，出错即中断本次传输；
 // - send 递增代际后立即清结果槽：上次取消残留（如未被取走的"已取消"）不会被
 //   新请求的轮询误取；cancel 丢弃排队请求并递增代际作废在途结果。
+//
+// 流式进度：正文/头部在传输期直接累积进 progress_ 槽（写回调持锁追加），UI 经
+// takeProgress 每 30ms 取全量快照增量呈现（SSE 逐条/逐字到达都能跟上）；传输
+// 结束由 finish 把累积内容并入最终结果槽并清空进度槽。
 module;
 
 #include <curl/curl.h>
@@ -34,38 +40,77 @@ namespace {
 // 响应体上限：API 调试场景 32 MiB 足够，防止打满内存（截断后在 body 尾部标注）。
 constexpr std::size_t kMaxBodyBytes = 32u * 1024u * 1024u;
 
-struct WriteCtx {
-    std::string* body;
-    bool truncated = false;
+// 传输期共享上下文：正文与头部直接累积进引擎的 progress_ 槽（写路径持锁），
+// UI 线程 takeProgress 读快照；blockStart 标记当前头部块起点（重定向会产生
+// 多个头部块，SSE 检测只认最后一块的 Content-Type）。
+struct TransferCtx {
+    std::mutex* mutex;
+    api::ResponseView* progress;
+    bool* progressDirty;
+    CURL* easy;
+    std::atomic<bool>* isEventStream;
+    bool* truncated;        // 仅工作线程读写
+    std::size_t blockStart = 0;  // 仅工作线程读写
 };
 
 size_t onBodyWrite(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept {
     // noexcept：异常绝不能穿过 libcurl 的 C 栈帧；失败返回错误值中断本次传输。
     try {
         const size_t n = size * nmemb;
-        auto* ctx = static_cast<WriteCtx*>(userdata);
-        const size_t room = kMaxBodyBytes - std::min(ctx->body->size(), kMaxBodyBytes);
+        auto* ctx = static_cast<TransferCtx*>(userdata);
+        std::lock_guard lock(*ctx->mutex);
+        std::string& body = ctx->progress->body;
+        const size_t room = kMaxBodyBytes - std::min(body.size(), kMaxBodyBytes);
         const size_t take = std::min(n, room);
-        ctx->body->append(ptr, take);
-        if (take < n) ctx->truncated = true;
+        body.append(ptr, take);
+        if (take < n) *ctx->truncated = true;
+        *ctx->progressDirty = true;
         return n;  // 吞掉全部（不截断传输本身，只截断留存）
     } catch (...) {
         return CURL_WRITEFUNC_ERROR;
     }
 }
 
-struct HeaderCtx {
-    std::vector<api::KeyValue>* headers;
-};
-
 size_t onHeaderLine(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept {
     // noexcept：异常绝不能穿过 libcurl 的 C 栈帧；返回值不等于入参字节数即中断传输。
     try {
         const size_t n = size * nmemb;
-        auto* ctx = static_cast<HeaderCtx*>(userdata);
+        auto* ctx = static_cast<TransferCtx*>(userdata);
         std::string line(ptr, n);
-        // 去掉行尾 \r\n；跳过状态行（HTTP/...）与空行。
+        // 去掉行尾 \r\n；跳过状态行（HTTP/...）。
         while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        if (line.empty()) {
+            // 头部块结束：拿到状态行后快照进度（重定向/100 Continue 的中间块
+            // 会被后续块覆盖）。SSE 长连接在此关闭总超时——传输中改
+            // CURLOPT_TIMEOUT 立即生效；万一未生效也只是退回原超时语义。
+            bool sse = false;
+            {
+                std::lock_guard lock(*ctx->mutex);
+                for (std::size_t i = ctx->blockStart; i < ctx->progress->headers.size(); ++i) {
+                    std::string key = ctx->progress->headers[i].key;
+                    std::ranges::transform(key, key.begin(), [](unsigned char c) {
+                        return static_cast<char>(std::tolower(c));
+                    });
+                    if (key != "content-type") continue;
+                    std::string value = ctx->progress->headers[i].value;
+                    std::ranges::transform(value, value.begin(), [](unsigned char c) {
+                        return static_cast<char>(std::tolower(c));
+                    });
+                    sse = value.find("text/event-stream") != std::string::npos;
+                }
+                ctx->blockStart = ctx->progress->headers.size();
+            }
+            long status = 0;
+            curl_easy_getinfo(ctx->easy, CURLINFO_RESPONSE_CODE, &status);
+            if (status != 0) {
+                if (sse && !ctx->isEventStream->exchange(true))
+                    curl_easy_setopt(ctx->easy, CURLOPT_TIMEOUT, 0L);
+                std::lock_guard lock(*ctx->mutex);
+                ctx->progress->status = status;
+                *ctx->progressDirty = true;
+            }
+            return n;
+        }
         const auto colon = line.find(':');
         if (colon != std::string::npos && !line.starts_with("HTTP/")) {
             std::string key = line.substr(0, colon);
@@ -73,7 +118,8 @@ size_t onHeaderLine(char* ptr, size_t size, size_t nmemb, void* userdata) noexce
             // value 前导空格
             const auto pos = value.find_first_not_of(' ');
             if (pos != std::string::npos) value.erase(0, pos);
-            ctx->headers->push_back({std::move(key), std::move(value), true});
+            std::lock_guard lock(*ctx->mutex);
+            ctx->progress->headers.push_back({std::move(key), std::move(value), true});
         }
         return n;
     } catch (...) {
@@ -149,12 +195,14 @@ public:
             ++generation_;
             cancelled_.store(true);  // 打断在途传输（若有）
         }
-        {   // 递增代际后立即清结果槽：上次取消残留的结果（如未被 UI 取走的
-            // "已取消"）不得被新请求的轮询误取。在途旧结果随后也会因代际不符
-            // 被 finish 丢弃。锁序 queueMutex_ → resultMutex_ 单向，无死锁。
+        {   // 递增代际后立即清结果槽与进度槽：上次取消残留的结果（如未被 UI
+            // 取走的"已取消"）不得被新请求的轮询误取。在途旧结果随后也会因代际
+            // 不符被 finish 丢弃。锁序 queueMutex_ → resultMutex_ 单向，无死锁。
             std::lock_guard rlock(resultMutex_);
             pending_ = api::ResponseView{};
             resultReady_ = false;
+            progress_ = api::ResponseView{};
+            progressDirty_ = false;
         }
         queueCv_.notify_one();
     }
@@ -170,6 +218,14 @@ public:
         if (busy_.load()) return true;
         std::lock_guard lock(queueMutex_);
         return queued_.has_value();
+    }
+
+    bool takeProgress(api::ResponseView& out) override {
+        std::lock_guard lock(resultMutex_);
+        if (!progressDirty_) return false;
+        out = progress_;  // 全量快照；正文按 32 MiB 上限截断
+        progressDirty_ = false;
+        return true;
     }
 
     bool takeResponse(api::ResponseView& out) override {
@@ -196,12 +252,16 @@ private:
                 // 锁内复位取消标志：send 的置位要么在本复位之前（打断的是上一条
                 // 传输，已被消费），要么在本复位之后（打断本条），不会误伤新请求。
                 cancelled_.store(false);
+                isEventStream_.store(false);
+                transferTruncated_ = false;
                 busy_.store(true);
             }
-            {   // 丢弃上一请求遗留的结果槽（已被新请求取代）
+            {   // 丢弃上一请求遗留的结果槽与进度槽（已被新请求取代）
                 std::lock_guard rlock(resultMutex_);
                 pending_ = api::ResponseView{};
                 resultReady_ = false;
+                progress_ = api::ResponseView{};
+                progressDirty_ = false;
             }
             runSafely(spec, generation);  // 内部全 catch，结果槽必被填写
         }
@@ -238,8 +298,8 @@ private:
             return;
         }
 
-        WriteCtx bodyCtx{&result.body};
-        HeaderCtx headerCtx{&result.headers};
+        TransferCtx transfer{&resultMutex_, &progress_, &progressDirty_, easy,
+                             &isEventStream_, &transferTruncated_};
         struct curl_slist* headerList = nullptr;
         curl_mime* mime = nullptr;
         for (const auto& h : spec.headers) {
@@ -260,12 +320,13 @@ private:
         curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, spec.followRedirects ? 1L : 0L);
         curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headerList);
         curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, &onBodyWrite);
-        curl_easy_setopt(easy, CURLOPT_WRITEDATA, &bodyCtx);
+        curl_easy_setopt(easy, CURLOPT_WRITEDATA, &transfer);
         curl_easy_setopt(easy, CURLOPT_HEADERFUNCTION, &onHeaderLine);
-        curl_easy_setopt(easy, CURLOPT_HEADERDATA, &headerCtx);
+        curl_easy_setopt(easy, CURLOPT_HEADERDATA, &transfer);
         // timeoutSec 覆盖 DNS+连接+传输全程（含 threaded resolver 的解析等待）；
         // CONNECTTIMEOUT 单独给连接段兜底。非法值（<=0 表示"无限"）一律钳制到
-        // 30s——引擎契约是"任何端点都在有限时间内返回"。
+        // 30s——引擎契约是"任何端点都在有限时间内返回"。SSE 长连接是唯一例外：
+        // 头部块识别 text/event-stream 后 onHeaderLine 会把总超时关掉。
         const long timeoutSec = spec.timeoutSec > 0 ? spec.timeoutSec : 30L;
         curl_easy_setopt(easy, CURLOPT_TIMEOUT, timeoutSec);
         curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, timeoutSec);
@@ -316,9 +377,6 @@ private:
             curl_off_t size = 0;
             curl_easy_getinfo(easy, CURLINFO_SIZE_DOWNLOAD_T, &size);
             result.sizeBytes = static_cast<std::int64_t>(size);
-            if (bodyCtx.truncated) {
-                result.body += "\n… [truncated at 32 MiB]";
-            }
         } else if (code == CURLE_ABORTED_BY_CALLBACK && cancelled_.load()) {
             result.error = "已取消";
         } else {
@@ -334,6 +392,14 @@ private:
     void finish(api::ResponseView&& result, std::uint64_t generation) {
         {
             std::lock_guard lock(resultMutex_);
+            // 传输期正文/头部累积在进度槽（供 takeProgress 增量呈现），完成后
+            // 并入最终结果并清空进度槽，避免 UI 在结果投递前后读到回退快照。
+            result.body = std::move(progress_.body);
+            result.headers = std::move(progress_.headers);
+            if (result.ok && transferTruncated_)
+                result.body += "\n… [truncated at 32 MiB]";
+            progress_ = api::ResponseView{};
+            progressDirty_ = false;
             // 已被新请求取代的结果直接丢弃，不投递（否则会冒充新请求的结果）。
             if (generation == generation_.load()) {
                 pending_ = std::move(result);
@@ -352,9 +418,13 @@ private:
     std::atomic<std::uint64_t> generation_{0};  // 每次 send 递增；结果按代际投递
     std::atomic<bool> busy_{false};
     std::atomic<bool> cancelled_{false};
+    std::atomic<bool> isEventStream_{false};  // 本次传输是 SSE（已关闭总超时）
+    bool transferTruncated_ = false;  // 仅工作线程读写
     std::mutex resultMutex_;
     api::ResponseView pending_;
     bool resultReady_ = false;
+    api::ResponseView progress_;  // 在途传输的累积快照（resultMutex_ 保护）
+    bool progressDirty_ = false;
 };
 
 } // namespace

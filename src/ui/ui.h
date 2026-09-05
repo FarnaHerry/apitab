@@ -361,6 +361,9 @@ inline TopTabState RestoreTopTabs(const std::string& openCsv, const std::string&
 huxerui::View PageHeader(std::string title, std::string subtitle);
 huxerui::View DialogCard(huxerui::View content);
 huxerui::View MigrationPlaceholder(std::string pageName);
+// 头像共用蓝紫渐变外圈，size 包含光圈与内侧留白。
+huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui::ThemeSpec& theme,
+                            bool hovered);
 enum class AppIconButtonShape {
     Circular,
     RoundedSquare,
@@ -511,6 +514,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup, std::vector<AppMen
                                   const huxerui::PopupOptions& options = {});
 // 编辑器主题由上游 CodeEditor 直接从应用主题派生。
 huxerui::codeeditor::EditorTheme EditorTheme(const huxerui::ThemeSpec& theme);
+void ConfigureEditorMenu(huxerui::codeeditor::EditorOptions& options);
 void ApplyEditorTypography(huxerui::codeeditor::EditorOptions& options);
 std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> SweetLineProvider(
     std::string syntax, std::string initialText, std::string documentKey);
@@ -587,9 +591,11 @@ huxerui::View RequestDocPage(const RequestDraft& snapshot, const std::string& en
 
 // request_response.cpp — 请求工作区右侧下岛（P1-C1 自 request_page.cpp 拆出）：响应区
 // Body/Headers/Cookies 三档切换 + 内部滚动。State 订阅局限在岛内，不扩散到编辑器。
+// inFlight 期间 Body 档切流式实时视图（SSE/分块正文逐块呈现），完成后落只读编辑器。
 huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
                            huxerui::State<std::vector<std::string>> responseHeaders,
                            huxerui::State<std::vector<std::string>> responseCookies,
+                           huxerui::State<bool> inFlight,
                            const huxerui::ThemeSpec& theme);
 
 // request_list.cpp — 请求工作区左岛（P1-C1 自 request_page.cpp 拆出）：当前项目

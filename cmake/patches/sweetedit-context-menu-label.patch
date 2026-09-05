@@ -1,0 +1,22 @@
+diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
+index e2c08d3..a2218da 100644
+--- a/src/codeeditor/codeeditor.cpp
++++ b/src/codeeditor/codeeditor.cpp
+@@ -1445,7 +1445,7 @@ public:
+     context_menu_.entries.clear();
+     if (context_menu_items_) {
+       for (const EditorContextItem& item : context_menu_items_()) {
+-        context_menu_.entries.push_back({item.label.c_str(), item.command, item.enabled});
++        context_menu_.entries.push_back({item.label, item.command, item.enabled});
+       }
+     } else {
+       const ContextMenuEntry defaults[] = {
+@@ -3520,7 +3524,7 @@ private:
+   // clipboard and selection actions, drawn on the canvas like the completion
+   // panel (no host overlay needed).
+   struct ContextMenuEntry {
+-    const char* label;
++    std::string label;
+     int command;  // 0=cut, 1=copy, 2=paste, 3=select-all, 4=find
+     bool enabled{true};
+   };
