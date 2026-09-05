@@ -42,21 +42,21 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Fetch pinned HuxerUI libraries
+      - name: Fetch latest HuxerUI libraries
         shell: bash
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout d3da824
+          git -C third_party/huxerui checkout 4d4bba82158123856ae78cf15b722143656eb7a6
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
-          # 上游预置宿主工具与源码版本脱节：d3da824 的 linux 预置 hrc 会把资源包
+          # 上游预置宿主工具与源码版本脱节：当前提交的 linux 预置 hrc 会把资源包
           # 编成 v2，而该提交运行库只读 v1 → 启动即抛 "resource index version is
           # unsupported: 2"。改按固定提交自编译 hrc/hcg，保证写端==读端。此补丁
           # 放开 Linux 的 -static-libstdc++（容器没有 libstdc++-static）。
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-hosttools-dynamic.patch
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
-          git -C third_party/huxerui-sweetedit checkout ca96393
+          git -C third_party/huxerui-sweetedit checkout d012eb78bf2707f57c36caff75b6f361f62b6de2
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
           # apitab CMakeLists 由此前的 TARGET sweetedit_core 改成了 codeeditor）。
           # 补丁即本地源码微调：SweetEditor 的 FetchContent 兜底、行号右对齐、
@@ -76,7 +76,7 @@ jobs:
         run: |
           apt-get install -y --no-install-recommends \
             clang-21 libc++-21-dev g++ ninja-build pkg-config file python3 python3-pip \
-            libssl-dev libgtk-4-dev libsoup-3.0-dev patchelf
+            libssl-dev libgtk-4-dev libepoxy-dev libsoup-3.0-dev patchelf
           # 26.04 的 apt cmake 是 3.31（无 GNU 发现模块且全局 token 不匹配），固定 pip 4.4.2
           python3 -m pip install --break-system-packages -q cmake==4.4.2
           cmake --version | head -1
@@ -94,8 +94,8 @@ jobs:
       - name: Build HuxerUI host tools (source)
         run: |
           set -euo pipefail
-          # HuxerUI 预置的 linux hrc 与固定提交的读端版本脱节（见 fetch 步骤注释）。
-          # 用同一固定提交自编译 hcg/hrc 落到 third_party/huxerui-tools，顶层
+          # HuxerUI 预置的 linux hrc 与源码读端版本可能脱节（见 fetch 步骤注释）。
+          # 用同一份最新源码自编译 hcg/hrc 落到 third_party/huxerui-tools，顶层
           # CMakeLists 的 HUXERUI_HOST_TOOL_ROOT 会优先使用它——资源包写端与运行
           # 库读端来自同一份源码。工具是纯 C++20 宿主程序，按 CLAUDE.md 本机流程
           # 用 g++ 动态编译即可（此处的 hosttools-dynamic 补丁已放开 -static）。
@@ -180,16 +180,16 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Fetch pinned HuxerUI libraries
+      - name: Fetch latest HuxerUI libraries
         shell: bash
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout d3da824
+          git -C third_party/huxerui checkout 4d4bba82158123856ae78cf15b722143656eb7a6
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
-          git -C third_party/huxerui-sweetedit checkout ca96393
+          git -C third_party/huxerui-sweetedit checkout d012eb78bf2707f57c36caff75b6f361f62b6de2
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
           # apitab CMakeLists 由此前的 TARGET sweetedit_core 改成了 codeeditor）。
           # 补丁即本地源码微调：SweetEditor 的 FetchContent 兜底、行号右对齐、
