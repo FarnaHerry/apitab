@@ -42,7 +42,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Fetch latest HuxerUI libraries
+      - name: Fetch HuxerUI and SweetEdit sources
         shell: bash
         run: |
           set -euo pipefail
@@ -50,10 +50,8 @@ jobs:
           git -C third_party/huxerui checkout 4d4bba82158123856ae78cf15b722143656eb7a6
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
-          # 上游预置宿主工具与源码版本脱节：当前提交的 linux 预置 hrc 会把资源包
-          # 编成 v2，而该提交运行库只读 v1 → 启动即抛 "resource index version is
-          # unsupported: 2"。改按固定提交自编译 hrc/hcg，保证写端==读端。此补丁
-          # 放开 Linux 的 -static-libstdc++（容器没有 libstdc++-static）。
+          # 预置宿主工具可能与运行库的资源索引格式脱节；Linux CI 后面会用同一
+          # 源码编译 hcg/hrc，补丁放开容器中不可用的 -static-libstdc++。
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-hosttools-dynamic.patch
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
           git -C third_party/huxerui-sweetedit checkout d012eb78bf2707f57c36caff75b6f361f62b6de2
@@ -94,21 +92,46 @@ jobs:
       - name: Build HuxerUI host tools (source)
         run: |
           set -euo pipefail
-          # HuxerUI 预置的 linux hrc 与源码读端版本可能脱节（见 fetch 步骤注释）。
-          # 用同一份最新源码自编译 hcg/hrc 落到 third_party/huxerui-tools，顶层
-          # CMakeLists 的 HUXERUI_HOST_TOOL_ROOT 会优先使用它——资源包写端与运行
-          # 库读端来自同一份源码。工具是纯 C++20 宿主程序，按 CLAUDE.md 本机流程
-          # 用 g++ 动态编译即可（此处的 hosttools-dynamic 补丁已放开 -static）。
           tools_root="third_party/huxerui-tools/linux/x86_64"
           mkdir -p "$tools_root"
           for tool in codegen resource_compiler; do
             build_dir="host-tools-build/$tool"
-            cmake -S "third_party/huxerui/tools/$tool" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Release -DAPITAB_HOST_TOOLS_DYNAMIC=ON
+            cmake -S "third_party/huxerui/tools/$tool" -B "$build_dir" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release -DAPITAB_HOST_TOOLS_DYNAMIC=ON
             cmake --build "$build_dir" --config Release --parallel
             cmake --install "$build_dir" --config Release --strip --prefix "$tools_root"
           done
-          ls -la "$tools_root"
-          ./"$tools_root"/hrc 2>&1 | head -1 || true
+          test -x "$tools_root/hcg"
+          test -x "$tools_root/hrc"
+
+      - name: Build and install HuxerUI SDK (source)
+        run: |
+          set -euo pipefail
+          sdk_prefix="$PWD/huxerui-sdk"
+          cmake -S third_party/huxerui -B huxerui-sdk-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$sdk_prefix" \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_CXX_COMPILER=clang++-21 \
+            -DCMAKE_CXX_FLAGS='-stdlib=libc++' \
+            -DCMAKE_EXE_LINKER_FLAGS='-stdlib=libc++' \
+            -DCMAKE_SHARED_LINKER_FLAGS='-stdlib=libc++' \
+            -DHUXERUI_BUILD_SHARED=ON \
+            -DHUXERUI_BUILD_STATIC=OFF \
+            -DHUXERUI_BUILD_CLI=ON \
+            -DHUXERUI_BUILD_EXAMPLES=OFF \
+            -DHUXERUI_BUILD_TESTS=OFF \
+            -DHUXERUI_HOST_TOOL_ROOT="$PWD/third_party/huxerui-tools"
+          cmake --build huxerui-sdk-build --config Release --parallel
+          cmake --install huxerui-sdk-build --config Release --strip
+          sdk_tools="$sdk_prefix/share/huxerui/tools/linux/x86_64"
+          install -d "$sdk_tools"
+          install -m 755 third_party/huxerui-tools/linux/x86_64/hcg "$sdk_tools/hcg"
+          install -m 755 third_party/huxerui-tools/linux/x86_64/hrc "$sdk_tools/hrc"
+          test -f "$sdk_prefix/lib/cmake/HuxerUI/HuxerUIConfig.cmake"
+          test -f "$sdk_prefix/lib/libhuxerui.so"
+          echo "HUXERUI_HOME=$sdk_prefix" >> "$GITHUB_ENV"
+          echo "$sdk_prefix/bin" >> "$GITHUB_PATH"
 
       - name: Configure
         run: |
@@ -122,7 +145,9 @@ jobs:
             -DCMAKE_CXX_FLAGS='-stdlib=libc++' \
             -DCMAKE_EXE_LINKER_FLAGS='-stdlib=libc++' \
             -DCMAKE_SHARED_LINKER_FLAGS='-stdlib=libc++' \
-            -DCMAKE_CXX_STANDARD_LIBRARIES=/usr/lib/x86_64-linux-gnu/libstdc++.so.6
+            -DCMAKE_CXX_STANDARD_LIBRARIES=/usr/lib/x86_64-linux-gnu/libstdc++.so.6 \
+            -DHUXERUI_HOME="$HUXERUI_HOME" \
+            -DAPITAB_HUXERUI_FORCE_SDK=ON
 
       - name: Build release
         run: cmake --build build --config Release --parallel
@@ -133,11 +158,13 @@ jobs:
           mkdir -p dist-src/lib
           cp build/apitab dist-src/apitab
           chmod +x dist-src/apitab
-          # HuxerUI 源码通道按 shared 编译，libhuxerui.so 只存在于构建树，
-          # 发布包必须把它随 exe 带出，并让动态加载器按 $ORIGIN/lib 解析。
-          huxerui_lib="$(find build -name 'libhuxerui.so' -print -quit)"
-          test -n "$huxerui_lib" || { echo 'libhuxerui.so not found' >&2; exit 1; }
-          cp -L "$huxerui_lib" dist-src/lib/libhuxerui.so
+          # SDK 模式的 libhuxerui.so 来自本 CI 同源码编译的 SDK，发布包必须
+          # 随 exe 带出，并让动态加载器按 $ORIGIN/lib 解析。
+          test -f "$HUXERUI_HOME/lib/libhuxerui.so" || {
+            echo 'installed HuxerUI SDK library not found' >&2
+            exit 1
+          }
+          cp -L "$HUXERUI_HOME/lib/libhuxerui.so" dist-src/lib/libhuxerui.so
           # apitab 用 clang + libc++ 编译/链接；libc++/libc++abi 大多数发行版
           # 不会预装（Fedora/Debian 默认只带 libstdc++），同样随包带出。
           for lib in libc++.so.1 libc++abi.so.1 libunwind.so.1; do
@@ -179,7 +206,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Fetch latest HuxerUI libraries
+      - name: Fetch HuxerUI and SweetEdit sources
         shell: bash
         run: |
           set -euo pipefail
@@ -238,6 +265,34 @@ jobs:
           cmake --version
           ninja --version
 
+      - name: Build and install HuxerUI SDK (macOS source)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_prefix="$PWD/huxerui-sdk"
+          cmake -S third_party/huxerui -B huxerui-sdk-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$sdk_prefix" \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_CXX_COMPILER="$APITAB_LLVM_PREFIX/bin/clang++" \
+            -DCMAKE_OBJCXX_COMPILER="$APITAB_LLVM_PREFIX/bin/clang++" \
+            -DCMAKE_CXX_FLAGS='-stdlib=libc++ -D_LIBCPP_DISABLE_AVAILABILITY' \
+            -DCMAKE_OBJCXX_FLAGS='-stdlib=libc++ -D_LIBCPP_DISABLE_AVAILABILITY' \
+            -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L$APITAB_LLVM_PREFIX/lib/c++ -L$APITAB_LLVM_PREFIX/lib/unwind -lc++ -lc++abi -lunwind" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L$APITAB_LLVM_PREFIX/lib/c++ -L$APITAB_LLVM_PREFIX/lib/unwind -lc++ -lc++abi -lunwind" \
+            -DHUXERUI_BUILD_SHARED=ON \
+            -DHUXERUI_BUILD_STATIC=OFF \
+            -DHUXERUI_BUILD_CLI=OFF \
+            -DHUXERUI_BUILD_EXAMPLES=OFF \
+            -DHUXERUI_BUILD_TESTS=OFF \
+            -DHUXERUI_HOST_TOOL_ROOT="$PWD/third_party/huxerui/tools/prebuilt"
+          cmake --build huxerui-sdk-build --config Release --parallel
+          cmake --install huxerui-sdk-build --config Release --strip
+          test -f "$sdk_prefix/lib/cmake/HuxerUI/HuxerUIConfig.cmake"
+          test -f "$sdk_prefix/lib/libhuxerui.dylib"
+          echo "HUXERUI_HOME=$sdk_prefix" >> "$GITHUB_ENV"
+
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
         shell: pwsh
@@ -287,13 +342,38 @@ jobs:
             -DCMAKE_MODULE_LINKER_FLAGS="-stdlib=libc++ -L$APITAB_LLVM_PREFIX/lib/c++ -L$APITAB_LLVM_PREFIX/lib/unwind -lc++ -lc++abi -lunwind" \
             -DCMAKE_CXX_STDLIB_MODULES_JSON="$APITAB_LLVM_PREFIX/lib/libc++.modules.json" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
-            -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3
+            -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3 \
+            -DHUXERUI_HOME="$HUXERUI_HOME" \
+            -DAPITAB_HUXERUI_FORCE_SDK=ON
+
+      - name: Build and install HuxerUI SDK (Windows source)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdkPrefix = Join-Path $PWD 'huxerui-sdk'
+          cmake -S third_party/huxerui -B huxerui-sdk-build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_INSTALL_PREFIX=$sdkPrefix" `
+            -DCMAKE_INSTALL_LIBDIR=lib `
+            -DHUXERUI_BUILD_SHARED=ON `
+            -DHUXERUI_BUILD_STATIC=OFF `
+            -DHUXERUI_BUILD_CLI=OFF `
+            -DHUXERUI_BUILD_EXAMPLES=OFF `
+            -DHUXERUI_BUILD_TESTS=OFF `
+            "-DHUXERUI_HOST_TOOL_ROOT=$PWD/third_party/huxerui/tools/prebuilt"
+          cmake --build huxerui-sdk-build --config Release --parallel
+          cmake --install huxerui-sdk-build --config Release --strip
+          if (-not (Test-Path (Join-Path $sdkPrefix 'lib/cmake/HuxerUI/HuxerUIConfig.cmake'))) { throw 'HuxerUI SDK CMake package not installed' }
+          "HUXERUI_HOME=$sdkPrefix" | Out-File -FilePath $env:GITHUB_ENV -Append
+          if (-not (Test-Path (Join-Path $sdkPrefix 'bin/huxerui.dll'))) { throw 'HuxerUI SDK DLL not installed' }
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR"
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR" `
+            "-DHUXERUI_HOME=$env:HUXERUI_HOME" -DAPITAB_HUXERUI_FORCE_SDK=ON
 
       - name: Build release
         run: cmake --build build --config Release --parallel
