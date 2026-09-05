@@ -144,10 +144,9 @@ jobs:
             p="$(find /usr/lib -name "$lib" -print -quit 2>/dev/null || true)"
             if [ -n "$p" ]; then cp -L "$p" "dist-src/lib/$lib"; fi
           done
-          # 框架资源索引：运行时按 <exeDir>/apitab.resources/huxerui/resources.bin 读取
-          # （顶层 CMakeLists 的 POST_BUILD 已把它放到 exe 旁，直接取用）。
-          mkdir -p dist-src/apitab.resources/huxerui
-          cp build/apitab.resources/huxerui/resources.bin dist-src/apitab.resources/huxerui/resources.bin
+          # 框架资源包：运行时除了 resources.bin 索引，还会读取同包内的
+          # .huxv/.png 等 payload；必须完整复制整个资源目录，不能只带索引。
+          cp -a build/apitab.resources dist-src/
           # 覆盖构建期指向 CI 工作区的 RUNPATH，改为相对 $ORIGIN
           patchelf --set-rpath '$ORIGIN/lib' dist-src/apitab
           file dist-src/apitab

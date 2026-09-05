@@ -424,15 +424,15 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     endif ()
 
     # 图标资源放 <exe>/assets；HuxerUI 资源包（内置+app 合并，由 huxerui_add_app 的
-    # 资源构建生成）放 <exe>.resources/huxerui/resources.bin —— 运行时按此路径查找。
+    # 资源构建生成）放 <exe>.resources。最新运行时除了 resources.bin 索引外，
+    # 还会按索引读取同目录下的 .huxv/.png 等实际 payload，必须把整个 package
+    # 目录复制到运行目录。
     add_custom_command(TARGET apitab POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:apitab>/assets"
-        COMMAND ${CMAKE_COMMAND} -E make_directory
-                "$<TARGET_FILE_DIR:apitab>/apitab.resources/huxerui"
-        COMMAND ${CMAKE_COMMAND} -E copy
-                "${CMAKE_BINARY_DIR}/huxerui-resources/apitab/package/huxerui/resources.bin"
-                "$<TARGET_FILE_DIR:apitab>/apitab.resources/huxerui/resources.bin"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/huxerui-resources/apitab/package"
+                "$<TARGET_FILE_DIR:apitab>/apitab.resources"
         COMMENT "Copying assets and the merged HuxerUI resource package next to apitab")
     if (WIN32)
         # HuxerUI 运行时 DLL 需在 exe 旁。源码通道没有 HUXERUI_SDK_DIR，且
