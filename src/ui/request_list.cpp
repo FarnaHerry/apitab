@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -98,6 +99,35 @@ struct GroupDragPayload {
     std::int64_t groupId = 0;
 };
 
+// TreeView 持有自己的快照；节点复制数据库记录，避免虚拟化行借用短生命周期的列表元素。
+struct RequestTreeNode;
+using RequestTreeNodePtr = std::shared_ptr<RequestTreeNode>;
+struct RequestTreeNode {
+    std::shared_ptr<const db::Group> group;
+    std::shared_ptr<const db::SavedRequest> request;
+    std::vector<RequestTreeNodePtr> children;
+};
+
+std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequest>& saved,
+                                                  const std::vector<db::Group>& groups,
+                                                  std::int64_t parentId) {
+    std::vector<RequestTreeNodePtr> nodes;
+    for (const db::Group& group : groups) {
+        if (group.parentId != parentId) continue;
+        auto node = std::make_shared<RequestTreeNode>();
+        node->group = std::make_shared<db::Group>(group);
+        node->children = BuildRequestTree(saved, groups, group.id);
+        nodes.push_back(std::move(node));
+    }
+    for (const db::SavedRequest& request : saved) {
+        if (request.groupId != parentId) continue;
+        auto node = std::make_shared<RequestTreeNode>();
+        node->request = std::make_shared<db::SavedRequest>(request);
+        nodes.push_back(std::move(node));
+    }
+    return nodes;
+}
+
 // 行尾 ⋮ 菜单按钮：常驻、默认透明（Opacity 是 paint 修饰符，悬停显隐只改绘制、
 // 不换子节点类型/数量——避免悬停重组时子树卸载重建引发 hover 振荡抖动）；
 // 透明时点击空转。行悬停态由行最外层容器的 Hover 事件维护（按钮在行边界内，
@@ -157,7 +187,6 @@ struct GroupDragPayload {
     // 不卸载被点的分组行本身，同步写即可。
     auto collapsed = huxerui::UseState<std::vector<std::int64_t>>({});
 
-    std::vector<huxerui::View> rows;
     const std::vector<db::SavedRequest>& saved = g_requests.list();
     const std::vector<db::Group>& groups = g_requests.groups();
 
@@ -352,8 +381,8 @@ struct GroupDragPayload {
                 .tone = AppMenuTone::DangerHover}};
     };
 
-    // 请求行（叶子）：徽标 + 名称 + 行尾 ⋮ 菜单（重命名/删除）；depth 只影响左侧缩进。
-    auto requestRow = [&](const db::SavedRequest& r, int depth) -> huxerui::View {
+    // 请求行（叶子）：TreeView 负责层级缩进、选择和激活；行本身保留菜单与拖拽。
+    auto requestRow = [&](const db::SavedRequest& r) -> huxerui::View {
         const std::int64_t id = r.id;
         // 徽标：非 HTTP 的已保存请求显示类型缩写（防御；现存数据基本都是 HTTP）。
         const std::string badge = r.kind == api::RequestKind::WebSocket ? "WS"
@@ -381,7 +410,7 @@ struct GroupDragPayload {
             .With(huxerui::Spacing(0.0F),
                   huxerui::Padding(huxerui::EdgeInsets{
                       .top = 4.0F, .right = 6.0F, .bottom = 4.0F,
-                      .left = 6.0F + static_cast<float>(depth) * 14.0F}),
+                      .left = 6.0F}),
                   // 默认无底色，被选中（活跃标签对应行）或悬停（含悬停 ⋮，
                   // Hover 事件通道非独占）才显示容器底。
                   huxerui::Background(id == activeSavedId || hoveredRow.Get() == id
@@ -448,15 +477,9 @@ struct GroupDragPayload {
             .Key(id);
     };
 
-    // 接口目录行（内部节点）：折叠箭头 + 名称；点击切换折叠。行尾 ⋮（悬停才显示）
-    // 与右键共享“编辑接口目录 / 删除接口目录”统一菜单。
-    auto groupRow = [&](const db::Group& g, int depth, bool isCollapsed) -> huxerui::View {
+    // 接口目录行（内部节点）：TreeView 绘制 disclosure 并处理展开；行保留菜单与拖放。
+    auto groupRow = [&](const db::Group& g) -> huxerui::View {
         return huxerui::Row {
-                   huxerui::Text(isCollapsed ? "▸" : "▾", huxerui::TextRole::Label)
-                       .Style(huxerui::TextStyle{
-                           .font = huxerui::Font::System(font_size::kCaption),
-                           .foreground = theme.colors.on_surface_variant})
-                       .With(huxerui::Frame{.min_width = 14.0F}),
                    huxerui::Text(g.name, huxerui::TextRole::Body)
                        .With(huxerui::ClipChildren(), huxerui::Grow(1.0F)),
                    // 行尾 ⋮ 菜单（悬停显隐；编辑/删除接口目录）。锚点在按钮自己的
@@ -466,7 +489,7 @@ struct GroupDragPayload {
                    .With(huxerui::Spacing(theme.spacing.extra_small),
                          huxerui::Padding(huxerui::EdgeInsets{
                              .top = 4.0F, .right = 6.0F, .bottom = 4.0F,
-                             .left = 6.0F + static_cast<float>(depth) * 14.0F}),
+                             .left = 6.0F}),
                          // 悬停（含悬停 ⋮，同请求行）显示容器底。
                          huxerui::Background(hoveredRow.Get() == -g.id
                                                  ? theme.colors.surface_container
@@ -475,14 +498,6 @@ struct GroupDragPayload {
                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                          // 行自身压掉默认 Indication：悬停反馈由手工底色承担。
                          huxerui::Indication{})
-                   .OnClick([collapsed, id = g.id] {
-                       std::vector<std::int64_t> copy = collapsed.Get();
-                       if (const auto it = std::ranges::find(copy, id); it != copy.end())
-                           copy.erase(it);
-                       else
-                           copy.push_back(id);
-                       collapsed = copy;
-                   })
                    // 分组既是拖拽源（拖到别的分组 = 变其子分组），也是投放目标
                    // （接受请求/分组落入）。自身投放被谓词拒绝；成环由 store
                    // 环检测兜底（toast 报错）。落盘统一推迟出指针事件路径。
@@ -547,26 +562,51 @@ struct GroupDragPayload {
                    .Key(-g.id);
     };
 
-    // 递归展开：先子分组（未折叠才展开其子树），再本分组内的请求。
-    // parentId=0 一轮即根层：顶层分组 + 未分组请求。
-    std::function<void(std::int64_t, int)> emitLevel = [&](std::int64_t parentId, int depth) {
-        for (const db::Group& g : groups) {
-            if (g.parentId != parentId) continue;
-            const bool isCollapsed = std::ranges::contains(collapsed.Get(), g.id);
-            rows.push_back(groupRow(g, depth, isCollapsed));
-            if (!isCollapsed) emitLevel(g.id, depth + 1);
-        }
-        for (const db::SavedRequest& r : saved) {
-            if (r.groupId == parentId) rows.push_back(requestRow(r, depth));
-        }
+    // TreeView 负责虚拟化、层级缩进、展开状态及键盘/无障碍树语义；行仍为原有的
+    // 请求/分组视图，因此拖拽 payload、投放和菜单行为完全保留。
+    const std::vector<RequestTreeNodePtr> treeRoots = BuildRequestTree(saved, groups, 0);
+    const huxerui::TreeViewStyle treeStyle{
+        .background = huxerui::Color::Transparent(),
+        .foreground = theme.colors.on_surface,
+        .disabled_foreground = theme.colors.on_surface_variant,
+        .selected_background = theme.colors.surface_container,
+        .active_background = theme.colors.surface_container,
+        .focus_indicator = theme.colors.primary,
+        .item_extent = 36.0F,
+        .indentation = 14.0F,
+        .indicator_size = 12.0F,
+        .item_padding = 0.0F,
+        .indication = huxerui::Indication{},
     };
-    emitLevel(0, 0);
-
-    if (saved.empty() && groups.empty()) {
-        rows.push_back(huxerui::Text("集合为空：在右侧新建请求并保存。",
-                                     huxerui::TextRole::Body)
-                           .With(huxerui::Foreground(theme.colors.on_surface_variant)));
-    }
+    huxerui::View requestTree = huxerui::TreeView<RequestTreeNodePtr>(
+        treeRoots,
+        [requestRow, groupRow](const RequestTreeNodePtr& node) -> huxerui::View {
+            return node->group ? groupRow(*node->group) : requestRow(*node->request);
+        },
+        [collapsed, activeSavedId](const RequestTreeNodePtr& node) -> huxerui::TreeItemInfo {
+            if (node->group) {
+                return huxerui::TreeItemInfo{.label = node->group->name,
+                                              .expandable = true,
+                                              .expanded = !std::ranges::contains(
+                                                  collapsed.Get(), node->group->id)};
+            }
+            return huxerui::TreeItemInfo{
+                .label = node->request->name.empty() ? "未命名请求" : node->request->name,
+                .selected = node->request->id == activeSavedId};
+        })
+        .Children([](const RequestTreeNodePtr& node) { return node->children; })
+        .OnExpandedChanged([collapsed](const RequestTreeNodePtr& node, bool expanded) {
+            if (!node->group) return;
+            std::vector<std::int64_t> copy = collapsed.Get();
+            const auto it = std::ranges::find(copy, node->group->id);
+            if (expanded && it != copy.end()) copy.erase(it);
+            if (!expanded && it == copy.end()) copy.push_back(node->group->id);
+            collapsed = copy;
+        })
+        .Label("请求树")
+        .ItemExtent(36.0F)
+        .CacheExtent(144.0F)
+        .Style(treeStyle);
 
     // 头部行：标题 + 圆形 "+"（自绘 ShowPopupMenu 卡片菜单，与全项目菜单观感
     // 统一；官方 menu.Show 已弃用）。不再显示项目名——顶级标签条已标识当前
@@ -712,9 +752,7 @@ struct GroupDragPayload {
                                        huxerui::CrossAxisAlignment::Center)),
                                // 根投放区：落到列表空白/非分组行上 = 移到根目录
                                // （请求移出分组，分组回到顶层）。
-                               huxerui::ScrollView{
-                                   huxerui::Column(std::move(rows))
-                                       .With(huxerui::Spacing(theme.spacing.small))
+                               std::move(requestTree)
                                        .With(huxerui::DropTarget::Accepts<RequestDragPayload>(),
                                              huxerui::DropTarget::Accepts<GroupDragPayload>())
                                        .On<huxerui::DropEvents<RequestDragPayload>::Dropped>(
@@ -748,8 +786,8 @@ struct GroupDragPayload {
                                                    }
                                                    listVersion = listVersion.Get() + 1;
                                                });
-                                           })}
-                                   .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+                                           })
+                                   .With(huxerui::Grow(1.0F)),
                            }
                                .With(huxerui::Padding(theme.spacing.medium),
                                      huxerui::Spacing(theme.spacing.medium),
@@ -757,8 +795,12 @@ struct GroupDragPayload {
                                      huxerui::CornerRadius(theme.shapes.large),
                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     // 方向相关尺寸：竖排（Compact）限高撑宽；横排宽度由请求页拖拽状态控制。
-    return vertical ? std::move(island).With(huxerui::Frame{.max_height = 220.0F})
-                    : std::move(island).With(huxerui::Frame{.width = horizontalWidth});
+    return vertical
+               ? std::move(island).With(
+                     huxerui::Frame{.min_height = 160.0F, .max_height = 220.0F})
+               : std::move(island).With(huxerui::Frame{.width = horizontalWidth,
+                                                        .min_width = 180.0F,
+                                                        .min_height = 180.0F});
 }
 
 } // namespace apitab::ui
