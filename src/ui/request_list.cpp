@@ -580,8 +580,59 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
     };
     huxerui::View requestTree = huxerui::TreeView<RequestTreeNodePtr>(
         treeRoots,
-        [requestRow, groupRow](const RequestTreeNodePtr& node) -> huxerui::View {
-            return node->group ? groupRow(*node->group) : requestRow(*node->request);
+        // TreeView 延迟调用此工厂，不能捕获本 composable 的 Toast/Popup/Task handle。
+        // 只以节点自有数据和稳定 payload 构造行；受控操作由 TreeView 事件完成。
+        [listVersion](const RequestTreeNodePtr& node) -> huxerui::View {
+            if (node->group) {
+                const std::int64_t groupId = node->group->id;
+                const std::string name = node->group->name;
+                return huxerui::Row{huxerui::Text(name, huxerui::TextRole::Body)
+                                         .With(huxerui::Grow(1.0F), huxerui::ClipChildren())}
+                    .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
+                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                          huxerui::DragSource(GroupDragPayload{groupId}, [name] {
+                              return huxerui::Text(name.empty() ? "（未命名）" : name,
+                                                    huxerui::TextRole::Body)
+                                  .With(huxerui::Padding(6.0F));
+                          }),
+                          huxerui::DropTarget::Accepts<RequestDragPayload>(),
+                          huxerui::DropTarget::Accepts<GroupDragPayload>(
+                              [groupId](const GroupDragPayload& payload) {
+                                  return payload.groupId != groupId;
+                              }))
+                    .On<huxerui::DropEvents<RequestDragPayload>::Dropped>(
+                        [listVersion, groupId](const RequestDragPayload& payload,
+                                               const huxerui::DropEvent&) {
+                            if (g_requests.moveToGroup(payload.requestId, groupId).empty())
+                                listVersion = listVersion.Get() + 1;
+                        })
+                    .On<huxerui::DropEvents<GroupDragPayload>::Dropped>(
+                        [listVersion, groupId](const GroupDragPayload& payload,
+                                               const huxerui::DropEvent&) {
+                            if (g_requests.moveGroup(payload.groupId, groupId).empty())
+                                listVersion = listVersion.Get() + 1;
+                        })
+                    .Key(-groupId);
+            }
+            const std::int64_t requestId = node->request->id;
+            const std::string name = node->request->name;
+            const std::string badge = node->request->kind == api::RequestKind::WebSocket ? "WS"
+                                      : node->request->kind == api::RequestKind::Tcp     ? "TCP"
+                                                                                         : node->request->method;
+            return huxerui::Row{
+                       huxerui::Text(badge, huxerui::TextRole::Label)
+                           .With(huxerui::Frame{.min_width = 32.0F}),
+                       huxerui::Text(name.empty() ? "（未命名）" : name, huxerui::TextRole::Body)
+                           .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
+                   }
+                .With(huxerui::Spacing(6.0F), huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                      huxerui::DragSource(RequestDragPayload{requestId}, [badge, name] {
+                          return huxerui::Text(badge + " " + (name.empty() ? "（未命名）" : name),
+                                                huxerui::TextRole::Body)
+                              .With(huxerui::Padding(6.0F));
+                      }))
+                .Key(requestId);
         },
         [collapsed, activeSavedId](const RequestTreeNodePtr& node) -> huxerui::TreeItemInfo {
             if (node->group) {
@@ -602,6 +653,22 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
             if (expanded && it != copy.end()) copy.erase(it);
             if (!expanded && it == copy.end()) copy.push_back(node->group->id);
             collapsed = copy;
+        })
+        .OnActivated([drafts, activeTab](const RequestTreeNodePtr& node) {
+            if (!node->request) return;
+            const std::int64_t id = node->request->id;
+            std::vector<RequestDraft> copy = drafts.Get();
+            for (std::size_t index = 0; index < copy.size(); ++index) {
+                if (copy[index].savedId == id) {
+                    activeTab = index;
+                    return;
+                }
+            }
+            if (const db::SavedRequest* savedRequest = g_requests.find(id)) {
+                copy.push_back(DraftFromSaved(*savedRequest));
+                drafts = copy;
+                activeTab = copy.size() - 1;
+            }
         })
         .Label("请求树")
         .ItemExtent(36.0F)
