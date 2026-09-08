@@ -906,6 +906,28 @@ huxerui::View SplitActionButton(
                         return;
                     }
 
+                    if (parsed.params.empty()) {
+                        // 桌面平台可能在 KeyIntercept 之后仍通过文本输入服务提交 '?'
+                        // 的 CommitText。不能只写回完全相同的 URL，否则受控 TextField
+                        // 会认为 authoritative value 未变化而保留内部的 '?'; 用光标方向
+                        // 变化强制它用当前草稿文本同步，既不显示 '?' 也不改变 URL 内容。
+                        const std::vector<RequestDraft> current = drafts.Get();
+                        if (index < current.size()) {
+                            huxerui::TextEditingValue rejected = current[index].url;
+                            rejected.selection.affinity =
+                                rejected.selection.affinity == huxerui::TextAffinity::Downstream
+                                    ? huxerui::TextAffinity::Upstream
+                                    : huxerui::TextAffinity::Downstream;
+                            MutateDraft(drafts, index,
+                                        [rejected = std::move(rejected)](RequestDraft& d) {
+                                            d.url = rejected;
+                                        });
+                        }
+                        section = 1;
+                        toast.Show("URL 不能包含 ?，请在下方 Params 输入参数");
+                        return;
+                    }
+
                     MutateDraft(drafts, index, [&](RequestDraft& d) {
                         d.url = huxerui::TextEditingValue::FromText(parsed.url);
                         for (const auto& [key, parameterValue] : parsed.params) {
