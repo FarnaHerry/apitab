@@ -1,8 +1,8 @@
 diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
-index e2c08d3..0b2b9c3 100644
+index e2c08d3..14ab173 100644
 --- a/src/codeeditor/codeeditor.cpp
 +++ b/src/codeeditor/codeeditor.cpp
-@@ -538,6 +538,8 @@ se::GestureEvent ToGestureEvent(const PointerEvent& event) {
+@@ -538,11 +538,13 @@ se::GestureEvent ToGestureEvent(const PointerEvent& event) {
    return out;
  }
  
@@ -11,6 +11,13 @@ index e2c08d3..0b2b9c3 100644
  se::GestureEvent ToWheelGestureEvent(const ScrollInputEvent& event) {
    se::GestureEvent out;
    out.type = se::EventType::MOUSE_WHEEL;
+-  out.wheel_delta_x = event.delta_x;
+-  out.wheel_delta_y = event.delta_y;
++  out.wheel_delta_x = -event.delta_x;
++  out.wheel_delta_y = -event.delta_y;
+   return out;
+ }
+ 
 @@ -3686,6 +3688,7 @@ struct EditorBehavior {
    EditorOptions options;
    EditorController controller;
