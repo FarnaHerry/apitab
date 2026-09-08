@@ -558,6 +558,9 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         add_executable(test_smoke tests/test_smoke.cpp)
         set_target_properties(test_smoke PROPERTIES CXX_MODULE_STD ON)
         target_compile_features(test_smoke PRIVATE cxx_std_23)
+        target_sources(test_smoke PRIVATE FILE_SET apitab_test_modules TYPE CXX_MODULES
+            BASE_DIRS src
+            FILES src/utils.cppm)
         add_test(NAME smoke COMMAND test_smoke)
         # P1-B1.0 构建选择矩阵（5 场景，跑 5 次 cmake 配置，约 10s）。
         # 日常 `ctest` 会执行；CI 三通道验证见 P1-B1.0a。

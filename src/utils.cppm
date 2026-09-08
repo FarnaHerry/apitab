@@ -71,6 +71,81 @@ export bool hasUriScheme(std::string_view value) {
     return false;
 }
 
+namespace {
+
+int hexValue(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+std::string decodeQueryComponent(std::string_view value) {
+    std::string decoded;
+    decoded.reserve(value.size());
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        const char c = value[i];
+        if (c == '%' && i + 2 < value.size()) {
+            const int high = hexValue(value[i + 1]);
+            const int low = hexValue(value[i + 2]);
+            if (high >= 0 && low >= 0) {
+                decoded.push_back(static_cast<char>((high << 4) | low));
+                i += 2;
+                continue;
+            }
+        }
+        // application/x-www-form-urlencoded（浏览器复制的 URL 最常见的形式）
+        // 使用 '+' 表示空格；普通百分号编码仍按 RFC 3986 解码。
+        decoded.push_back(c == '+' ? ' ' : c);
+    }
+    return decoded;
+}
+
+} // namespace
+
+// URL 输入中的 query 解析结果。URL 字段只保留 query 前的部分，参数交给
+// Params 表维护，避免发送时再同时携带一份 URL query 和一份 Params。
+export struct UrlQueryParseResult {
+    std::string url;
+    std::vector<std::pair<std::string, std::string>> params;
+    bool intercepted = false;
+};
+
+// 识别并拆分 URL 中的 query。只接收标准的 key=value 项；不完整的项被忽略，
+// 但 '?' 仍会被截断，以便用户在 Params 表中补齐。片段（#fragment）不属于
+// query，也不应被发送，因此一并忽略。
+export UrlQueryParseResult parseUrlQuery(std::string_view input) {
+    UrlQueryParseResult result{.url = std::string(input)};
+    const std::size_t question = input.find('?');
+    if (question == std::string_view::npos) return result;
+
+    result.intercepted = true;
+    result.url.assign(input.substr(0, question));
+    std::string_view query = input.substr(question + 1);
+    if (const std::size_t fragment = query.find('#');
+        fragment != std::string_view::npos) {
+        query = query.substr(0, fragment);
+    }
+
+    std::size_t begin = 0;
+    while (begin <= query.size()) {
+        const std::size_t end = query.find('&', begin);
+        const std::string_view item = query.substr(
+            begin, end == std::string_view::npos ? std::string_view::npos : end - begin);
+        const std::size_t equals = item.find('=');
+        if (equals != std::string_view::npos) {
+            std::string key = decodeQueryComponent(item.substr(0, equals));
+            if (!key.empty()) {
+                result.params.emplace_back(std::move(key),
+                                           decodeQueryComponent(item.substr(equals + 1)));
+            }
+        }
+        if (end == std::string_view::npos) break;
+        begin = end + 1;
+    }
+    return result;
+}
+
 export std::string percentEncode(std::string_view s) {
     static constexpr char hex[] = "0123456789ABCDEF";
     std::string out;

@@ -898,8 +898,30 @@ huxerui::View SplitActionButton(
                                 [method](RequestDraft& d) { d.methodIndex = method; });
                 },
                 snapshot.url,
-                [drafts, index](const huxerui::TextEditingValue& value) {
-                    MutateDraft(drafts, index, [&](RequestDraft& d) { d.url = value; });
+                [drafts, index, section, toast](const huxerui::TextEditingValue& value) {
+                    const UrlQueryParseResult parsed = parseUrlQuery(value.text);
+                    if (!parsed.intercepted) {
+                        MutateDraft(drafts, index,
+                                    [&](RequestDraft& d) { d.url = value; });
+                        return;
+                    }
+
+                    MutateDraft(drafts, index, [&](RequestDraft& d) {
+                        d.url = huxerui::TextEditingValue::FromText(parsed.url);
+                        for (const auto& [key, parameterValue] : parsed.params) {
+                            d.params.push_back(KvRow{
+                                .key = huxerui::TextEditingValue::FromText(key),
+                                .value = huxerui::TextEditingValue::FromText(parameterValue),
+                                .type = huxerui::TextEditingValue::FromText(
+                                    InferKvType(parameterValue)),
+                                .remark = huxerui::TextEditingValue::FromText(""),
+                                .enabled = true});
+                        }
+                    });
+                    section = 1; // 让刚解析出的参数立即可见
+                    toast.Show(parsed.params.empty()
+                                   ? "URL 不能包含 ?，请在下方 Params 输入参数"
+                                   : "URL 参数已移到下方 Params");
                 },
                 std::move(envBaseUrl),
                 "https://api.example.com/v1/resource"),
