@@ -613,6 +613,9 @@ jobs:
           # HuxerUI's package command requires the native Windows icon in the
           # generated shell; reuse the checked-in application icon.
           Copy-Item assets/icon.ico platform/windows/app.ico -Force
+          # The project keeps the resource template under cmake/; expose it at
+          # the shell path required by HuxerUI's package diagnostic.
+          Copy-Item cmake/apitab.rc.in platform/windows/app.rc.in -Force
           $env:HUXERUI_HOME = (Resolve-Path huxerui-sdk).Path
           # Keep this aligned with the Windows build job's Chocolatey package
           # location; CMake locates libssl/libcrypto from this prefix.
