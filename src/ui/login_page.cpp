@@ -35,13 +35,16 @@ namespace apitab::ui {
     const auto& passwordVisibilityIcon = passwordIsVisible ? app::images::visibility_off
                                                            : app::images::visibility;
     const char* passwordVisibilityLabel = passwordIsVisible ? "隐藏密码" : "显示密码";
-    auto passwordField = huxerui::TextField(password.Get())
-                             .Secure(!passwordIsVisible)
-                             .Label("密码")
-                             .Placeholder("密码")
-                             .Variant(huxerui::TextFieldVariant::Outlined)
-                             .OnChanged([password](const huxerui::TextEditingValue& value) { password = value; })
-                             .With(huxerui::Frame{.height = 48.0F});
+    auto passwordField = huxerui::TextField(password.Get());
+    if (!passwordIsVisible) {
+        passwordField = std::move(passwordField).Secure();
+    }
+    passwordField = std::move(passwordField)
+                         .Label("密码")
+                         .Placeholder("密码")
+                         .Variant(huxerui::TextFieldVariant::Outlined)
+                         .OnChanged([password](const huxerui::TextEditingValue& value) { password = value; })
+                         .With(huxerui::Frame{.height = 48.0F});
     // 尾部动作只在整个密码框悬停时进入布局；离开字段即隐藏，避免常态视觉干扰。
     if (showPasswordVisibilityToggle) {
         passwordField = std::move(passwordField)
