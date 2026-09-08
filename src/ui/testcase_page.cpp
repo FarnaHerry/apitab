@@ -43,6 +43,7 @@ api::RequestSpec SpecFromDraft(const RequestDraft& draft) {
     api::RequestSpec spec;
     spec.method = std::string{kMethodNames.at(draft.methodIndex)};
     spec.url = draft.url.text;
+    spec.followRedirects = draft.followRedirects;
     for (const KvRow& row : draft.params)
         if (row.enabled && !row.key.text.empty()) spec.params.push_back(ToKeyValue(row));
     for (const KvRow& row : draft.headers)

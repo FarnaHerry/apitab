@@ -424,6 +424,7 @@ inline api::RequestSpec SpecFromDraft(const RequestDraft& draft) {
     api::RequestSpec spec;
     spec.method = std::string{kMethodNames.at(draft.methodIndex)};
     spec.url = draft.url.text;
+    spec.followRedirects = draft.followRedirects;
     for (const KvRow& row : draft.params)
         if (row.enabled && !row.key.text.empty()) spec.params.push_back(ToKeyValue(row));
     for (const KvRow& row : draft.headers)
@@ -600,12 +601,29 @@ huxerui::View SplitActionButton(
     huxerui::View sectionContent = huxerui::Column{};
     switch (section.Get()) {
         case 0:
-            sectionContent = KvTable(
-                snapshot.params, theme, "参数名", "参数值",
-                [drafts, index](std::vector<KvRow> rows) {
-                    MutateDraft(drafts, index,
-                                [&](RequestDraft& d) { d.params = std::move(rows); });
-                });
+            sectionContent = huxerui::Column {
+                huxerui::Row {
+                    huxerui::Checkbox("自动跟随重定向", snapshot.followRedirects)
+                        .OnChanged([drafts, index](bool checked) {
+                            MutateDraft(drafts, index,
+                                        [checked](RequestDraft& d) { d.followRedirects = checked; });
+                        }),
+                    huxerui::Text("遇到 3xx 响应时自动请求 Location 指向的地址",
+                                  huxerui::TextRole::Body)
+                        .With(huxerui::Foreground(theme.colors.on_surface_variant),
+                              huxerui::Grow(1.0F), huxerui::ClipChildren()),
+                }
+                    .With(huxerui::Spacing(theme.spacing.small),
+                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+                KvTable(
+                    snapshot.params, theme, "参数名", "参数值",
+                    [drafts, index](std::vector<KvRow> rows) {
+                        MutateDraft(drafts, index,
+                                    [&](RequestDraft& d) { d.params = std::move(rows); });
+                    }),
+            }
+                .With(huxerui::Spacing(theme.spacing.medium),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
             break;
         case 1:
             sectionContent = KvTable(
@@ -746,6 +764,7 @@ huxerui::View SplitActionButton(
         api::RequestSpec spec = SpecFromDraft(draft);
         saved.method = spec.method;
         saved.url = spec.url;
+        saved.followRedirects = spec.followRedirects;
         saved.params = spec.params;
         saved.headers = spec.headers;
         saved.cookies = spec.cookies;

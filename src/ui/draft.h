@@ -90,6 +90,7 @@ struct RequestDraft {
     huxerui::TextEditingValue name; // 标签名 / 保存名
     std::size_t methodIndex = 0;
     huxerui::TextEditingValue url;
+    bool followRedirects = true;
     std::vector<KvRow> params;
     std::vector<KvRow> headers;
     std::vector<KvRow> cookies;

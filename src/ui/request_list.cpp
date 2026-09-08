@@ -69,6 +69,7 @@ RequestDraft DraftFromSaved(const db::SavedRequest& saved) {
         if (kMethodNames[i] == saved.method) draft.methodIndex = i;
     }
     draft.url = huxerui::TextEditingValue{saved.url};
+    draft.followRedirects = saved.followRedirects;
     for (const api::KeyValue& kv : saved.params) draft.params.push_back(FromKeyValue(kv));
     for (const api::KeyValue& kv : saved.headers) draft.headers.push_back(FromKeyValue(kv));
     for (const api::KeyValue& kv : saved.cookies) draft.cookies.push_back(FromKeyValue(kv));
