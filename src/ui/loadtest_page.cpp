@@ -55,15 +55,17 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
 } // namespace
 
 // 输出流：独立重组作用域 —— 压测期间每 200ms 的 output 更新只重绘输出区。
-[[huxerui::composable]] huxerui::View OutputArea(huxerui::State<std::vector<std::string>> output,
+[[huxerui::composable]] huxerui::View OutputArea(huxerui::StateList<std::string> output,
                                                  const huxerui::ThemeSpec& theme) {
-    return huxerui::ScrollView{huxerui::Column {
-        huxerui::ForEach(output.Get(), [theme](const std::string& line) {
+    return huxerui::VirtualList(
+               output, [theme](const std::string& line) {
             return huxerui::Text(line, huxerui::TextRole::Body)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant));
-        }),
-    }
-                               .With(huxerui::Frame{.height = 260.0F})}.With(huxerui::ScrollBar());
+        })
+        .EstimatedItemExtent(20.0F)
+        .CacheExtent(120.0F)
+        .With(huxerui::ScrollBar(), huxerui::Frame{.height = 260.0F},
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 // 汇总行：独立重组作用域。
@@ -81,7 +83,7 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
     auto vus = huxerui::UseState(huxerui::TextEditingValue{"10"});
     auto duration = huxerui::UseState(huxerui::TextEditingValue{"30s"});
     auto running = huxerui::UseState(false);
-    auto output = huxerui::UseState<std::vector<std::string>>({});
+    auto output = huxerui::UseStateList<std::string>();
     auto summary = huxerui::UseState<std::string>("");
     // k6 脚本编辑器控制器（非受控组件：改文本走 LoadDocument，读文本走 Text()）。
     auto scriptController = huxerui::codeeditor::UseEditorController();
@@ -163,22 +165,19 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
                         // 编辑器全文作为自定义脚本（编辑器未挂载取到空串时引擎自动
                         // 生成兜底）。
                         opts.script = scriptController.Text();
-                        output = std::vector<std::string>{};
+                        output.Clear();
                         summary = "";
                         running = true;
                         g_loadtest.start(spec, opts, 0, "loadtest");
                         tasks.Launch([=]() -> huxerui::Task<void> {
                             // k6 子进程由引擎监视线程拆行入队；UI 协程按 200ms
                             // 节拍取回输出并写 State（见 task_bridge.h 线程契约）。
-                            std::vector<std::string> lines;
                             api::LoadSummary s;
                             co_await PollWhile(std::chrono::duration<double>{0.2}, [&] {
                                 for (std::string& line : g_loadtest.drainOutput()) {
-                                    lines.push_back(std::move(line));
-                                    if (lines.size() > kOutputCap)
-                                        lines.erase(lines.begin(), lines.begin() + (lines.size() - kOutputCap));
+                                    output.PushBack(std::move(line));
+                                    while (output.Size() > kOutputCap) output.Erase(0);
                                 }
-                                output = lines;
                                 return g_loadtest.running() || !g_loadtest.pollSummary(s);
                             });
                             g_loadtest.pollSummary(s);
@@ -202,7 +201,7 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
                 .With(huxerui::Spacing(theme.spacing.medium)),
             SummaryLine(summary),
             huxerui::Text("输出", huxerui::TextRole::Title),
-            // 输出区自带固定高度滚动（同轴嵌套滚动是有意的：输出流独立滚动）。
+            // 输出区自带固定高度虚拟滚动。
             OutputArea(output, theme),
             huxerui::Text("最近记录", huxerui::TextRole::Title),
             huxerui::ForEach(

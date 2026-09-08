@@ -50,6 +50,26 @@ constexpr std::size_t kDefaultPageSizeIndex = 0;
               huxerui::CornerRadius(theme.shapes.small),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
+
+// 分页结果使用官方 StateList 作为 VirtualList 数据源。分页/清空通过 Key 让本作用域
+// 按新快照重建，列表内部不再由父作用域手工拼接 View 向量。
+[[huxerui::composable]] huxerui::View HistoryRows(std::vector<db::HistoryEntry> initial) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const auto entries = huxerui::UseStateList(std::move(initial));
+    if (entries.Empty()) {
+        return huxerui::Column{
+            huxerui::Text("暂无历史记录", huxerui::TextRole::Body)
+                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+        };
+    }
+    return huxerui::VirtualList{
+        entries, [](const db::HistoryEntry& entry) {
+            return HistoryRow(entry).Key(entry.id);
+        }}
+        .EstimatedItemExtent(56.0F)
+        .CacheExtent(160.0F)
+        .With(huxerui::ScrollBar(), huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
 } // namespace
 
 [[huxerui::composable]] huxerui::View HistoryPage() {
@@ -70,15 +90,6 @@ constexpr std::size_t kDefaultPageSizeIndex = 0;
         g_requests.historyPage(pageSizeValue, static_cast<int>(page));
     const std::int64_t total = g_requests.historyCount();
 
-    std::vector<huxerui::View> rows;
-    for (const db::HistoryEntry& e : entries) {
-        rows.push_back(HistoryRow(e).Key(e.id)); // 分页换页的动态兄弟用稳定 Key
-    }
-    if (entries.empty()) {
-        rows.push_back(huxerui::Text("暂无历史记录", huxerui::TextRole::Body)
-                           .With(huxerui::Foreground(theme.colors.on_surface_variant)));
-    }
-
     // 岛屿分区模型：本页只有一个岛，岛本身占满整个页面区块（Grow + Stretch），
     // 列表在岛内部滚动；分页按钮固定在岛底部。
     // 清空按钮套一层 Row：岛交叉轴 Stretch 会把直接子节点拉满全宽，
@@ -96,10 +107,9 @@ constexpr std::size_t kDefaultPageSizeIndex = 0;
                                   });
             }),
         },
-        huxerui::ScrollView{huxerui::Column(std::move(rows))
-                                .With(huxerui::Spacing(theme.spacing.small),
-                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
-            .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+        HistoryRows(entries)
+            .Key(std::format("{}-{}-{}", reloadKey.Get(), page, pageSizeValue))
+            .With(huxerui::Grow(1.0F)),
         // 底部分页栏：< 页码输入(回车跳转) > + 每页条数官方 Select（弹出方向自管理）。
         huxerui::Row {
             huxerui::Button("<").OnClick([page, pageIndex, pageInput] {

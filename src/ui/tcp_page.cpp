@@ -44,16 +44,17 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
 
 // 事件流：独立重组作用域 —— 会话协程的 events 更新只重绘事件区。
 // 不定高：由调用方用 Grow 分配剩余高度，本区内部滚动。
-[[huxerui::composable]] huxerui::View TcpEventStream(huxerui::State<std::vector<std::string>> events,
+[[huxerui::composable]] huxerui::View TcpEventStream(huxerui::StateList<std::string> events,
                                                   const huxerui::ThemeSpec& theme) {
-    return huxerui::ScrollView{huxerui::Column {
-        huxerui::ForEach(events.Get(), [theme](const std::string& line) {
+    return huxerui::VirtualList(
+               events, [theme](const std::string& line) {
             return huxerui::Text(line, huxerui::TextRole::Body)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant));
-        }),
-    }
-                               .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
-        .With(huxerui::ScrollBar());
+        })
+        .EstimatedItemExtent(20.0F)
+        .CacheExtent(120.0F)
+        .With(huxerui::ScrollBar(),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 [[huxerui::composable]] huxerui::View TcpPage() {
@@ -65,7 +66,7 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
     auto message = huxerui::UseState(huxerui::TextEditingValue{});
     auto hex = huxerui::UseState(false);
     auto status = huxerui::UseState(std::string{"未连接"});
-    auto events = huxerui::UseState<std::vector<std::string>>({});
+    auto events = huxerui::UseStateList<std::string>();
     // 当前会话：空 = 未连接。页面卸载时 State 释放，会话析构即关闭连接。
     auto session = huxerui::UseState(std::shared_ptr<TcpSession>{});
 
@@ -137,6 +138,7 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
                 session = std::shared_ptr<TcpSession>{};
                 status = "未连接";
             }),
+            huxerui::Button("清空事件").OnClick([events] { events.Clear(); }),
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
         huxerui::Row {

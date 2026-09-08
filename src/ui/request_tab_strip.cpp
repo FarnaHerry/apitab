@@ -396,7 +396,7 @@ struct DraftTabDragPayload {
     envFieldStyle.outlined.border = huxerui::Color::Transparent();
     envFieldStyle.outlined.hovered_border = huxerui::Color::Transparent();
     envFieldStyle.outlined.focused_border = huxerui::Color::Transparent();
-    envFieldStyle.corner_radius = 0.0F;
+    envFieldStyle.outlined.corner_radii = huxerui::CornerRadii{0.0F};
     envFieldStyle.padding = huxerui::EdgeInsets::Symmetric(8.0F, 6.0F);
     envFieldStyle.caret = theme.colors.primary;
     envFieldStyle.composition = theme.colors.primary;

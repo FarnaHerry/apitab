@@ -131,12 +131,11 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
     if (effective != 0 && !g_requests.findEnvironment(effective))
         effective = g_requests.currentEnvId();
 
-    std::vector<huxerui::View> rows;
-    for (const db::Environment& e : envs) {
+    const auto environmentList = huxerui::UseStateList(envs);
+    const auto makeEnvironmentRow = [=](const db::Environment& e) -> huxerui::View {
         const std::int64_t id = e.id;
         const bool selected = id == effective;
-        rows.push_back(
-            huxerui::Row {
+        return huxerui::Row {
                 // 选中区：名称占满行宽；点击挂在整行 Row 上（见下方 .OnClick），
                 // ✎/✕ 是最深命中节点、点击不冒泡，各触发各的。
                 huxerui::Text(e.name.empty() ? "（未命名）" : e.name, huxerui::TextRole::Body)
@@ -233,12 +232,8 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                     else if (e.type == huxerui::HoverEventType::Leave && hoveredEnv.Get() == id)
                         hoveredEnv = 0;
                 })
-                .Key(id));
-    }
-    if (rows.empty()) {
-        rows.push_back(huxerui::Text("暂无环境，点击上方 + 新建。", huxerui::TextRole::Body)
-                           .With(huxerui::Foreground(theme.colors.on_surface_variant)));
-    }
+                .Key(id);
+    };
 
     // 右侧表单：Key = 选中环境 id，切换选中即重建表单作用域（初始值重取）。
     // effective==0 = 环境下拉选了"无"：无表单可编辑，只给提示。
@@ -251,6 +246,20 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                    .With(huxerui::Foreground(theme.colors.on_surface_variant));
     } else {
         form = EnvEditForm(ctx, effective, envVersion).Key(effective);
+    }
+
+    huxerui::View environmentListView;
+    if (environmentList.Empty()) {
+        environmentListView = huxerui::Text("暂无环境，点击上方 + 新建。",
+                                             huxerui::TextRole::Body)
+                                  .With(huxerui::Foreground(theme.colors.on_surface_variant));
+    } else {
+        environmentListView = huxerui::VirtualList(environmentList, makeEnvironmentRow)
+                                  .EstimatedItemExtent(38.0F)
+                                  .CacheExtent(120.0F)
+                                  .With(huxerui::ScrollBar(), huxerui::Spacing(theme.spacing.small),
+                                        huxerui::CrossAlign(
+                                            huxerui::CrossAxisAlignment::Stretch));
     }
 
     return DialogCard(huxerui::Column {
@@ -277,9 +286,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                     }, AppIconButtonShape::Circular, 28.0F, /*accent=*/false),
                 }
                     .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-                huxerui::ScrollView{huxerui::Column(std::move(rows))
-                                        .With(huxerui::Spacing(theme.spacing.small))}
-                    .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+            std::move(environmentListView).With(huxerui::Grow(1.0F)),
             }
                 .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::Frame{.width = 200.0F},

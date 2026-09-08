@@ -158,8 +158,8 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     segments.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                               spec.colors.on_surface};
     segments.selected_label = spec.colors.on_primary;
-    segments.border = spec.colors.outline;
-    segments.selected_border = spec.colors.primary;
+    segments.border = huxerui::Border{spec.colors.outline, 1.0F};
+    segments.selected_border = huxerui::Border{spec.colors.primary, 1.0F};
     definition.Set(segments);
 
     // 内置确认框（DialogHandle::Show(title, message, ...) 形态）跟随主题：DialogStyle
@@ -203,7 +203,7 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     huxerui::SelectStyle selects;
     selects.background = spec.colors.surface_container_highest;
     selects.foreground = spec.colors.on_surface;
-    selects.border = spec.colors.outline;
+    selects.border = huxerui::Border{spec.colors.outline, 1.0F};
     selects.indicator = spec.colors.on_surface_variant;
     selects.popup_background = spec.colors.surface_container;
     selects.active_item_background = withAlpha(spec.colors.primary, 0.08F);
@@ -220,8 +220,8 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     selects.minimum_height = 48.0F;
     selects.minimum_item_height = 40.0F;
     selects.indicator_size = 20.0F;
-    selects.corner_radius = spec.shapes.small;
-    selects.popup_corner_radius = spec.shapes.small;
+    selects.corner_radii = huxerui::CornerRadii{spec.shapes.small};
+    selects.popup_corner_radii = huxerui::CornerRadii{spec.shapes.small};
     const huxerui::Indication selectIndication{
         .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.08F)},
         .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
@@ -239,7 +239,7 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     menus.icon_tint = spec.colors.on_surface_variant;
     menus.separator_color = spec.colors.outline;
     menus.shadow = huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.24F), {}, 8.0F, 0.0F};
-    menus.corner_radius = spec.shapes.small;
+    menus.corner_radii = huxerui::CornerRadii{spec.shapes.small};
     menus.item_indication = selectIndication;
     definition.Set(menus);
 
@@ -251,7 +251,7 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     combos.popup_shadow = selects.popup_shadow;
     combos.minimum_item_height = selects.minimum_item_height;
     combos.maximum_popup_height = selects.maximum_popup_height;
-    combos.popup_corner_radius = spec.shapes.small;
+    combos.popup_corner_radii = huxerui::CornerRadii{spec.shapes.small};
     combos.item_indication = selectIndication;
     definition.Set(combos);
 

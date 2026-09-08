@@ -567,7 +567,7 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
                   // Padding 外层，整行铺满。
                   huxerui::Background(item.checked ? selectedFill
                                                    : huxerui::Color::Transparent()),
-                  huxerui::CornerRadius(menuStyle.corner_radius / 2.0F),
+                  huxerui::CornerRadius(menuStyle.corner_radii.top_left / 2.0F),
                   huxerui::Padding(menuStyle.item_padding),
                   huxerui::Frame{.min_height = menuStyle.minimum_item_height},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
@@ -652,7 +652,7 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
                                  huxerui::Frame{.max_height = kMenuMaxHeight});
     return huxerui::Column{std::move(list)}.With(
         menuStyle.shadow, huxerui::Background(menuStyle.background),
-        huxerui::CornerRadius(menuStyle.corner_radius), huxerui::ClipChildren(),
+        huxerui::CornerRadius(menuStyle.corner_radii.top_left), huxerui::ClipChildren(),
         huxerui::Padding(menuStyle.content_padding),
         huxerui::Frame{.min_width = menuStyle.minimum_width},
         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -797,7 +797,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     urlStyle.outlined.border = huxerui::Color::Transparent();
     urlStyle.outlined.hovered_border = huxerui::Color::Transparent();
     urlStyle.outlined.focused_border = huxerui::Color::Transparent();
-    urlStyle.corner_radius = 0.0F;
+    urlStyle.outlined.corner_radii = huxerui::CornerRadii{0.0F};
     // 高度对齐旁边的"发送"按钮：ButtonStyle 默认 minimum_height=0，按钮高由内容
     // 撑出 = 14pt 文字行高（约 16pt）+ padding Symmetric(14,8) 的 16pt ≈ 32pt；
     // 而 Outlined 变体默认 minimum_height=36，整条控件比按钮高一截。这里把

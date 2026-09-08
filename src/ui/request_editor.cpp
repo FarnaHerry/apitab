@@ -31,6 +31,18 @@ import nlohmann.json;
 
 namespace apitab::ui {
 
+namespace {
+
+void ReplaceStringList(huxerui::StateList<std::string> target,
+                       const std::vector<std::string>& values) {
+    const std::size_t common = std::min(target.Size(), values.size());
+    for (std::size_t i = 0; i < common; ++i) target.Set(i, values[i]);
+    while (target.Size() > values.size()) target.PopBack();
+    for (std::size_t i = common; i < values.size(); ++i) target.PushBack(values[i]);
+}
+
+} // namespace
+
 // kMethodNames / kBodyTypeNames / KvRow / RequestDraft 等共享编辑类型已抽到
 // draft.h（测试用例页 / Mock 页同用）；ToKeyValue / FromKeyValue 依赖
 // api::KeyValue（模块类型），留在本 TU。签名含模块类型，不能进普通头（CLAUDE.md
@@ -211,7 +223,7 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
     style.show_label = false;
     style.outlined.border = huxerui::Color::Transparent();
     style.outlined.minimum_height = 30.0F;
-    style.corner_radius = 8.0F;
+    style.outlined.corner_radii = huxerui::CornerRadii{8.0F};
     style.padding = huxerui::EdgeInsets::Symmetric(8.0F, 4.0F);
     return huxerui::ProvideEnvironment(
         style, huxerui::View{huxerui::TextField(std::move(value))
@@ -477,8 +489,8 @@ huxerui::View SplitActionButton(
     huxerui::State<std::size_t> activeTab,
     huxerui::State<int> listVersion, huxerui::State<bool> inFlight,
     huxerui::State<std::string> responseBody,
-    huxerui::State<std::vector<std::string>> responseHeaders,
-    huxerui::State<std::vector<std::string>> responseCookies,
+    huxerui::StateList<std::string> responseHeaders,
+    huxerui::StateList<std::string> responseCookies,
     huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
@@ -824,8 +836,8 @@ huxerui::View SplitActionButton(
                         const std::uint64_t seq = sendSeq.Get();
                         inFlight = true;
                         responseBody = "Mock 响应中…";
-                        responseHeaders = {};
-                        responseCookies = {};
+                        responseHeaders.Clear();
+                        responseCookies.Clear();
                         const int status = ParseIntField(mock.status, 200);
                         const int delayMs = std::max(0, ParseIntField(mock.delayMs, 0));
                         std::vector<api::KeyValue> headers;
@@ -852,8 +864,8 @@ huxerui::View SplitActionButton(
                         std::vector<std::string> lines;
                         for (const api::KeyValue& h : view.headers)
                             lines.push_back(h.key + ": " + h.value);
-                        responseHeaders = lines;
-                        responseCookies = CookiesFromHeaders(view.headers);
+                        ReplaceStringList(responseHeaders, lines);
+                        ReplaceStringList(responseCookies, CookiesFromHeaders(view.headers));
                         inFlight = false;
                         if (download)
                             co_await downloadResponse(view.body, current[index].name.text);
@@ -865,8 +877,8 @@ huxerui::View SplitActionButton(
                     const std::uint64_t seq = sendSeq.Get();
                     inFlight = true;
                     responseBody = "发送中…";
-                    responseHeaders = {};
-                    responseCookies = {};
+                    responseHeaders.Clear();
+                    responseCookies.Clear();
                     g_requests.sendViaEngine(finalSpec);
                     sendTask = tasks.Launch([=]() -> huxerui::Task<void> {
                         // 引擎结果按 30ms 节拍轮询取回（totalMs 由引擎计时）；恢复点
@@ -886,8 +898,8 @@ huxerui::View SplitActionButton(
                                 std::vector<std::string> lines;
                                 for (const api::KeyValue& h : progress.headers)
                                     lines.push_back(h.key + ": " + h.value);
-                                responseHeaders = lines;
-                                responseCookies = CookiesFromHeaders(progress.headers);
+                                ReplaceStringList(responseHeaders, lines);
+                                ReplaceStringList(responseCookies, CookiesFromHeaders(progress.headers));
                             }
                             return !g_requests.takeResponse(view);
                         });
@@ -899,16 +911,16 @@ huxerui::View SplitActionButton(
                             std::vector<std::string> lines;
                             for (const api::KeyValue& h : view.headers)
                                 lines.push_back(h.key + ": " + h.value);
-                            responseHeaders = lines;
-                            responseCookies = CookiesFromHeaders(view.headers);
+                            ReplaceStringList(responseHeaders, lines);
+                            ReplaceStringList(responseCookies, CookiesFromHeaders(view.headers));
                         } else if (streamed.Get() && !view.body.empty()) {
                             // 流式传输中断（连接重置等）：保留已接收内容。
                             responseBody = "连接中断: " + view.error + "\n\n" + view.body;
                             std::vector<std::string> lines;
                             for (const api::KeyValue& h : view.headers)
                                 lines.push_back(h.key + ": " + h.value);
-                            responseHeaders = lines;
-                            responseCookies = CookiesFromHeaders(view.headers);
+                            ReplaceStringList(responseHeaders, lines);
+                            ReplaceStringList(responseCookies, CookiesFromHeaders(view.headers));
                         } else {
                             responseBody = "请求失败: " + view.error;
                         }

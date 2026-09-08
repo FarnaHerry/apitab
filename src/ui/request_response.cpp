@@ -20,7 +20,7 @@ struct ResponseDocument {
     std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> provider;
 };
 
-std::string ResponseSyntax(const std::vector<std::string>& headers) {
+std::string ResponseSyntax(const huxerui::StateList<std::string>& headers) {
     for (auto line : headers) {
         std::transform(line.begin(), line.end(), line.begin(), [](unsigned char c) {
             return static_cast<char>(std::tolower(c));
@@ -33,7 +33,7 @@ std::string ResponseSyntax(const std::vector<std::string>& headers) {
 }
 
 [[huxerui::composable]] huxerui::View ResponseBody(
-    const std::string& text, const std::vector<std::string>& headers,
+    const std::string& text, huxerui::StateList<std::string> headers,
     const huxerui::ThemeSpec& theme) {
     auto controller = huxerui::codeeditor::UseEditorController();
     auto searchVisible = huxerui::UseState(false);
@@ -119,8 +119,8 @@ std::string ResponseSyntax(const std::vector<std::string>& headers) {
 // 标题固定；Body 完成态由编辑器处理滚动，传输中（inFlight）走流式实时视图，
 // Headers/Cookies 使用普通 ScrollView。
 [[huxerui::composable]] huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
-                                                   huxerui::State<std::vector<std::string>> responseHeaders,
-                                                   huxerui::State<std::vector<std::string>> responseCookies,
+                                                   huxerui::StateList<std::string> responseHeaders,
+                                                   huxerui::StateList<std::string> responseCookies,
                                                    huxerui::State<bool> inFlight,
                                                    const huxerui::ThemeSpec& theme) {
     auto responseTab = huxerui::UseState<std::size_t>(0);
@@ -131,27 +131,23 @@ std::string ResponseSyntax(const std::vector<std::string>& headers) {
     if (responseTab.Get() == 0) {
         content = inFlight.Get()
             ? LiveResponseStream(responseBody, theme)
-            : ResponseBody(responseBody.Get(), responseHeaders.Get(), theme);
+            : ResponseBody(responseBody.Get(), responseHeaders, theme);
     } else if (responseTab.Get() == 1) {
-        const std::vector<std::string> lines = responseHeaders.Get();
-        std::vector<huxerui::View> rows;
-        rows.reserve(lines.size());
-        for (const std::string& line : lines)
-            rows.push_back(huxerui::Text(line, huxerui::TextRole::Body).Style(mono));
-        content = rows.empty()
+        content = responseHeaders.Empty()
             ? huxerui::View{huxerui::Text("（无响应头）", huxerui::TextRole::Body)}
-            : huxerui::View{huxerui::SelectionArea{huxerui::Column(std::move(rows))
-                                                       .With(huxerui::Spacing(2.0F))}};
+            : huxerui::View{huxerui::SelectionArea{huxerui::Column{
+                  huxerui::ForEach(responseHeaders, [mono](const std::string& line) {
+                      return huxerui::Text(line, huxerui::TextRole::Body).Style(mono);
+                  })
+              }.With(huxerui::Spacing(2.0F))}};
     } else {
-        const std::vector<std::string> lines = responseCookies.Get();
-        std::vector<huxerui::View> rows;
-        rows.reserve(lines.size());
-        for (const std::string& line : lines)
-            rows.push_back(huxerui::Text(line, huxerui::TextRole::Body).Style(mono));
-        content = rows.empty()
+        content = responseCookies.Empty()
             ? huxerui::View{huxerui::Text("（无 Cookie）", huxerui::TextRole::Body)}
-            : huxerui::View{huxerui::SelectionArea{huxerui::Column(std::move(rows))
-                                                       .With(huxerui::Spacing(2.0F))}};
+            : huxerui::View{huxerui::SelectionArea{huxerui::Column{
+                  huxerui::ForEach(responseCookies, [mono](const std::string& line) {
+                      return huxerui::Text(line, huxerui::TextRole::Body).Style(mono);
+                  })
+              }.With(huxerui::Spacing(2.0F))}};
     }
 
     if (responseTab.Get() != 0)

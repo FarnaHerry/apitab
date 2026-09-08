@@ -129,6 +129,51 @@ namespace {
         });
 }
 
+// 领域 store 返回的是一次性快照；用稳定 Key 让数据快照变化时重建子作用域，
+// 子作用域内部则由官方 StateList 直接作为虚拟布局的数据源，而不是由父作用域
+// 拼接 View 向量。
+[[huxerui::composable]] huxerui::View OrgList(std::vector<db::Org> initial,
+                                               std::int64_t currentOrg,
+                                               huxerui::State<int> refresh) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const auto orgs = huxerui::UseStateList(std::move(initial));
+    if (orgs.Empty()) {
+        return huxerui::Text("暂无组织", huxerui::TextRole::Body)
+            .With(huxerui::Foreground(theme.colors.on_surface_variant));
+    }
+    return huxerui::VirtualList(
+               orgs, [currentOrg, refresh](const db::Org& org) {
+            return OrgRow(org, org.id == currentOrg, refresh).Key(org.id);
+        })
+        .EstimatedItemExtent(36.0F)
+        .CacheExtent(120.0F)
+        .With(huxerui::ScrollBar(), huxerui::Spacing(theme.spacing.small),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
+[[huxerui::composable]] huxerui::View ProjectList(
+    std::vector<db::Project> initial, huxerui::State<std::int64_t> activeProject,
+    const std::function<void(std::int64_t)>& onOpenProject) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const auto projects = huxerui::UseStateList(std::move(initial));
+    if (projects.Empty()) {
+        return huxerui::Text("该组织暂无项目，点击右上角 + 新建一个。",
+                             huxerui::TextRole::Body)
+            .With(huxerui::Foreground(theme.colors.on_surface_variant));
+    }
+    return huxerui::VirtualGrid(
+               projects, [activeProject, onOpenProject](const db::Project& project) {
+            return ProjectCard(project, activeProject, onOpenProject).Key(project.id);
+        })
+        .Columns(huxerui::GridColumns::Adaptive(200.0F))
+        .RowExtent(96.0F)
+        .RowSpacing(theme.spacing.medium)
+        .ColumnSpacing(theme.spacing.medium)
+        .CacheExtent(192.0F)
+        .With(huxerui::ScrollBar(),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
 } // namespace
 
 [[huxerui::composable]] huxerui::View HomePage(
@@ -144,7 +189,6 @@ namespace {
 
     // 数据快照：组合期读领域 store（单线程 UI，重组合时重新拉取）。
     const std::int64_t refreshKey = refresh.Get();
-    (void)refreshKey;
     const std::vector<db::Org> orgs = g_requests.orgs();
     const std::int64_t currentOrg = g_requests.currentOrgId();
     const std::vector<db::Project> projects = g_requests.projects();
@@ -155,14 +199,6 @@ namespace {
 
     // ---- 左岛：组织列表 + 新建组织（标题行加号按钮弹窗创建）----
     // 列表内部滚动（外岛固定尺寸，参照请求页左岛）。
-    std::vector<huxerui::View> orgRows;
-    if (orgs.empty()) {
-        orgRows.push_back(huxerui::Text("暂无组织", huxerui::TextRole::Body)
-                              .With(huxerui::Foreground(theme.colors.on_surface_variant)));
-    }
-    for (const db::Org& org : orgs) {
-        orgRows.push_back(OrgRow(org, org.id == currentOrg, refresh).Key(org.id));
-    }
     huxerui::View orgIsland =
         huxerui::Column {
             huxerui::Row {
@@ -219,9 +255,7 @@ namespace {
             }, AppIconButtonShape::Circular, 28.0F, true),
             }
                 .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            huxerui::ScrollView{huxerui::Column(std::move(orgRows))
-                                    .With(huxerui::Spacing(theme.spacing.small))}
-                .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+            OrgList(orgs, currentOrg, refresh).Key(refreshKey).With(huxerui::Grow(1.0F)),
         }
             .With(huxerui::Padding(theme.spacing.medium),
                   huxerui::Spacing(theme.spacing.small),
@@ -230,10 +264,6 @@ namespace {
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
     // ---- 右岛：当前组织的项目卡片 + 新建项目 ----
-    std::vector<huxerui::View> cards;
-    for (const db::Project& project : projects) {
-        cards.push_back(ProjectCard(project, activeProject, onOpenProject).Key(project.id));
-    }
     huxerui::View projectIsland =
         huxerui::Column {
             huxerui::Row {
@@ -294,14 +324,9 @@ namespace {
                 }, AppIconButtonShape::Circular, 28.0F, true),
             }
                 .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            huxerui::ScrollView{
-                projects.empty()
-                    ? huxerui::View{huxerui::Text("该组织暂无项目，点击右上角 + 新建一个。",
-                                                  huxerui::TextRole::Body)
-                                        .With(huxerui::Foreground(theme.colors.on_surface_variant))}
-                    : huxerui::View{huxerui::Flow(std::move(cards))
-                                        .With(huxerui::Spacing(theme.spacing.medium))}}
-                .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+            ProjectList(projects, activeProject, onOpenProject)
+                .Key(refreshKey)
+                .With(huxerui::Grow(1.0F)),
         }
             .With(huxerui::Padding(theme.spacing.large),
                   huxerui::Spacing(theme.spacing.medium),

@@ -408,8 +408,8 @@ huxerui::View GoogleRequestSurface(huxerui::View content, std::size_t selectedIn
     auto editorPage = huxerui::UseState<std::size_t>(0);
     auto inFlight = huxerui::UseState(false);
     auto responseBody = huxerui::UseState(std::string{"（尚未发送请求）"});
-    auto responseHeaders = huxerui::UseState<std::vector<std::string>>({});
-    auto responseCookies = huxerui::UseState<std::vector<std::string>>({});
+    auto responseHeaders = huxerui::UseStateList<std::string>();
+    auto responseCookies = huxerui::UseStateList<std::string>();
     auto leftIslandWidth = huxerui::UseState(260.0F);
     auto leftIslandOrigin = huxerui::UseState(260.0F);
     auto responseIslandHeight = huxerui::UseState(260.0F);

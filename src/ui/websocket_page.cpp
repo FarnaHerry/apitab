@@ -29,16 +29,17 @@ std::string StateName(api::WebSocketState s) {
 
 // 事件流：独立重组作用域 —— 每 150ms 的 events 更新只重绘事件区。
 // 不定高：由调用方用 Grow 分配剩余高度，本区内部滚动。
-[[huxerui::composable]] huxerui::View WsEventStream(huxerui::State<std::vector<std::string>> events,
+[[huxerui::composable]] huxerui::View WsEventStream(huxerui::StateList<std::string> events,
                                                   const huxerui::ThemeSpec& theme) {
-    return huxerui::ScrollView{huxerui::Column {
-        huxerui::ForEach(events.Get(), [theme](const std::string& line) {
+    return huxerui::VirtualList(
+               events, [theme](const std::string& line) {
             return huxerui::Text(line, huxerui::TextRole::Body)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant));
-        }),
-    }
-                               .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
-        .With(huxerui::ScrollBar());
+        })
+        .EstimatedItemExtent(20.0F)
+        .CacheExtent(120.0F)
+        .With(huxerui::ScrollBar(),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 [[huxerui::composable]] huxerui::View WebSocketPage() {
@@ -51,7 +52,7 @@ std::string StateName(api::WebSocketState s) {
     auto binary = huxerui::UseState(false);
     auto connected = huxerui::UseState(false);
     auto status = huxerui::UseState(std::string{"未连接"});
-    auto events = huxerui::UseState<std::vector<std::string>>({});
+    auto events = huxerui::UseStateList<std::string>();
     // 当前会话：空 = 未连接。页面卸载时 State 释放，会话析构即停 IX 线程。
     auto session = huxerui::UseState(std::shared_ptr<WsSession>{});
 
@@ -65,36 +66,33 @@ std::string StateName(api::WebSocketState s) {
                     if (!s) return true;
                     std::vector<api::WebSocketEvent> drained = s->drain();
                     if (drained.empty()) return true;
-                    std::vector<std::string> lines = events.Get();
                     for (const api::WebSocketEvent& e : drained) {
                         switch (e.kind) {
                             case api::WebSocketEventKind::Open:
-                                lines.push_back("● 已连接");
+                                events.PushBack("● 已连接");
                                 connected = true;
                                 status = "已连接";
                                 break;
                             case api::WebSocketEventKind::Text:
-                                lines.push_back("← " + e.payload);
+                                events.PushBack("← " + e.payload);
                                 break;
                             case api::WebSocketEventKind::Binary:
-                                lines.push_back("← [binary " + std::to_string(e.wireBytes) + "B]");
+                                events.PushBack("← [binary " + std::to_string(e.wireBytes) + "B]");
                                 break;
                             case api::WebSocketEventKind::Close:
-                                lines.push_back("○ 连接关闭" +
-                                                (e.closeCode ? " (code " + std::to_string(e.closeCode) + ")" : ""));
+                                events.PushBack("○ 连接关闭" +
+                                               (e.closeCode ? " (code " + std::to_string(e.closeCode) + ")" : ""));
                                 connected = false;
                                 status = "未连接";
                                 break;
                             case api::WebSocketEventKind::Error:
-                                lines.push_back("✗ " + e.detail);
+                                events.PushBack("✗ " + e.detail);
                                 connected = false;
                                 status = "失败";
                                 break;
                         }
                     }
-                    if (lines.size() > 300)
-                        lines.erase(lines.begin(), lines.begin() + (lines.size() - 300));
-                    events = lines;
+                    while (events.Size() > 300) events.Erase(0);
                     return true; // 持续泵到页面卸载
                 });
             });
@@ -128,6 +126,16 @@ std::string StateName(api::WebSocketState s) {
                 connected = false;
                 status = "未连接";
             }),
+            huxerui::Button("Ping").OnClick([=] {
+                const auto& s = session.Get();
+                if (!s) { toast.Show("WebSocket 尚未连接"); return; }
+                if (const std::string err = s->ping(); !err.empty()) toast.Show(err);
+                else {
+                    events.PushBack("→ Ping");
+                    while (events.Size() > 300) events.Erase(0);
+                }
+            }),
+            huxerui::Button("清空事件").OnClick([events] { events.Clear(); }),
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
         huxerui::Row {
@@ -147,11 +155,8 @@ std::string StateName(api::WebSocketState s) {
                     !err.empty())
                     toast.Show(err);
                 else
-                    events = [&] {
-                        std::vector<std::string> lines = events.Get();
-                        lines.push_back((binary.Get() ? "→ [binary] " : "→ ") + message.Get().text);
-                        return lines;
-                    }();
+                    events.PushBack((binary.Get() ? "→ [binary] " : "→ ") + message.Get().text);
+                while (events.Size() > 300) events.Erase(0);
             }),
         }
             .With(huxerui::Spacing(theme.spacing.medium)),

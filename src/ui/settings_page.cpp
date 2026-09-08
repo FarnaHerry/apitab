@@ -766,7 +766,7 @@ struct AvatarCropOutput {
                              if (files.size() == 1) receiveAvatar(files.front());
                          })
                      .On<huxerui::FileDropEvents::Failed>(
-                         [toast](const huxerui::FileError& error, const huxerui::FileDropEvent&) {
+                         [toast](const huxerui::IoError& error, const huxerui::FileDropEvent&) {
                              toast.Show(std::string{"拖入头像失败："} + error.message);
                          })
                      .On<huxerui::ViewEvents::Hover>(

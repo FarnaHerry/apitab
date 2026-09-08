@@ -147,6 +147,14 @@ struct CaseResult {
     bool operator==(const CaseResult&) const = default;
 };
 
+void ReplaceCaseResults(huxerui::StateList<CaseResult> target,
+                        const std::vector<CaseResult>& values) {
+    const std::size_t common = std::min(target.Size(), values.size());
+    for (std::size_t i = 0; i < common; ++i) target.Set(i, values[i]);
+    while (target.Size() > values.size()) target.PopBack();
+    for (std::size_t i = common; i < values.size(); ++i) target.PushBack(values[i]);
+}
+
 // 用例是否含至少一条生效校验项（数字条件非空，或某条启用且有路径的断言）。
 bool CaseHasChecks(const TestCaseDraft& c) {
     if (!trim(c.expectStatus.text).empty() || !trim(c.maxMs.text).empty()) return true;
@@ -237,12 +245,12 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
     auto running = huxerui::UseState<bool>(false); // 运行在途（禁用按钮、变文案）
-    auto results = huxerui::UseState<std::vector<CaseResult>>(std::vector<CaseResult>{});
+    auto results = huxerui::UseStateList<CaseResult>();
     // 用例结构代际：在途运行期间删卡会让下标错位，代际不符则结果作废。
     auto runGen = huxerui::UseState<std::uint64_t>(0);
 
     const std::vector<TestCaseDraft> cases = snapshot.cases;
-    const std::vector<CaseResult> res = results.Get(); // 订阅：运行结束/清结果即重组
+    const auto res = results; // 订阅：运行结束/清结果即重组
 
     const bool lightTheme = theme.colors.surface.red > 0.5F;
     const huxerui::Color passColor = lightTheme ? huxerui::Color::Rgb(46, 125, 50)
@@ -273,7 +281,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
             }
             const api::RequestSpec finalSpec = g_requests.finalizeSpec(spec);
             running = true;
-            results = std::vector<CaseResult>{}; // 旧结果作废（用例可能已编辑）
+            results.Clear(); // 旧结果作废（用例可能已编辑）
             runGen = runGen.Get() + 1;
             const std::uint64_t gen = runGen.Get();
             api::ResponseView stale; // 丢弃引擎里的残留结果，只轮询本次运行的
@@ -286,7 +294,8 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                 co_await PollWhile(std::chrono::duration<double>{0.03},
                                    [&view] { return !g_requests.takeResponse(view); });
                 // 在途期间用例被删改（代际变化）→ 下标已错位，结果作废。
-                if (gen == runGen.Get()) results = EvaluateCases(draft.cases, view);
+                if (gen == runGen.Get())
+                    ReplaceCaseResults(results, EvaluateCases(draft.cases, view));
                 running = false;
             });
         });
@@ -320,7 +329,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
 
     // 顶栏：运行按钮 + 本次汇总（无用例/未参与统计时只有按钮）。
     int runCount = 0, passCount = 0;
-    for (std::size_t i = 0; i < cases.size() && i < res.size(); ++i) {
+    for (std::size_t i = 0; i < cases.size() && i < res.Size(); ++i) {
         if (res[i].checks.empty()) continue;
         ++runCount;
         if (res[i].passed) ++passCount;
@@ -354,7 +363,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
         std::vector<huxerui::View> cards;
         for (std::size_t ci = 0; ci < cases.size(); ++ci) {
             const TestCaseDraft c = cases[ci];
-            const bool evaluated = ci < res.size() && !res[ci].checks.empty();
+            const bool evaluated = ci < res.Size() && !res[ci].checks.empty();
 
             // 行头：启用 + 用例名 + PASS/FAIL 汇总徽标 + 删除。
             huxerui::View badge = huxerui::View{huxerui::Text("", huxerui::TextRole::Label)};
@@ -388,7 +397,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                             if (ci < d.cases.size())
                                 d.cases.erase(d.cases.begin() + static_cast<long>(ci));
                         });
-                        results = std::vector<CaseResult>{};
+                        results.Clear();
                         runGen = runGen.Get() + 1;
                     });
                 }, AppIconButtonShape::Bare),

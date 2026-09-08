@@ -568,8 +568,8 @@ huxerui::View RequestEditor(
     huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
     huxerui::State<std::size_t> activeTab, huxerui::State<int> listVersion,
     huxerui::State<bool> inFlight, huxerui::State<std::string> responseBody,
-    huxerui::State<std::vector<std::string>> responseHeaders,
-    huxerui::State<std::vector<std::string>> responseCookies,
+    huxerui::StateList<std::string> responseHeaders,
+    huxerui::StateList<std::string> responseCookies,
     huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab);
 
 // environment_widgets.cpp — 环境配置弹窗（P1-C1 自 request_page.cpp 拆出）：左侧
@@ -593,8 +593,8 @@ huxerui::View RequestDocPage(const RequestDraft& snapshot, const std::string& en
 // Body/Headers/Cookies 三档切换 + 内部滚动。State 订阅局限在岛内，不扩散到编辑器。
 // inFlight 期间 Body 档切流式实时视图（SSE/分块正文逐块呈现），完成后落只读编辑器。
 huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
-                           huxerui::State<std::vector<std::string>> responseHeaders,
-                           huxerui::State<std::vector<std::string>> responseCookies,
+                           huxerui::StateList<std::string> responseHeaders,
+                           huxerui::StateList<std::string> responseCookies,
                            huxerui::State<bool> inFlight,
                            const huxerui::ThemeSpec& theme);
 
