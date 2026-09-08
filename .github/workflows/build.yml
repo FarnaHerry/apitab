@@ -128,6 +128,7 @@ jobs:
             -DHUXERUI_BUILD_CLI=ON \
             -DHUXERUI_BUILD_EXAMPLES=OFF \
             -DHUXERUI_BUILD_TESTS=OFF \
+            -DHUXERUI_ENABLE_PROFILING=OFF \
             -DHUXERUI_HOST_TOOL_ROOT="$PWD/third_party/huxerui-tools"
           cmake --build huxerui-sdk-build --config Release --parallel
           cmake --install huxerui-sdk-build --config Release --strip
@@ -300,6 +301,7 @@ jobs:
             -DHUXERUI_BUILD_CLI=OFF \
             -DHUXERUI_BUILD_EXAMPLES=OFF \
             -DHUXERUI_BUILD_TESTS=OFF \
+            -DHUXERUI_ENABLE_PROFILING=OFF \
             -DHUXERUI_HOST_TOOL_ROOT="$PWD/third_party/huxerui/tools/prebuilt"
           cmake --build huxerui-sdk-build --config Release --parallel
           cmake --install huxerui-sdk-build --config Release --strip
@@ -375,6 +377,7 @@ jobs:
             -DHUXERUI_BUILD_CLI=ON `
             -DHUXERUI_BUILD_EXAMPLES=OFF `
             -DHUXERUI_BUILD_TESTS=OFF `
+            -DHUXERUI_ENABLE_PROFILING=OFF `
             "-DHUXERUI_HOST_TOOL_ROOT=$PWD/third_party/huxerui/tools/prebuilt"
           cmake --build huxerui-sdk-build --config Release --parallel
           cmake --install huxerui-sdk-build --config Release --strip
