@@ -593,7 +593,7 @@ huxerui::View SplitActionButton(
 
     // 分区切换条固定在滚动区外。
     huxerui::View sectionTabs = huxerui::View{huxerui::SegmentedButton(
-        {"Params", "Headers", "Cookies", "Body"}, section)
+        {"Params", "Headers", "Cookies", "Body", "设置"}, section)
                                       .OnChanged([section](std::size_t i) { section = i; })};
     // sectionFixed：分区各自的固定头（仅 Body 有：类型选择行 + 条件渲染的格式化行）；
     // sectionContent：进内部 ScrollView 的滚动内容（KV 表 / Body 编辑器）。
@@ -601,29 +601,12 @@ huxerui::View SplitActionButton(
     huxerui::View sectionContent = huxerui::Column{};
     switch (section.Get()) {
         case 0:
-            sectionContent = huxerui::Column {
-                huxerui::Row {
-                    huxerui::Checkbox("自动跟随重定向", snapshot.followRedirects)
-                        .OnChanged([drafts, index](bool checked) {
-                            MutateDraft(drafts, index,
-                                        [checked](RequestDraft& d) { d.followRedirects = checked; });
-                        }),
-                    huxerui::Text("遇到 3xx 响应时自动请求 Location 指向的地址",
-                                  huxerui::TextRole::Body)
-                        .With(huxerui::Foreground(theme.colors.on_surface_variant),
-                              huxerui::Grow(1.0F), huxerui::ClipChildren()),
-                }
-                    .With(huxerui::Spacing(theme.spacing.small),
-                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-                KvTable(
-                    snapshot.params, theme, "参数名", "参数值",
-                    [drafts, index](std::vector<KvRow> rows) {
-                        MutateDraft(drafts, index,
-                                    [&](RequestDraft& d) { d.params = std::move(rows); });
-                    }),
-            }
-                .With(huxerui::Spacing(theme.spacing.medium),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+            sectionContent = KvTable(
+                snapshot.params, theme, "参数名", "参数值",
+                [drafts, index](std::vector<KvRow> rows) {
+                    MutateDraft(drafts, index,
+                                [&](RequestDraft& d) { d.params = std::move(rows); });
+                });
             break;
         case 1:
             sectionContent = KvTable(
@@ -640,6 +623,26 @@ huxerui::View SplitActionButton(
                     MutateDraft(drafts, index,
                                 [&](RequestDraft& d) { d.cookies = std::move(rows); });
                 });
+            break;
+        case 4:
+            sectionContent = huxerui::Column {
+                huxerui::Text("当前请求配置", huxerui::TextRole::Title),
+                huxerui::Row {
+                    huxerui::Checkbox("自动跟随重定向", snapshot.followRedirects)
+                        .OnChanged([drafts, index](bool checked) {
+                            MutateDraft(drafts, index,
+                                        [checked](RequestDraft& d) { d.followRedirects = checked; });
+                        }),
+                    huxerui::Text("遇到 3xx 响应时自动请求 Location 指向的地址",
+                                  huxerui::TextRole::Body)
+                        .With(huxerui::Foreground(theme.colors.on_surface_variant),
+                              huxerui::Grow(1.0F), huxerui::ClipChildren()),
+                }
+                    .With(huxerui::Spacing(theme.spacing.small),
+                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+            }
+                .With(huxerui::Spacing(theme.spacing.medium),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
             break;
         default: {
             // Body 固定头：类型选择行（只有 SegmentedButton，下标 = api::BodyKind）；
