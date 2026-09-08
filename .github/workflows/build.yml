@@ -610,6 +610,9 @@ jobs:
           choco install openssl -y --no-progress
           # HuxerUI restores and runs the pinned WiX host during `package`.
           choco install dotnet-6.0-runtime -y --no-progress
+          # HuxerUI's package command requires the native Windows icon in the
+          # generated shell; reuse the checked-in application icon.
+          Copy-Item assets/icon.ico platform/windows/app.ico -Force
           $env:HUXERUI_HOME = (Resolve-Path huxerui-sdk).Path
           # Keep this aligned with the Windows build job's Chocolatey package
           # location; CMake locates libssl/libcrypto from this prefix.
