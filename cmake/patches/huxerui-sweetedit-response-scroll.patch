@@ -1,0 +1,86 @@
+diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
+index e2c08d3..0b2b9c3 100644
+--- a/src/codeeditor/codeeditor.cpp
++++ b/src/codeeditor/codeeditor.cpp
+@@ -538,6 +538,8 @@ se::GestureEvent ToGestureEvent(const PointerEvent& event) {
+   return out;
+ }
+ 
++using CodeEditorScrollHandler = std::function<bool(const ScrollInputEvent&)>;
++
+ se::GestureEvent ToWheelGestureEvent(const ScrollInputEvent& event) {
+   se::GestureEvent out;
+   out.type = se::EventType::MOUSE_WHEEL;
+@@ -3686,6 +3688,7 @@ struct EditorBehavior {
+   EditorOptions options;
+   EditorController controller;
+   huxerui::EventEmitter events;
++  std::shared_ptr<CodeEditorScrollHandler> scroll_handler;
+ 
+   struct Extension final : NodeExtension {
+     Extension(MountedNode& node, const EditorBehavior& behavior)
+@@ -3702,9 +3705,26 @@ struct EditorBehavior {
+           )),
+           document_key_(behavior.options.document_key) {
+       BindController(behavior.controller);
++      BindScrollHandler(behavior.scroll_handler);
+       static_cast<void>(node);
+     }
+ 
++    void BindScrollHandler(std::shared_ptr<CodeEditorScrollHandler> handler) {
++      if (scroll_handler_ && scroll_handler_ != handler) {
++        *scroll_handler_ = {};
++      }
++      scroll_handler_ = std::move(handler);
++      if (scroll_handler_) {
++        *scroll_handler_ = [this](const ScrollInputEvent& event) {
++          const bool changed = holder_->HandleScroll(event);
++          if (changed) {
++            InvalidatePaint();
++          }
++          return changed;
++        };
++      }
++    }
++
+     void BindController(EditorController controller) {
+       auto& state = detail::EditorControllerAccess::State(controller);
+       state->load_document = [this](const std::string& key, const std::string& text) {
+@@ -3731,6 +3751,7 @@ struct EditorBehavior {
+       options_ = behavior.options;
+       controller_ = behavior.controller;
+       BindController(behavior.controller);
++      BindScrollHandler(behavior.scroll_handler);
+       // Reconcile declarative configuration without resetting the editor:
+       // theme, editing/presentation options, hooks, and provider lists apply
+       // live; only a document switch or a font change (layout metrics)
+@@ -3851,9 +3872,16 @@ struct EditorBehavior {
+     EditorController controller_;
+     std::shared_ptr<EditorHolder> holder_;
+     std::string document_key_;
++    std::shared_ptr<CodeEditorScrollHandler> scroll_handler_;
+   };
+ };
+ 
++View BindCodeEditorScrollInput(View editor, std::shared_ptr<CodeEditorScrollHandler> handler) {
++  return std::move(editor).On<ViewEvents::ScrollInput>([handler](const ScrollInputEvent& event) {
++    return *handler ? (*handler)(event) : false;
++  });
++}
++
+ View EditorSearchBar(
+     State<std::string> search_text,
+     State<std::string> replace_text,
+@@ -3928,9 +3956,11 @@ View CodeEditor(EditorOptions options, EditorController controller) {
+         search_visible = next;
+         events.Emit<EditorEvents::SearchVisibilityChanged>(next);
+       };
++  auto scroll_handler = std::make_shared<CodeEditorScrollHandler>();
+   View editor = Canvas([](PaintContext&, Size) {}).With(
+-      EditorBehavior{&measurer, std::move(effective_options), controller, events}, Focusable{}
++      EditorBehavior{&measurer, std::move(effective_options), controller, events, scroll_handler}, Focusable{}
+   );
++  editor = BindCodeEditorScrollInput(std::move(editor), scroll_handler);
+   if (!use_builtin_bar || !search_visible.Get()) {
+     return editor;
+   }
