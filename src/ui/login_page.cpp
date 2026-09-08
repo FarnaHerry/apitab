@@ -7,6 +7,41 @@
 
 namespace apitab::ui {
 
+namespace {
+
+// HCG 不允许在 [[composable]] 函数体内使用条件编译；密码框的新版尾部动作
+// API 由普通 C++ 辅助函数按 SDK 能力收敛，旧版 SDK 仍保留安全输入。
+huxerui::TextField ConfigurePasswordField(huxerui::TextField field,
+                                           huxerui::State<bool> passwordVisible,
+                                           huxerui::State<bool> passwordFieldHovered) {
+#if defined(APITAB_HAS_TEXT_FIELD_TRAILING_ICON_ACTION)
+    const bool passwordIsVisible = passwordVisible.Get();
+    if (!passwordIsVisible) {
+        field = std::move(field).Secure();
+    }
+    if (passwordFieldHovered.Get()) {
+        const auto& passwordVisibilityIcon = passwordIsVisible ? app::images::visibility_off
+                                                               : app::images::visibility;
+        const char* passwordVisibilityLabel = passwordIsVisible ? "隐藏密码" : "显示密码";
+        field = std::move(field)
+                    .TrailingIcon(passwordVisibilityIcon, passwordVisibilityLabel)
+                    .OnTrailingIconClick([passwordVisible] {
+                        passwordVisible = !passwordVisible.Get();
+                    });
+    }
+    return std::move(field).On<huxerui::ViewEvents::Hover>(
+        [passwordFieldHovered](const huxerui::HoverEvent& event) {
+            passwordFieldHovered = event.type != huxerui::HoverEventType::Leave;
+        });
+#else
+    (void)passwordVisible;
+    (void)passwordFieldHovered;
+    return std::move(field).Secure();
+#endif
+}
+
+} // namespace
+
 [[huxerui::composable]] huxerui::View LoginPage(huxerui::DialogContext ctx,
                                                 huxerui::State<bool> loggedIn) {
     const auto& theme = huxerui::UseTheme();
@@ -14,8 +49,6 @@ namespace apitab::ui {
     auto password = huxerui::UseState(huxerui::TextEditingValue{});
     auto passwordVisible = huxerui::UseState(false);
     auto passwordFieldHovered = huxerui::UseState(false);
-    const bool passwordIsVisible = passwordVisible.Get();
-    const bool showPasswordVisibilityToggle = passwordFieldHovered.Get();
     auto error = huxerui::UseState(std::string{});
     auto tasks = huxerui::UseTaskScope();
 
@@ -32,31 +65,15 @@ namespace apitab::ui {
         });
     };
 
-    const auto& passwordVisibilityIcon = passwordIsVisible ? app::images::visibility_off
-                                                           : app::images::visibility;
-    const char* passwordVisibilityLabel = passwordIsVisible ? "隐藏密码" : "显示密码";
-    auto passwordField = huxerui::TextField(password.Get());
-    if (!passwordIsVisible) {
-        passwordField = std::move(passwordField).Secure();
-    }
-    passwordField = std::move(passwordField)
-                         .Label("密码")
-                         .Placeholder("密码")
-                         .Variant(huxerui::TextFieldVariant::Outlined)
-                         .OnChanged([password](const huxerui::TextEditingValue& value) { password = value; })
-                         .With(huxerui::Frame{.height = 48.0F});
     // 尾部动作只在整个密码框悬停时进入布局；离开字段即隐藏，避免常态视觉干扰。
-    if (showPasswordVisibilityToggle) {
-        passwordField = std::move(passwordField)
-                            .TrailingIcon(passwordVisibilityIcon, passwordVisibilityLabel)
-                            .OnTrailingIconClick([passwordVisible] {
-                                passwordVisible = !passwordVisible.Get();
-                            });
-    }
-    passwordField = std::move(passwordField).On<huxerui::ViewEvents::Hover>(
-        [passwordFieldHovered](const huxerui::HoverEvent& event) {
-            passwordFieldHovered = event.type != huxerui::HoverEventType::Leave;
-        });
+    auto passwordField = ConfigurePasswordField(
+        huxerui::TextField(password.Get())
+            .Label("密码")
+            .Placeholder("密码")
+            .Variant(huxerui::TextFieldVariant::Outlined)
+            .OnChanged([password](const huxerui::TextEditingValue& value) { password = value; })
+            .With(huxerui::Frame{.height = 48.0F}),
+        passwordVisible, passwordFieldHovered);
 
     huxerui::View form = huxerui::Column{
         huxerui::Text("欢迎回来", huxerui::TextRole::Title),
