@@ -19,6 +19,7 @@ namespace {
 // 每页条数选项（下标即 pageSize 状态值）；默认 10 条。
 constexpr std::array<int, 4> kPageSizeOptions{10, 20, 50, 100};
 constexpr std::size_t kDefaultPageSizeIndex = 0;
+constexpr float kPageSizeSelectWidth = 80.0F;
 
 // 历史列表行（P1-A2 布局契约：[前置区] [主内容 Grow] [尾部信息] [固定动作区]）：
 // 前置区 = HTTP 方法，主内容 = URL（左对齐、Grow 撑开），尾部信息 = 状态码与
@@ -33,6 +34,21 @@ constexpr std::size_t kDefaultPageSizeIndex = 0;
 [[huxerui::composable]] huxerui::View HistoryRow(const db::HistoryEntry& entry) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const std::string status = entry.error.empty() ? std::to_string(entry.status) : "ERR";
+    if (huxerui::UseViewportClass() == huxerui::ViewportClass::Compact) {
+        return huxerui::Column {
+                   huxerui::Row {
+                       huxerui::Text(entry.method, huxerui::TextRole::Body),
+                       huxerui::Text(std::format("{} · {}", status, entry.durationMs),
+                                     huxerui::TextRole::Body)
+                           .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+                   }.With(huxerui::Spacing(theme.spacing.small),
+                          huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
+                   huxerui::Text(entry.url, huxerui::TextRole::Body),
+               }
+            .With(huxerui::Spacing(4.0F), huxerui::Padding(theme.spacing.medium),
+                  huxerui::Background(theme.colors.surface_container),
+                  huxerui::CornerRadius(theme.shapes.small));
+    }
     return huxerui::Row {
         // 前置区：HTTP 方法。
         huxerui::Text(entry.method, huxerui::TextRole::Body),
@@ -90,13 +106,30 @@ constexpr std::size_t kDefaultPageSizeIndex = 0;
         g_requests.historyPage(pageSizeValue, static_cast<int>(page));
     const std::int64_t total = g_requests.historyCount();
 
+    // Select 的全局最小宽度为 120dp，对仅含 10/20/50/100 的分页控件过宽；
+    // 弹出菜单会至少与触发框同宽，因此在局部主题与触发框同时限制为 80dp。
+    huxerui::SelectStyle compactPageSizeStyle = huxerui::UseEnvironment<huxerui::SelectStyle>();
+    compactPageSizeStyle.minimum_width = kPageSizeSelectWidth;
+    huxerui::ThemeDefinition compactPageSizeTheme;
+    compactPageSizeTheme.Set(std::move(compactPageSizeStyle));
+    huxerui::View pageSizeSelect = huxerui::Theme{
+        std::move(compactPageSizeTheme),
+        huxerui::Select(std::vector<std::string>{"10", "20", "50", "100"}, pageSize.Get(),
+                         [](const std::string& option) { return huxerui::Text(option).Key(option); })
+            .OnChanged([pageSize, pageIndex, pageInput](std::size_t index) {
+                pageSize = index;
+                pageIndex = 0; // 条数变化后回到第一页
+                pageInput = huxerui::TextEditingValue::FromText("1");
+            })
+            .With(huxerui::Frame{.width = kPageSizeSelectWidth}),
+    };
     // 岛屿分区模型：本页只有一个岛，岛本身占满整个页面区块（Grow + Stretch），
     // 列表在岛内部滚动；分页按钮固定在岛底部。
     // 清空按钮套一层 Row：岛交叉轴 Stretch 会把直接子节点拉满全宽，
     // Row 主轴不拉伸子节点，按钮保持自然宽度。
     return huxerui::Column {
         PageHeader("历史记录", "共 " + std::to_string(total) + " 条请求"),
-        huxerui::Row {
+        huxerui::Flow {
             huxerui::Button("清空历史").OnClick([dialog, reloadKey, pageIndex, pageInput] {
                 ShowDangerConfirm(dialog, "清空历史", "确定删除全部历史记录吗？此操作不可恢复。",
                                   "清空", [reloadKey, pageIndex, pageInput] {
@@ -139,23 +172,16 @@ constexpr std::size_t kDefaultPageSizeIndex = 0;
             }),
             huxerui::Text("每页", huxerui::TextRole::Body)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-            huxerui::Select(std::vector<std::string>{"10", "20", "50", "100"}, pageSize.Get(),
-                            [](const std::string& option) {
-                                return huxerui::Text(option).Key(option);
-                            })
-                .OnChanged([pageSize, pageIndex, pageInput](std::size_t index) {
-                    pageSize = index;
-                    pageIndex = 0; // 条数变化后回到第一页
-                    pageInput = huxerui::TextEditingValue::FromText("1");
-                }),
+            std::move(pageSizeSelect),
         }
-            .With(huxerui::Spacing(theme.spacing.medium),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        .With(huxerui::Spacing(theme.spacing.medium),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }
         .With(huxerui::Padding(theme.spacing.large),
               huxerui::Spacing(theme.spacing.medium),
               huxerui::Background(theme.colors.surface_container_low),
               huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
+              huxerui::Frame{.min_width = 320.0F, .min_height = 220.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 

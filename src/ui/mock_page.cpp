@@ -144,7 +144,7 @@ namespace {
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Text("响应头", huxerui::TextRole::Label)
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-        MockHeaderTable(mock.headers, theme, [drafts, index](std::vector<KvRow> rows) {
+        KvTable(mock.headers, theme, "头名称", "头值", [drafts, index](std::vector<KvRow> rows) {
             MutateDraft(drafts, index,
                         [&](RequestDraft& d) { d.mock.headers = std::move(rows); });
         }),

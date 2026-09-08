@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout c00e72a76b5d44fc745a6734bfc9d8e255d9eb26
+          git -C third_party/huxerui checkout 371072b4e964adc17f5be8fdfbad94b2daeead88
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
           # 预置宿主工具可能与运行库的资源索引格式脱节；Linux CI 后面会用同一
@@ -64,6 +64,8 @@ jobs:
           # 分隔线读主题色、sweetline_provider 日志静音（均带 NOTE(apitab local patch)）。
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-apitab.patch
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/sweetedit-context-menu-label.patch
+          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-event.patch
+          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-view-node.patch
           # SweetEditor/SweetLine 是 sweetedit 的 gitlink，但上游没有 .gitmodules，
           # 非递归 clone 拿不到内容；按 apitab 固定的 commit 显式 clone 并打本地
           # 防御性补丁（os_log 限 clang / wstring_convert 显式补 <locale>）。
@@ -215,7 +217,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout c00e72a76b5d44fc745a6734bfc9d8e255d9eb26
+          git -C third_party/huxerui checkout 371072b4e964adc17f5be8fdfbad94b2daeead88
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
           # 自定义窗口边框的缩放热区加宽（10dp 边 / 14dp 角）并补方向光标；
@@ -229,6 +231,8 @@ jobs:
           # 分隔线读主题色、sweetline_provider 日志静音（均带 NOTE(apitab local patch)）。
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-apitab.patch
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/sweetedit-context-menu-label.patch
+          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-event.patch
+          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-view-node.patch
           # SweetEditor/SweetLine 是 sweetedit 的 gitlink，但上游没有 .gitmodules，
           # 非递归 clone 拿不到内容；按 apitab 固定的 commit 显式 clone 并打本地
           # 防御性补丁（os_log 限 clang / wstring_convert 显式补 <locale>）。
@@ -366,7 +370,7 @@ jobs:
             -DCMAKE_INSTALL_LIBDIR=lib `
             -DHUXERUI_BUILD_SHARED=ON `
             -DHUXERUI_BUILD_STATIC=OFF `
-            -DHUXERUI_BUILD_CLI=OFF `
+            -DHUXERUI_BUILD_CLI=ON `
             -DHUXERUI_BUILD_EXAMPLES=OFF `
             -DHUXERUI_BUILD_TESTS=OFF `
             "-DHUXERUI_HOST_TOOL_ROOT=$PWD/third_party/huxerui/tools/prebuilt"
@@ -450,6 +454,26 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload Windows HuxerUI SDK for installer packaging
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: huxerui-sdk-windows
+          path: huxerui-sdk
+          if-no-files-found: error
+          retention-days: 14
+
+      # The package job rebuilds apitab through HuxerUI's package command. Keep
+      # the already patched SweetEdit source in lockstep with the SDK artifact.
+      - name: Upload patched SweetEdit source for Windows installer packaging
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: huxerui-sweetedit-windows
+          path: third_party/huxerui-sweetedit
+          if-no-files-found: error
+          retention-days: 14
+
   package:
     name: package-${{ matrix.name }}
     needs: [build-linux, build-other]
@@ -483,6 +507,20 @@ jobs:
         with:
           name: build-${{ matrix.name }}
           path: dist-src
+
+      - name: Download HuxerUI SDK for Windows installer packaging
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v4
+        with:
+          name: huxerui-sdk-windows
+          path: huxerui-sdk
+
+      - name: Download patched SweetEdit source for Windows installer packaging
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v4
+        with:
+          name: huxerui-sweetedit-windows
+          path: third_party/huxerui-sweetedit
 
       - name: Install Unix tools
         if: runner.os != 'Windows'
@@ -558,25 +596,29 @@ jobs:
           bash packaging/ci-package-deb.sh "$version" x86_64 dist
           bash packaging/ci-package-rpm.sh "$version" x86_64 dist
 
-      - name: Install full NSIS
+      - name: Package HuxerUI Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          choco install nsis -y --no-progress
-          $nsis = 'C:\Program Files (x86)\NSIS'
-          if (-not (Test-Path (Join-Path $nsis 'makensis.exe'))) { throw 'NSIS install failed' }
-          $nsis | Out-File -FilePath $env:GITHUB_PATH -Append
-
-      - name: Package Windows zip
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          & packaging\ci-package.ps1 dist-src\apitab.exe engines\k6.exe
+          python -m pip install --disable-pip-version-check -q cmake==4.4.2
+          choco install openssl -y --no-progress
+          # HuxerUI restores and runs the pinned WiX host during `package`.
+          choco install dotnet-6.0-runtime -y --no-progress
+          $env:HUXERUI_HOME = (Resolve-Path huxerui-sdk).Path
+          # Keep this aligned with the Windows build job's Chocolatey package
+          # location; CMake locates libssl/libcrypto from this prefix.
+          $env:OPENSSL_ROOT_DIR = 'C:\Program Files\OpenSSL'
+          $huxerui = Join-Path $env:HUXERUI_HOME 'bin\huxerui.exe'
+          if (-not (Test-Path $huxerui)) { throw "HuxerUI CLI not installed: $huxerui" }
+          & $huxerui package windows --profile release
+          if ($LASTEXITCODE -ne 0) { throw 'huxerui package windows failed' }
           $line = Get-Content CMakeLists.txt | Where-Object { $_ -match '^\s*project\(apitab\s+VERSION\s+' } | Select-Object -First 1
           $version = $line -replace '^\s*project\(apitab\s+VERSION\s+([0-9.]+).*', '$1'
-          makensis "/DAPP_VERSION=$version" "$env:GITHUB_WORKSPACE\packaging\apitab.nsi"
-          Get-ChildItem "apitab-v$version-windows-x86_64*"
+          $setup = Get-ChildItem 'dist\windows' -Filter "apitab-Setup-$version.exe" -File | Select-Object -First 1
+          if (-not $setup) { throw 'HuxerUI setup executable was not produced' }
+          Copy-Item $setup.FullName "apitab-v$version-windows-x86_64-setup.exe"
+          Get-Item "apitab-v$version-windows-x86_64-setup.exe"
 
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4

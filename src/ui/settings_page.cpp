@@ -76,6 +76,76 @@ float ClampCropValue(float value, float lower, float upper) {
     return std::clamp(value, lower, upper);
 }
 
+// HCG 不允许在 [[composable]] 函数体内使用条件编译，因此 SDK 版本差异
+// 收敛在普通 C++ 辅助函数中。离线 0.2.0 SDK 没有这些事件时仍保留点击选图和
+// 触控板变换手势。
+template <typename ClampOffset>
+huxerui::View WithCropScrollZoom(huxerui::View stage, huxerui::State<float> imageScale,
+                                 huxerui::State<float> imageRotation,
+                                 huxerui::State<float> imageOffsetX,
+                                 huxerui::State<float> imageOffsetY, ClampOffset clampOffset) {
+#if defined(APITAB_HAS_SCROLL_INPUT)
+    return std::move(stage).On<huxerui::ViewEvents::ScrollInput>(
+        [imageScale, imageRotation, imageOffsetX, imageOffsetY, clampOffset](
+            const huxerui::ScrollInputEvent& event) {
+            const float nextScale = ClampCropValue(
+                imageScale.Get() * std::exp(-event.delta_y * 0.002F), 1.0F, 8.0F);
+            const huxerui::Point offset = clampOffset(
+                nextScale, imageRotation.Get(), {imageOffsetX.Get(), imageOffsetY.Get()});
+            imageScale = nextScale;
+            imageOffsetX = offset.x;
+            imageOffsetY = offset.y;
+            return true;
+        });
+#else
+    (void)imageScale;
+    (void)imageRotation;
+    (void)imageOffsetX;
+    (void)imageOffsetY;
+    (void)clampOffset;
+    return stage;
+#endif
+}
+
+inline huxerui::View WithAvatarDropTarget(huxerui::View avatar) {
+#if defined(APITAB_HAS_FILE_DROP)
+    return std::move(avatar).With(
+        huxerui::FileDropTarget::Accepts({.content_types = {"image/*"}, .allows_multiple = false}));
+#else
+    return avatar;
+#endif
+}
+
+template <typename ReceiveAvatar, typename Toast>
+huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
+                                     huxerui::State<bool> avatarDropHovered,
+                                     ReceiveAvatar receiveAvatar, Toast toast) {
+#if defined(APITAB_HAS_FILE_DROP)
+    huxerui::View result = std::move(avatar).On<huxerui::FileDropEvents::Entered>(
+            [avatarDropHovered](const huxerui::FileDropOffer&, const huxerui::FileDropEvent&) {
+                avatarDropHovered = true;
+            });
+    result = std::move(result).On<huxerui::FileDropEvents::Exited>(
+            [avatarDropHovered](const huxerui::FileDropOffer&, const huxerui::FileDropEvent&) {
+                avatarDropHovered = false;
+            });
+    result = std::move(result).On<huxerui::FileDropEvents::Dropped>(
+            [receiveAvatar](const std::vector<huxerui::FileReference>& files,
+                            const huxerui::FileDropEvent&) {
+                if (files.size() == 1) receiveAvatar(files.front());
+            });
+    return std::move(result).On<huxerui::FileDropEvents::Failed>(
+            [toast](const huxerui::IoError& error, const huxerui::FileDropEvent&) {
+                toast.Show(std::string{"拖入头像失败："} + error.message);
+            });
+#else
+    (void)avatarDropHovered;
+    (void)receiveAvatar;
+    (void)toast;
+    return avatar;
+#endif
+}
+
 huxerui::Transform2D MultiplyTransform(const huxerui::Transform2D& outer,
                                         const huxerui::Transform2D& inner) {
     return {
@@ -210,7 +280,9 @@ huxerui::Rect TransformedBounds(const huxerui::Transform2D& transform,
                              .With(huxerui::Spacing(theme.spacing.extra_small),
                                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
                          IslandLevel::Base)
-        .With(huxerui::Frame{.width = kCategoryRailWidth});
+        .With(huxerui::Frame{.width = kCategoryRailWidth,
+                             .min_width = 176.0F,
+                             .min_height = 220.0F});
 }
 
 // 设置分组：标题 + 控件 + 说明，以标题与留白分组，不逐项套卡（§13.3）。
@@ -620,20 +692,9 @@ struct AvatarCropOutput {
                 imageRotation = nextRotation;
                 imageOffsetX = offset.x;
                 imageOffsetY = offset.y;
-            })
-        .On<huxerui::ViewEvents::ScrollInput>(
-            [imageScale, imageRotation, imageOffsetX, imageOffsetY, clampOffset](
-                const huxerui::ScrollInputEvent& event) {
-                const float nextScale = ClampCropValue(
-                    imageScale.Get() * std::exp(-event.delta_y * 0.002F), 1.0F, 8.0F);
-                const huxerui::Point offset = clampOffset(
-                    nextScale, imageRotation.Get(),
-                    {imageOffsetX.Get(), imageOffsetY.Get()});
-                imageScale = nextScale;
-                imageOffsetX = offset.x;
-                imageOffsetY = offset.y;
-                return true;
             });
+    stage = WithCropScrollZoom(std::move(stage), imageScale, imageRotation, imageOffsetX,
+                               imageOffsetY, clampOffset);
     return DialogCard(huxerui::Column {
         huxerui::Text("裁剪头像", huxerui::TextRole::Title),
         std::move(stage),
@@ -746,29 +807,11 @@ struct AvatarCropOutput {
         huxerui::Frame{.width = kProfileAvatarSize, .height = kProfileAvatarSize},
         avatarIndication,
         huxerui::Align(huxerui::HorizontalAlignment::Center, huxerui::VerticalAlignment::Center),
-        huxerui::Tooltip(loadingAvatar.Get() ? "正在读取图片…" : "点击或拖入图片更换头像"), huxerui::Focusable(true),
+        huxerui::Tooltip(loadingAvatar.Get() ? "正在读取图片…" : "点击更换头像"), huxerui::Focusable(true),
         huxerui::Semantics{.role = huxerui::SemanticRole::Button, .label = "更换头像"},
-        huxerui::Enabled(!loadingAvatar.Get()),
-        huxerui::FileDropTarget::Accepts({.content_types = {"image/*"}, .allows_multiple = false}));
+        huxerui::Enabled(!loadingAvatar.Get()));
     avatarView = std::move(avatarView)
                      .OnClick(uploadAvatar)
-                     .On<huxerui::FileDropEvents::Entered>(
-                         [avatarDropHovered](const huxerui::FileDropOffer&, const huxerui::FileDropEvent&) {
-                             avatarDropHovered = true;
-                         })
-                     .On<huxerui::FileDropEvents::Exited>(
-                         [avatarDropHovered](const huxerui::FileDropOffer&, const huxerui::FileDropEvent&) {
-                             avatarDropHovered = false;
-                         })
-                     .On<huxerui::FileDropEvents::Dropped>(
-                         [receiveAvatar](const std::vector<huxerui::FileReference>& files,
-                                         const huxerui::FileDropEvent&) {
-                             if (files.size() == 1) receiveAvatar(files.front());
-                         })
-                     .On<huxerui::FileDropEvents::Failed>(
-                         [toast](const huxerui::IoError& error, const huxerui::FileDropEvent&) {
-                             toast.Show(std::string{"拖入头像失败："} + error.message);
-                         })
                      .On<huxerui::ViewEvents::Hover>(
                          [avatarHovered](const huxerui::HoverEvent& event) {
                              avatarHovered = event.type != huxerui::HoverEventType::Leave;
@@ -777,6 +820,9 @@ struct AvatarCropOutput {
                          [avatarFocused](bool focused) {
                              avatarFocused = focused;
                          });
+    avatarView = WithAvatarDropTarget(std::move(avatarView));
+    avatarView = WithAvatarDropHandlers(std::move(avatarView), avatarDropHovered,
+                                        receiveAvatar, toast);
     return huxerui::Column {
         PageHeader("个人信息", "管理本机保存的显示资料，不会自动上传到服务器。"),
         SettingsGroup("当前账号",
@@ -942,7 +988,8 @@ struct AvatarCropOutput {
                                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                                        huxerui::Grow(1.0F)),
                              IslandLevel::Base)
-                 .With(huxerui::Grow(1.0F));
+                 .With(huxerui::Grow(1.0F),
+                       huxerui::Frame{.min_width = 280.0F, .min_height = 280.0F});
     } else {
         // 标准：右侧内容岛——页面标题固定在顶部（不随内容滚走），分区内容独立
         // 滚动（ScrollView + ScrollBar + Grow）。左右两块属于同一个设置工作区，
@@ -955,7 +1002,8 @@ struct AvatarCropOutput {
                 .With(huxerui::Spacing(theme.spacing.medium),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                       huxerui::Grow(1.0F)),
-            IslandLevel::Base);
+            IslandLevel::Base)
+            .With(huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
         page = huxerui::Row {SettingsCategoryIsland(category), std::move(contentIsland)}
                    .With(huxerui::Spacing(theme.spacing.small),
                          huxerui::Grow(1.0F),

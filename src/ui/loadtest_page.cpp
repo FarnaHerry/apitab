@@ -87,6 +87,7 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
     auto summary = huxerui::UseState<std::string>("");
     // k6 脚本编辑器控制器（非受控组件：改文本走 LoadDocument，读文本走 Text()）。
     auto scriptController = huxerui::codeeditor::UseEditorController();
+    const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
 
     const bool k6ok = g_loadtest.available();
 
@@ -122,15 +123,25 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
                 [url](const huxerui::TextEditingValue& value) { url = value; },
                 envBaseUrl,
                 "https://api.example.com/v1/resource"),
-            huxerui::Row {
-                huxerui::TextField(vus)
-                    .Label("VUs")
-                    .Variant(huxerui::TextFieldVariant::Outlined)
-                    .OnChanged([vus](const huxerui::TextEditingValue& value) { vus = value; }),
-                DurationField(duration),
-            }
-                .With(huxerui::Spacing(theme.spacing.medium)),
-            huxerui::Row {
+            compact ? huxerui::View{huxerui::Column {
+                          huxerui::TextField(vus)
+                              .Label("VUs")
+                              .Variant(huxerui::TextFieldVariant::Outlined)
+                              .OnChanged([vus](const huxerui::TextEditingValue& value) { vus = value; }),
+                          DurationField(duration),
+                      }
+                                              .With(huxerui::Spacing(theme.spacing.small),
+                                                    huxerui::CrossAlign(
+                                                        huxerui::CrossAxisAlignment::Stretch))}
+                    : huxerui::View{huxerui::Row {
+                          huxerui::TextField(vus)
+                              .Label("VUs")
+                              .Variant(huxerui::TextFieldVariant::Outlined)
+                              .OnChanged([vus](const huxerui::TextEditingValue& value) { vus = value; }),
+                          DurationField(duration),
+                      }
+                                              .With(huxerui::Spacing(theme.spacing.medium))},
+            huxerui::Flow {
                 huxerui::Text("脚本", huxerui::TextRole::Title),
                 huxerui::Button("从参数重新生成")
                     .OnClick([=] {
@@ -144,7 +155,7 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
                 .With(huxerui::Spacing(theme.spacing.medium)),
             huxerui::codeeditor::CodeEditor(scriptOptions, scriptController)
                 .With(huxerui::Frame{.height = 240.0F}),
-            huxerui::Row {
+            huxerui::Flow {
                 huxerui::Button(running.Get() ? "压测进行中…" : "开始压测")
                     .OnClick([=] {
                         if (running.Get()) return;
@@ -217,10 +228,11 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
                                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
             .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
     }
-        .With(huxerui::Padding(theme.spacing.large),
+        .With(huxerui::Padding(compact ? theme.spacing.medium : theme.spacing.large),
               huxerui::Spacing(theme.spacing.medium),
               huxerui::Background(theme.colors.surface_container_low),
               huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
+              huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 

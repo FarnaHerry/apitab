@@ -119,6 +119,12 @@ std::string WsSession::send(const std::string& text, bool binary) {
     return info.success ? std::string{} : "WebSocket 消息发送失败";
 }
 
+std::string WsSession::ping(const std::string& payload) {
+    if (state() != api::WebSocketState::Connected) return "WebSocket 尚未连接";
+    const ix::WebSocketSendInfo info = impl_->socket.ping(payload);
+    return info.success ? std::string{} : "WebSocket Ping 发送失败";
+}
+
 api::WebSocketState WsSession::state() const {
     std::lock_guard lock{impl_->mu};
     return impl_->state;

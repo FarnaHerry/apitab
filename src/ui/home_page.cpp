@@ -186,6 +186,7 @@ namespace {
     auto refresh = huxerui::UseState(0);
     auto newOrgName = huxerui::UseState(huxerui::TextEditingValue{});
     auto newProjectName = huxerui::UseState(huxerui::TextEditingValue{});
+    const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
 
     // 数据快照：组合期读领域 store（单线程 UI，重组合时重新拉取）。
     const std::int64_t refreshKey = refresh.Get();
@@ -261,6 +262,7 @@ namespace {
                   huxerui::Spacing(theme.spacing.small),
                   huxerui::Background(theme.colors.surface_container_low),
                   huxerui::CornerRadius(theme.shapes.large), huxerui::Frame{.width = 240.0F},
+                  huxerui::Frame{.min_width = 200.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
     // ---- 右岛：当前组织的项目卡片 + 新建项目 ----
@@ -332,10 +334,19 @@ namespace {
                   huxerui::Spacing(theme.spacing.medium),
                   huxerui::Background(theme.colors.surface_container_low),
                   huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
+                  huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
-    // 根 Row 撑满窗口（Grow）：组织岛定宽在左、项目岛 Grow 在右，整体左对齐。
-    // 不用外层 ScrollView（其内容宽度无界会让 Row 收缩漂移），两岛各自内部滚动。
+    // Compact 把定宽组织岛移到顶部并限高，项目岛取得剩余高度；Medium/Expanded
+    // 维持左右双岛。不用外层 ScrollView（其内容宽度无界会让 Row 收缩漂移）。
+    if (compact) {
+        return huxerui::Column {
+                   std::move(orgIsland).With(huxerui::Frame{.max_height = 220.0F}),
+                   std::move(projectIsland),
+               }
+            .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    }
     return huxerui::Row {
         std::move(orgIsland),
         std::move(projectIsland),

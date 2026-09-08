@@ -103,6 +103,10 @@ struct IslandTheme {
     float island_padding;
     float island_radius;
     float nested_radius;
+    // 岛屿不允许被弹性布局压成零：通用下限适用于所有 IslandSurface；页面级
+    // 主岛会在此基础上按自身内容增加更大的 min_width / min_height。
+    float island_min_width;
+    float island_min_height;
     // ---- 几何令牌（P1-A1，全项目唯一圆角/控件尺寸来源）----
     // control_radius：普通按钮/选择器/局部分组的 8pt 圆角（取 theme.shapes.small）；
     // large_control_radius：大输入行/请求组合栏的 12pt 大圆角（取 theme.shapes.medium）；
@@ -561,9 +565,16 @@ std::string PrettyXml(const std::string& input);
 // 被编辑器与环境表单共用，签名仅用 draft.h/huxerui/std 类型，可安全进头文件；
 // 其余桥接（ToKeyValue/FromKeyValue/SpecFromDraft/CookiesFromHeaders 等，签名含
 // 模块类型）留在 owner TU 内，不进头文件（CLAUDE.md 模块约束）。
+struct KvTableOptions {
+    bool show_type = true;
+    bool show_remark = true;
+    bool show_batch_edit = true;
+};
+
 huxerui::View KvTable(std::vector<KvRow> rows, const huxerui::ThemeSpec& theme,
                       std::string keyLabel, std::string valueLabel,
-                      std::function<void(std::vector<KvRow>)> onChanged);
+                      std::function<void(std::vector<KvRow>)> onChanged,
+                      KvTableOptions options = {});
 huxerui::View RequestEditor(
     huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
     huxerui::State<std::size_t> activeTab, huxerui::State<int> listVersion,

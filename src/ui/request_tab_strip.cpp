@@ -426,7 +426,7 @@ struct DraftTabDragPayload {
                           [dialog, envVersion] {
                               dialog.Show(
                                   [envVersion](huxerui::DialogContext ctx) -> huxerui::View {
-                                      return EnvironmentDialog(ctx, envVersion);
+                                      return EnvironmentDialog(ctx, envVersion).Key(envVersion.Get());
                                   },
                                   huxerui::DialogOptions{});
                           },

@@ -20,6 +20,12 @@ fundamentals、layout-and-ui、theme-animation-presentation、navigation-and-win
 presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）。
 要点：
 
+- **第三方库跟随上游（强制）**：HuxerUI、SweetEdit 及其嵌套依赖默认直接追踪各自
+  上游最新提交；类型、函数、构建与打包接口一律以远端当前命名和契约为准，不保留
+  旧接口兼容层或本地别名。本地补丁只能解决本项目尚未被上游覆盖的功能/平台问题，
+  必须最小化、写明原因并由 CI 重放。每次更新上游后先检查补丁能否删除；若上游已
+  修复或提供等价能力，应移除对应本地补丁、CI `git apply` 和过时说明，再按当前远端
+  接口完成编译链接验证。
 - HuxerUI 接入采用“**SDK 工程契约驱动、源码解析优先**”：CLI、项目自省、codegen、
   resource compiler 和打包继续遵守 HuxerUI SDK 工程格式，但开发构建优先
   `third_party/huxerui` 源码（git clone 的上游仓库，`add_subdirectory` 编译，跟踪
@@ -88,9 +94,11 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   （error C2397），windows-x86_64 CI 实证编译失败。
   应用侧经 `EditorPalette(theme)`（common.cpp，深色=结构色从 ThemeSpec
   派生 + VS Code Dark+ 语法色）在 BodyTextEditor 与压测页脚本编辑器接线。
-  ④ `sweet_editor.cpp` 的滚轮桥接通过 CMake 头文件特性检测兼容旧 `ScrollEvent`
-  与 937efb1 新 `ScrollInputEvent`（嵌套滚动/overscroll 统一；delta 字段语义不变），
-  保持源码 main 与 0.2.0 SDK 双通道可编译。
+  ④ `codeeditor.cpp` 的滚轮桥接经 CMake 头文件特性检测兼容旧 `ScrollEvent`
+  与新 `ScrollInputEvent`；并适配新版 `TextSelectionClient` 的
+  `ClearSelection` / `TextSelectionGeometry` 和 `NodeExtension::OnFocusChanged`
+  的 `reverse` 参数。该组合以更新后的 HuxerUI 源码通道为基线；补丁
+  `cmake/patches/huxerui-sweetedit-scroll-event.patch` 由 CI 在主补丁后应用。
   ⑤ **嵌套 SweetEditor 的 os_log GCC 兼容**（`cmake/patches/sweeteditor-oslog-gcc.patch`）：
   `logging.hpp` 的 `#elif defined(__APPLE__)` 分支 `#include <os/log.h>` 依赖
   clang-only 的 `__builtin_os_log_format`，改为 `defined(__APPLE__) && defined(__clang__)`
@@ -173,6 +181,12 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   可逐条自定义文字色（方法下拉即用它按 MethodColor 着色）。官方
   Select 下拉走 item 工厂：工厂里给单个 item 设
   `Indication{.hover = ...}` 会覆盖默认悬停色（作者口径）。
+  **紧凑有限选项（如历史页“每页 10/20/50/100”）不能只给触发框加 `Frame`**：
+  `Select` 弹层的最小宽度取 `max(SelectStyle::minimum_width, trigger_width)`。
+  应从 `UseEnvironment<SelectStyle>()` 复制当前主题样式，局部 `Theme` 中把
+  `minimum_width` 改为控件宽度，并对触发框使用同一 `Frame::width`；两处必须同步，
+  以免触发框已收窄而菜单仍保留全局 120dp 宽度。常规选择器继续使用全局样式，不做
+  无差别缩窄。
   ③ 确认弹窗里的危险操作按钮**直接显示危险色**：统一走
   `ShowDangerConfirm`（common.cpp，DialogCard + ProvideEnvironment 局部
   覆盖 ButtonStyle 为红底白字）；清空历史、删除环境、删除请求（集合树
@@ -183,11 +197,25 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
 ```bash
 huxerui run linux                  # HuxerUI CLI 流程：构建到 .huxerui/build/linux/ 并运行
 huxerui build linux --profile release
-cmake -B build -G Ninja            # 直接 CMake 流程（默认 Release；调试加 -DCMAKE_BUILD_TYPE=Debug）
-cmake --build build -j             # 编译
+cmake -B build -G Ninja            # 配置为 Ninja 生成器（默认 Release；调试加 -DCMAKE_BUILD_TYPE=Debug）
+cmake --build build --target apitab --parallel $(nproc) # 经 CMake 调用 Ninja，并行编译并链接应用目标
 ctest --test-dir build             # 冒烟测试（test_smoke）
 ./run.sh                           # 启动 GUI（切到仓库根 + INTEL_FORCE_PROBE=1）
 ```
+
+- **修改完成后的构建闭环（强制）**：每次代码、CMake、资源或生成输入修改完成后，
+  必须重新执行与改动相符的构建，并确保 `apitab` 目标完成**编译和链接**；仅生成 hcg
+  文件、仅编译单个 `.o`、或只跑静态检查均不能视为完成。通常执行
+  `cmake --build build --target apitab --parallel $(nproc)`；构建系统需要重配时先执行
+  `cmake -B build -G Ninja`，确保使用 Ninja 生成器。
+  **在向用户宣告修改完成前，必须拿到该次构建成功结果**；不得因全量依赖重建耗时而
+  跳过、后台遗留或以“尚未完成构建”作为交付结论。
+  链接或测试失败时，必须在交付中明确报告失败命令、直接原因及其是否由本次改动引起；
+  不得把未链接的新对象当作已在运行程序中验证的结果。
+- **任务交付 Git 闭环（强制）**：每个任务完成并通过要求的验证后，必须仅暂存本任务
+  修改的文件，创建语义清晰的 Git commit，并推送到当前分支的上游远端。推送失败时，
+  在交付中简要标记失败命令和直接原因即可，不要反复重试或为推送问题偏离任务；绝不
+  将工作区既有的无关改动或其他人的改动混入提交。
 
 - **发布/打包规范先读 skill**：`.claude/skills/apitab-release/SKILL.md`——产物命名用
   `<os>-<arch>` 全称（`linux-x86_64`/`macos-arm64`/`windows-x86_64`，禁 `win64` 等简称）、

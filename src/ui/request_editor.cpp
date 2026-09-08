@@ -64,6 +64,43 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                  .enabled = kv.enabled};
 }
 
+std::string HeaderValue(const std::vector<KvRow>& headers, std::string_view name) {
+    for (const KvRow& row : headers) {
+        std::string key = row.key.text;
+        std::ranges::transform(key, key.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (key == name && row.enabled) return row.value.text;
+    }
+    return {};
+}
+
+std::size_t AuthModeFromHeaders(const std::vector<KvRow>& headers) {
+    const std::string authorization = HeaderValue(headers, "authorization");
+    if (authorization.starts_with("Bearer ")) return 1;
+    return HeaderValue(headers, "x-api-key").empty() ? 0 : 2;
+}
+
+std::string BearerToken(const std::vector<KvRow>& headers) {
+    const std::string authorization = HeaderValue(headers, "authorization");
+    return authorization.starts_with("Bearer ") ? authorization.substr(7) : std::string{};
+}
+
+void SetAuthValue(RequestDraft& draft, std::size_t mode, const std::string& value) {
+    std::erase_if(draft.headers, [](const KvRow& row) {
+        std::string key = row.key.text;
+        std::ranges::transform(key, key.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return key == "authorization" || key == "x-api-key";
+    });
+    if (mode == 1 && !value.empty()) {
+        draft.headers.push_back(KvRow{.key = huxerui::TextEditingValue{"Authorization"},
+                                      .value = huxerui::TextEditingValue{"Bearer " + value}});
+    } else if (mode == 2 && !value.empty()) {
+        draft.headers.push_back(KvRow{.key = huxerui::TextEditingValue{"X-API-Key"},
+                                      .value = huxerui::TextEditingValue{value}});
+    }
+}
+
 // 值 → 类型自动推断（trimming 后判定）：空 → string；true/false → boolean；
 // 能完整解析为整数/浮点（可带符号、小数点、科学计数）→ number；其余 → string。
 inline std::string InferKvType(const std::string& raw) {
@@ -94,7 +131,7 @@ std::string CsvCell(std::string_view value) {
     return escaped;
 }
 
-std::string KvRowsToCsv(const std::vector<KvRow>& rows) {
+std::string KvRowsToCsv(const std::vector<KvRow>& rows, const KvTableOptions& options) {
     std::string result;
     for (const KvRow& row : rows) {
         if (!result.empty()) result += '\n';
@@ -103,15 +140,20 @@ std::string KvRowsToCsv(const std::vector<KvRow>& rows) {
         result += CsvCell(row.key.text);
         result += ',';
         result += CsvCell(row.value.text);
-        result += ',';
-        result += CsvCell(row.type.text.empty() ? InferKvType(row.value.text) : row.type.text);
-        result += ',';
-        result += CsvCell(row.remark.text);
+        if (options.show_type) {
+            result += ',';
+            result += CsvCell(row.type.text.empty() ? InferKvType(row.value.text) : row.type.text);
+        }
+        if (options.show_remark) {
+            result += ',';
+            result += CsvCell(row.remark.text);
+        }
     }
     return result;
 }
 
-std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::string& error) {
+std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::string& error,
+                                                const KvTableOptions& options) {
     std::vector<std::vector<std::string>> records(1);
     std::string field;
     bool quoted = false;
@@ -150,8 +192,11 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
     rows.reserve(records.size());
     for (std::size_t i = 0; i < records.size(); ++i) {
         const auto& columns = records[i];
-        if (columns.size() != 5) {
-            error = "第 " + std::to_string(i + 1) + " 行应包含 5 个字段";
+        const std::size_t expectedColumns = 3 + (options.show_type ? 1 : 0) +
+                                            (options.show_remark ? 1 : 0);
+        if (columns.size() != expectedColumns) {
+            error = "第 " + std::to_string(i + 1) + " 行应包含 " +
+                    std::to_string(expectedColumns) + " 个字段";
             return std::nullopt;
         }
         std::string enabled = columns[0];
@@ -161,20 +206,25 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
             error = "第 " + std::to_string(i + 1) + " 行的启用字段应为 true/false 或 1/0";
             return std::nullopt;
         }
-        rows.push_back(KvRow{
-            .key = huxerui::TextEditingValue{columns[1]},
-            .value = huxerui::TextEditingValue{columns[2]},
-            .type = huxerui::TextEditingValue{columns[3].empty() ? InferKvType(columns[2]) : columns[3]},
-            .remark = huxerui::TextEditingValue{columns[4]},
-            .enabled = enabled == "true" || enabled == "1",
-        });
+        std::size_t column = 3;
+        const std::string type = options.show_type && !columns[column].empty()
+                                     ? columns[column]
+                                     : InferKvType(columns[2]);
+        if (options.show_type) ++column;
+        const std::string remark = options.show_remark ? columns[column] : std::string{};
+        rows.push_back(KvRow{.key = huxerui::TextEditingValue{columns[1]},
+                             .value = huxerui::TextEditingValue{columns[2]},
+                             .type = huxerui::TextEditingValue{type},
+                             .remark = huxerui::TextEditingValue{remark},
+                             .enabled = enabled == "true" || enabled == "1"});
     }
     return rows;
 }
 
 [[huxerui::composable]] huxerui::View BatchKvEditor(
     huxerui::DialogContext ctx, std::vector<KvRow> rows, std::string keyLabel,
-    std::string valueLabel, std::function<void(std::vector<KvRow>)> onChanged) {
+    std::string valueLabel, std::function<void(std::vector<KvRow>)> onChanged,
+    KvTableOptions options) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto editor = huxerui::codeeditor::UseEditorController();
     auto error = huxerui::UseState(std::string{});
@@ -182,13 +232,15 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
     ApplyEditorTypography(editorOptions);
     editorOptions.theme = EditorTheme(theme);
     editorOptions.document_key = "batch-kv-csv";
-    editorOptions.initial_text = KvRowsToCsv(rows);
+    editorOptions.initial_text = KvRowsToCsv(rows, options);
     editorOptions.wrap_mode = 1;
     editorOptions.sticky_gutter = true;
     return DialogCard(huxerui::Column {
         huxerui::Text("批量编辑", huxerui::TextRole::Title),
         huxerui::Text("每行一条记录；字段顺序：启用, " + keyLabel + ", " + valueLabel +
-                          ", 类型, 备注。包含逗号或引号的内容请使用 CSV 双引号。",
+                          (options.show_type ? ", 类型" : "") +
+                          (options.show_remark ? ", 备注" : "") +
+                          "。包含逗号或引号的内容请使用 CSV 双引号。",
                       huxerui::TextRole::Body)
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
         huxerui::Text("CSV 表单数据", huxerui::TextRole::Label),
@@ -200,9 +252,9 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
                                  .With(huxerui::Foreground(theme.colors.error))},
         huxerui::Row {
             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-            huxerui::Button("确定").OnClick([ctx, editor, error, onChanged = std::move(onChanged)] {
+            huxerui::Button("确定").OnClick([ctx, editor, error, onChanged = std::move(onChanged), options] {
                 std::string message;
-                auto parsed = KvRowsFromCsv(editor.Text(), message);
+                auto parsed = KvRowsFromCsv(editor.Text(), message, options);
                 if (!parsed.has_value()) {
                     error = std::move(message);
                     return;
@@ -267,33 +319,38 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
 // 之所以不用 State 参数：行数据现在寄宿在请求草稿（RequestDraft）内部。
 [[huxerui::composable]] huxerui::View KvTable(
     std::vector<KvRow> rows, const huxerui::ThemeSpec& theme, std::string keyLabel,
-    std::string valueLabel, std::function<void(std::vector<KvRow>)> onChanged) {
+    std::string valueLabel, std::function<void(std::vector<KvRow>)> onChanged,
+    KvTableOptions options) {
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
     // 表头与数据行共用同一套宽度约定：勾选框约 24pt，键/值/备注自适应拉伸，
     // 类型列固定 72pt。
     const auto typeWidth = huxerui::Frame{.width = 72.0F};
     const auto actionWidth = huxerui::Frame{.width = 88.0F};
+    std::vector<huxerui::View> header{
+        huxerui::Text("", huxerui::TextRole::Label).With(huxerui::Frame{.width = 24.0F}),
+        huxerui::Text(keyLabel, huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
+        huxerui::Text(valueLabel, huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
+    };
+    if (options.show_type)
+        header.push_back(huxerui::Text("类型", huxerui::TextRole::Label).With(typeWidth));
+    if (options.show_remark)
+        header.push_back(huxerui::Text("备注", huxerui::TextRole::Label).With(huxerui::Grow(1.0F)));
+    header.push_back(
+        options.show_batch_edit
+            ? huxerui::View{huxerui::Button("批量编辑")
+                                 .OnClick([dialog, rows, keyLabel, valueLabel, onChanged, options] {
+                                     dialog.Show(
+                                         [rows, keyLabel, valueLabel, onChanged, options](huxerui::DialogContext ctx) {
+                                             return BatchKvEditor(ctx, rows, keyLabel, valueLabel,
+                                                                  onChanged, options);
+                                         },
+                                         huxerui::DialogOptions{});
+                                 })
+                                 .With(actionWidth)}
+            : huxerui::View{huxerui::Row{}.With(actionWidth)});
     std::vector<huxerui::View> children{
-        huxerui::Row {
-            huxerui::Text("", huxerui::TextRole::Label)
-                .With(huxerui::Frame{.width = 24.0F}),
-            huxerui::Text(keyLabel, huxerui::TextRole::Label)
-                .With(huxerui::Grow(1.0F)),
-            huxerui::Text(valueLabel, huxerui::TextRole::Label)
-                .With(huxerui::Grow(1.0F)),
-            huxerui::Text("类型", huxerui::TextRole::Label).With(typeWidth),
-            huxerui::Text("备注", huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
-            huxerui::Button("批量编辑")
-                .OnClick([dialog, rows, keyLabel, valueLabel, onChanged] {
-                    dialog.Show(
-                        [rows, keyLabel, valueLabel, onChanged](huxerui::DialogContext ctx) {
-                            return BatchKvEditor(ctx, rows, keyLabel, valueLabel, onChanged);
-                        },
-                        huxerui::DialogOptions{});
-                })
-                .With(actionWidth),
-        }
+        huxerui::Row(std::move(header))
             .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::Foreground(theme.colors.on_surface_variant)),
     };
@@ -317,8 +374,7 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
             onChanged(std::move(copy));
         };
         children.push_back(huxerui::Divider());
-        children.push_back(
-            huxerui::Row {
+        std::vector<huxerui::View> rowViews{
                 huxerui::Checkbox(row.enabled).OnChanged([row, i, applyRow](bool checked) {
                     KvRow updated = row;
                     updated.enabled = checked;
@@ -339,20 +395,23 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
                         applyRow(i, std::move(updated));
                     })
                     .With(huxerui::Grow(1.0F)),
-                // 类型列：固定值下拉（string/number/boolean），回写同样走 applyRow。
-                KvTypeSelect(row.type.text, [row, i, applyRow](std::string type) {
-                    KvRow updated = row;
-                    updated.type = huxerui::TextEditingValue{std::move(type)};
-                    applyRow(i, std::move(updated));
-                })
-                    .With(typeWidth),
+        };
+        if (options.show_type) {
+            rowViews.push_back(KvTypeSelect(row.type.text, [row, i, applyRow](std::string type) {
+                KvRow updated = row;
+                updated.type = huxerui::TextEditingValue{std::move(type)};
+                applyRow(i, std::move(updated));
+            }).With(typeWidth));
+        }
+        if (options.show_remark) {
+            rowViews.push_back(
                 CompactKvField(row.remark, "备注", [row, i, applyRow](const huxerui::TextEditingValue& value) {
-                        KvRow updated = row;
-                        updated.remark = value;
-                        applyRow(i, std::move(updated));
-                    })
-                    .With(huxerui::Grow(1.0F)),
-                phantom
+                    KvRow updated = row;
+                    updated.remark = value;
+                    applyRow(i, std::move(updated));
+                }).With(huxerui::Grow(1.0F)));
+        }
+        rowViews.push_back(phantom
                     ? huxerui::View{huxerui::Row{}.With(
                           huxerui::Frame{.width = 88.0F, .height = 28.0F})}
                     : AppIconButton("✕", "删除此行", [tasks, rows, i, onChanged] {
@@ -363,10 +422,10 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
                             if (i < copy.size()) copy.erase(copy.begin() + static_cast<long>(i));
                             onChanged(std::move(copy));
                         });
-                    }, AppIconButtonShape::Bare).With(actionWidth),
-            }
-                .With(huxerui::Spacing(theme.spacing.small),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+                    }, AppIconButtonShape::Bare).With(actionWidth));
+        children.push_back(huxerui::Row(std::move(rowViews))
+                               .With(huxerui::Spacing(theme.spacing.small),
+                                     huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
     }
     children.push_back(huxerui::Divider());
 
@@ -507,7 +566,6 @@ huxerui::View SplitActionButton(
         filePicker = nullptr;
         fileSystem = nullptr;
     }
-    auto section = huxerui::UseState<std::size_t>(0); // 0=Params 1=Headers 2=Cookies 3=Body
     auto sendSeq = huxerui::UseState<std::uint64_t>(0); // 发送代际：取消/取代使旧结果失效
     auto sendTask = huxerui::UseState<huxerui::TaskHandle>(huxerui::TaskHandle{});
     // 是否已收到在途传输的增量进度（流式/分块正文）；取消时据此保留已接收内容。
@@ -523,6 +581,10 @@ huxerui::View SplitActionButton(
             .With(huxerui::Foreground(theme.colors.on_surface_variant));
     }
     const RequestDraft snapshot = all[index];
+    // Auth 与 Params/Headers/Cookies/Body 同为请求编辑分区；认证值最终写入 headers，
+    // 因此无需新增传输路径，保存后的请求也能直接复用。
+    auto section = huxerui::UseState<std::size_t>(0); // 0=Auth 1=Params 2=Headers 3=Cookies 4=Body
+    auto authMode = huxerui::UseState(AuthModeFromHeaders(snapshot.headers));
 
     // “发送并下载”：传输完成后把原始响应体写入应用临时目录，再交给系统保存选择器。
     // 临时文件无论保存/取消都会清理；文件服务不可用时给出明确提示。
@@ -563,6 +625,7 @@ huxerui::View SplitActionButton(
         envBaseUrl = env->baseUrl;
 
     // 选择行：调试/文档/测试用例/Mock 切换 + 短名称修改框（原整宽名称行并入此行）。
+    // 名称不参与 Grow，避免在宽屏无意义地吞掉整行空间；父级约束不足时仍可收缩。
     children.push_back(huxerui::Row {
         huxerui::SegmentedButton({"调试", "文档", "测试用例", "Mock"}, pageTab)
             .OnChanged([pageTab](std::size_t i) { pageTab = i; }),
@@ -573,7 +636,7 @@ huxerui::View SplitActionButton(
             .OnChanged([drafts, index](const huxerui::TextEditingValue& value) {
                 MutateDraft(drafts, index, [&](RequestDraft& d) { d.name = value; });
             })
-            .With(huxerui::Grow(1.0F)),
+            .With(huxerui::Frame{.width = 180.0F}),
     }
         .With(huxerui::Spacing(theme.spacing.small),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
@@ -593,7 +656,7 @@ huxerui::View SplitActionButton(
 
     // 分区切换条固定在滚动区外。
     huxerui::View sectionTabs = huxerui::View{huxerui::SegmentedButton(
-        {"Params", "Headers", "Cookies", "Body", "设置"}, section)
+        {"Auth", "Params", "Headers", "Cookies", "Body", "设置"}, section)
                                       .OnChanged([section](std::size_t i) { section = i; })};
     // sectionFixed：分区各自的固定头（仅 Body 有：类型选择行 + 条件渲染的格式化行）；
     // sectionContent：进内部 ScrollView 的滚动内容（KV 表 / Body 编辑器）。
@@ -601,6 +664,34 @@ huxerui::View SplitActionButton(
     huxerui::View sectionContent = huxerui::Column{};
     switch (section.Get()) {
         case 0:
+            sectionContent = huxerui::Column {
+                huxerui::SegmentedButton({"无认证", "Bearer Token", "API Key"}, authMode)
+                    .OnChanged([authMode, drafts, index](std::size_t mode) {
+                        authMode = mode;
+                        MutateDraft(drafts, index, [mode](RequestDraft& d) {
+                            SetAuthValue(d, mode, {});
+                        });
+                    }),
+                authMode.Get() == 0
+                    ? huxerui::Text("请求不会附加认证信息。", huxerui::TextRole::Body)
+                          .With(huxerui::Foreground(theme.colors.on_surface_variant))
+                    : huxerui::TextField(huxerui::TextEditingValue{
+                          authMode.Get() == 1
+                              ? BearerToken(snapshot.headers)
+                              : HeaderValue(snapshot.headers, "x-api-key")})
+                          .Label(authMode.Get() == 1 ? "Token" : "API Key")
+                          .Placeholder(authMode.Get() == 1 ? "输入 Bearer Token" : "输入 API Key")
+                          .Variant(huxerui::TextFieldVariant::Outlined)
+                          .Secure()
+                          .OnChanged([authMode, drafts, index](const huxerui::TextEditingValue& value) {
+                              MutateDraft(drafts, index, [mode = authMode.Get(), value](RequestDraft& d) {
+                                  SetAuthValue(d, mode, value.text);
+                              });
+                          }),
+            }.With(huxerui::Spacing(theme.spacing.medium),
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+            break;
+        case 1:
             sectionContent = KvTable(
                 snapshot.params, theme, "参数名", "参数值",
                 [drafts, index](std::vector<KvRow> rows) {
@@ -608,7 +699,7 @@ huxerui::View SplitActionButton(
                                 [&](RequestDraft& d) { d.params = std::move(rows); });
                 });
             break;
-        case 1:
+        case 2:
             sectionContent = KvTable(
                 snapshot.headers, theme, "头名称", "头值",
                 [drafts, index](std::vector<KvRow> rows) {
@@ -616,7 +707,7 @@ huxerui::View SplitActionButton(
                                 [&](RequestDraft& d) { d.headers = std::move(rows); });
                 });
             break;
-        case 2:
+        case 3:
             sectionContent = KvTable(
                 snapshot.cookies, theme, "Cookie 名", "Cookie 值",
                 [drafts, index](std::vector<KvRow> rows) {
@@ -624,7 +715,7 @@ huxerui::View SplitActionButton(
                                 [&](RequestDraft& d) { d.cookies = std::move(rows); });
                 });
             break;
-        case 4:
+        case 5:
             sectionContent = huxerui::Column {
                 huxerui::Text("当前请求配置", huxerui::TextRole::Title),
                 huxerui::Row {

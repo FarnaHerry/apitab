@@ -24,6 +24,8 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .island_padding = theme.spacing.medium,
         .island_radius = 16.0F,
         .nested_radius = 8.0F,
+        .island_min_width = 160.0F,
+        .island_min_height = 120.0F,
         // 几何令牌（ui.h IslandTheme 中段字段）：全项目唯一圆角/图标按钮尺寸
         // 来源，页面不得再散落魔法数字。control/large_control 从主题 ShapeScheme
         // 派生（small=8 / medium=12），命中区两档与控件高为固定常量。
@@ -71,7 +73,9 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
     huxerui::View surface = content;
     return std::move(surface).With(huxerui::Background(IslandColor(islands, theme, level)),
                                    huxerui::CornerRadius(islands.island_radius),
-                                   huxerui::Padding(islands.island_padding));
+                                   huxerui::Padding(islands.island_padding),
+                                   huxerui::Frame{.min_width = islands.island_min_width,
+                                                  .min_height = islands.island_min_height});
 }
 
 [[huxerui::composable]] huxerui::View IslandSection(std::string title,
@@ -116,15 +120,15 @@ struct AvatarRing {
 
 class AvatarRing::Extension final : public huxerui::NodeExtension {
 public:
-    Extension(huxerui::MountedNode& node, const AvatarRing& value) { Update(node, value); }
+    Extension(huxerui::ViewNode& node, const AvatarRing& value) { Update(node, value); }
 
-    void Update(huxerui::MountedNode&, const AvatarRing& value) {
+    void Update(huxerui::ViewNode&, const AvatarRing& value) {
         if (value.flowing != value_.flowing) firstFrame_ = true;
         value_ = value;
         InvalidatePaint();
     }
 
-    FrameResult OnFrame(huxerui::MountedNode&, const huxerui::FrameInfo& frame) override {
+    FrameResult OnFrame(huxerui::ViewNode&, const huxerui::FrameInfo& frame) override {
         if (!value_.flowing || frame.reduced_motion) {
             firstFrame_ = true;
             return {};
@@ -140,7 +144,7 @@ public:
         return {.needs_frame = true};
     }
 
-    void PaintAboveContent(const huxerui::MountedNode&, huxerui::PaintContext& paint) const override {
+    void PaintAboveContent(const huxerui::ViewNode&, huxerui::PaintContext& paint) const override {
         const float halfStroke = value_.width * 0.5F;
         const auto circle = huxerui::Path::RoundedRect(
             {halfStroke, halfStroke, value_.size - value_.width, value_.size - value_.width},

@@ -1,0 +1,44 @@
+diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
+--- a/src/codeeditor/codeeditor.cpp
++++ b/src/codeeditor/codeeditor.cpp
+@@ -3704,3 +3704,3 @@ struct EditorBehavior {
+   struct Extension final : NodeExtension {
+-    Extension(MountedNode& node, const EditorBehavior& behavior)
++    Extension(ViewNode& node, const EditorBehavior& behavior)
+         : measurer_(behavior.measurer),
+@@ -3741,4 +3741,4 @@ struct EditorBehavior {
+     }
+ 
+-    void Update(MountedNode& node, const EditorBehavior& behavior) {
++    void Update(ViewNode& node, const EditorBehavior& behavior) {
+       static_cast<void>(node);
+@@ -3773,4 +3773,4 @@ struct EditorBehavior {
+     }
+ 
+-    PointerResult OnPointer(MountedNode& node, const PointerEvent& event) override {
++    PointerResult OnPointer(ViewNode& node, const PointerEvent& event) override {
+       static_cast<void>(node);
+@@ -3790,4 +3790,4 @@ struct EditorBehavior {
+     }
+ 
+-    bool OnKey(MountedNode& node, const KeyEvent& event) override {
++    bool OnKey(ViewNode& node, const KeyEvent& event) override {
+       static_cast<void>(node);
+@@ -3812,4 +3812,4 @@ struct EditorBehavior {
+ #endif
+ 
+-    FrameResult OnFrame(MountedNode& node, const FrameInfo& frame) override {
++    FrameResult OnFrame(ViewNode& node, const FrameInfo& frame) override {
+       static_cast<void>(node);
+@@ -3835,4 +3835,4 @@ struct EditorBehavior {
+     }
+ 
+-    void PaintAboveContent(const MountedNode& node, PaintContext& context) const override {
++    void PaintAboveContent(const ViewNode& node, PaintContext& context) const override {
+       const Size size = node.LayoutSize();
+@@ -3856,4 +3856,4 @@ struct EditorBehavior {
+     }
+ 
+-    bool HitTest(MountedNode& node, Point position) const override {
++    bool HitTest(ViewNode& node, Point position) const override {
+       const Rect bounds = node.Bounds();

@@ -24,6 +24,8 @@ public:
     std::string connect(const api::WebSocketSpec& spec);
     void disconnect();
     std::string send(const std::string& text, bool binary);
+    // 发送 WebSocket Ping 控制帧；payload 可为空。
+    std::string ping(const std::string& payload = {});
     api::WebSocketState state() const;
     // UI 线程泵：取走累计的事件（一次取空）。
     std::vector<api::WebSocketEvent> drain();

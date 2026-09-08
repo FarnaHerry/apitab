@@ -37,7 +37,7 @@ if (HUXERUI_PROJECT_PLAN_ONLY)
     return()
 endif ()
 
-project(apitab VERSION 0.1.0 DESCRIPTION "API testing and load testing tool" LANGUAGES NONE)
+project(apitab VERSION 0.1.1 DESCRIPTION "API testing and load testing tool" LANGUAGES NONE)
 
 # HUXERUI_LIBRARY_GRAPH_ONLY：CLI 扫描 huxerui 库依赖图时的特殊配置——
 # 不启用语言、不构建，huxerui_add_app 只写出库图 JSON 即返回（见 SDK
@@ -289,42 +289,52 @@ huxerui_add_app(apitab
     BUNDLE_IDENTIFIER "dev.farna.apitab"
 )
 
-# 官方扩展库（激进接入）：通过 HuxerUI 的标准库消费机制锁定上游最新提交。
-# CodeEditor 仍由本地兼容分支提供，待官方库与当前 SweetLine 集成完成后切换。
-option(APITAB_ENABLE_OFFICIAL_HUXERUI_LIBS "Fetch HuxerUI official extension libraries" ON)
-if (APITAB_ENABLE_OFFICIAL_HUXERUI_LIBS)
-    huxerui_use_library(apitab
-        TARGET HuxerUI::Charts
-        URL "https://github.com/HuxerUI/Lib-Charts.git"
-        COMMIT "ea0010caba137faedddf6c70624c7646d2bfa0a4"
-    )
-    huxerui_use_library(apitab
-        TARGET HuxerUI::SQLite
-        URL "https://github.com/HuxerUI/Lib-SQLite.git"
-        COMMIT "0b316df41cbd88b212e6aeead326196e3db6c96a"
-    )
-    huxerui_use_library(apitab
-        TARGET HuxerUI::WebView
-        URL "https://github.com/HuxerUI/Lib-WebView.git"
-        COMMIT "028abfc5c939829fb94f0855ac3bce77ed7ceb8d"
-    )
-endif ()
+# Charts / SQLite / WebView 官方扩展并未被应用源码使用。它们分别跟踪框架 main
+# 的私有 API，不能与 Linux 离线 HuxerUI 0.2.0 SDK 混编；保留链接会使无关的
+# 依赖编译失败并阻止 apitab 链接。需要采用其中任一库时，再连同 HuxerUI SDK 一起
+# 升级并在这里以相互兼容的提交重新接入。
 
-# P1-B1.1 ComboBox 能力检测（937efb1 源码有，0.2.0 SDK 无）——决定是否编译 ComboBox 分支
+# P1-B1.1 SDK 能力检测：源码渠道会先于离线 0.2.0 SDK 演进。仅在实际头文件
+# 提供某项 API 时编译相应交互，保证源码开发和发布 SDK 验收使用同一应用源码。
 set(APITAB_HAS_COMBOBOX OFF)
+set(APITAB_HAS_TEXT_FIELD_TRAILING_ICON_ACTION OFF)
+set(APITAB_HUXERUI_PUBLIC_INCLUDE_DIR "")
 if (APITAB_HUXERUI_FROM_SOURCE AND EXISTS "${APITAB_HUXERUI_SOURCE_DIR}/include/huxerui/view.h")
-    file(READ "${APITAB_HUXERUI_SOURCE_DIR}/include/huxerui/view.h" _apitab_view_h)
+    set(APITAB_HUXERUI_PUBLIC_INCLUDE_DIR "${APITAB_HUXERUI_SOURCE_DIR}/include/huxerui")
+elseif (HUXERUI_SDK_DIR AND EXISTS "${HUXERUI_SDK_DIR}/include/huxerui/view.h")
+    set(APITAB_HUXERUI_PUBLIC_INCLUDE_DIR "${HUXERUI_SDK_DIR}/include/huxerui")
+endif()
+if (APITAB_HUXERUI_PUBLIC_INCLUDE_DIR)
+    file(READ "${APITAB_HUXERUI_PUBLIC_INCLUDE_DIR}/view.h" _apitab_view_h)
     if (_apitab_view_h MATCHES "class ComboBox")
         set(APITAB_HAS_COMBOBOX ON)
     endif()
-elseif (HUXERUI_SDK_DIR AND EXISTS "${HUXERUI_SDK_DIR}/include/huxerui/view.h")
-    file(READ "${HUXERUI_SDK_DIR}/include/huxerui/view.h" _apitab_view_h)
-    if (_apitab_view_h MATCHES "class ComboBox")
-        set(APITAB_HAS_COMBOBOX ON)
+    if (_apitab_view_h MATCHES "TrailingIcon.*semantic_label"
+            AND _apitab_view_h MATCHES "OnTrailingIconClick")
+        set(APITAB_HAS_TEXT_FIELD_TRAILING_ICON_ACTION ON)
+    endif()
+endif()
+
+set(APITAB_HAS_SCROLL_INPUT OFF)
+if (APITAB_HUXERUI_PUBLIC_INCLUDE_DIR AND EXISTS "${APITAB_HUXERUI_PUBLIC_INCLUDE_DIR}/event.h")
+    file(READ "${APITAB_HUXERUI_PUBLIC_INCLUDE_DIR}/event.h" _apitab_event_h)
+    if (_apitab_event_h MATCHES "struct ScrollInputEvent" AND _apitab_event_h MATCHES "struct ScrollInput")
+        set(APITAB_HAS_SCROLL_INPUT ON)
+    endif()
+endif()
+
+set(APITAB_HAS_FILE_DROP OFF)
+if (APITAB_HUXERUI_PUBLIC_INCLUDE_DIR AND EXISTS "${APITAB_HUXERUI_PUBLIC_INCLUDE_DIR}/file_drop.h")
+    file(READ "${APITAB_HUXERUI_PUBLIC_INCLUDE_DIR}/file_drop.h" _apitab_file_drop_h)
+    if (_apitab_file_drop_h MATCHES "class FileDropTarget" AND _apitab_file_drop_h MATCHES "struct FileDropEvents")
+        set(APITAB_HAS_FILE_DROP ON)
     endif()
 endif()
 if (APITAB_HAS_COMBOBOX)
     message(STATUS "apitab: ComboBox available（源码通道）")
+endif()
+if (APITAB_HAS_TEXT_FIELD_TRAILING_ICON_ACTION)
+    message(STATUS "apitab: TextField trailing icon actions available（源码通道）")
 endif()
 
 # ---- CodeEditor（SweetEditor 代码编辑器组件库，HuxerUI 依赖库）---------------
@@ -406,6 +416,15 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     target_compile_definitions(apitab PRIVATE APITAB_VERSION="${PROJECT_VERSION}")
     if (APITAB_HAS_COMBOBOX)
         target_compile_definitions(apitab PRIVATE APITAB_HAS_COMBOBOX)
+    endif()
+    if (APITAB_HAS_TEXT_FIELD_TRAILING_ICON_ACTION)
+        target_compile_definitions(apitab PRIVATE APITAB_HAS_TEXT_FIELD_TRAILING_ICON_ACTION)
+    endif()
+    if (APITAB_HAS_SCROLL_INPUT)
+        target_compile_definitions(apitab PRIVATE APITAB_HAS_SCROLL_INPUT)
+    endif()
+    if (APITAB_HAS_FILE_DROP)
+        target_compile_definitions(apitab PRIVATE APITAB_HAS_FILE_DROP)
     endif()
     # windows.h 的 min/max 宏会毁掉所有经 ixwebsocket/asio/curl 头链引入它的
     # TU 里的 std::max/std::min（MSVC C2589）；宏不跨 TU，必须整个目标定义
@@ -536,6 +555,13 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
                     "发布包缺 msvcp140/vcruntime140*.dll 将无法在干净 Windows 上启动")
             endif ()
         endif ()
+    endif ()
+
+    # 常规 Windows 构建不产生安装器；仅 `huxerui package windows` 进入
+    # HuxerUI Burn/MSI + 自定义 HuxerUI 安装界面的发布通道。
+    if (WIN32 AND COMMAND huxerui_configure_windows_project_package)
+        get_target_property(APITAB_INSTALL_COMPONENT apitab HUXERUI_APPLICATION_INSTALL_COMPONENT)
+        huxerui_configure_windows_project_package(apitab "${APITAB_INSTALL_COMPONENT}")
     endif ()
 
     # 仓库根的 compile_commands.json 软链（给 clangd 用；.gitignore 已忽略）

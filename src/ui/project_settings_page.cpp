@@ -162,7 +162,8 @@ namespace {
                 "则不覆盖；环境变量 {{var}} 不参与公共头替换。",
                 huxerui::TextRole::Body)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-            ProjectHeaderTable(headers, theme),
+            KvTable(headers.Get(), theme, "头名称", "头值",
+                    [headers](std::vector<KvRow> values) { headers = std::move(values); }),
             huxerui::Row {
                 huxerui::Button("保存").OnClick(
                     [name, description, headers, toast, current] {
@@ -192,6 +193,7 @@ namespace {
               huxerui::Spacing(theme.spacing.medium),
               huxerui::Background(theme.colors.surface_container_low),
               huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
+              huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 

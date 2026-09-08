@@ -3,7 +3,9 @@
 // 一个协程里，阻塞 IO 经 RunOnTaskThread 上任务线程，恢复后在 UI 线程写 State。
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <charconv>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,12 +27,16 @@ int HexNibble(char c) {
     return -1;
 }
 
-std::vector<std::uint8_t> FromHex(const std::string& text) {
-    std::vector<std::uint8_t> bytes;
+bool FromHex(const std::string& text, std::vector<std::uint8_t>& bytes, std::string& error) {
+    bytes.clear();
     int high = -1;
     for (const char c : text) {
         const int v = HexNibble(c);
-        if (v < 0) continue;
+        if (v < 0) {
+            if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ':' || c == '-') continue;
+            error = "Hex 内容只能包含十六进制字符及空格、冒号或连字符";
+            return false;
+        }
         if (high < 0) {
             high = v;
         } else {
@@ -38,7 +44,34 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
             high = -1;
         }
     }
-    return bytes;
+    if (high >= 0) {
+        error = "Hex 内容必须由完整的字节组成（缺少一个半字节）";
+        return false;
+    }
+    return true;
+}
+
+std::string HexPreview(const std::vector<std::uint8_t>& bytes, std::size_t limit = 128) {
+    static constexpr char kDigits[] = "0123456789ABCDEF";
+    std::string result;
+    const std::size_t count = std::min(bytes.size(), limit);
+    result.reserve(count * 3 + 4);
+    for (std::size_t i = 0; i < count; ++i) {
+        if (i) result += ' ';
+        result += kDigits[bytes[i] >> 4];
+        result += kDigits[bytes[i] & 0x0F];
+    }
+    if (bytes.size() > count) result += " …";
+    return result;
+}
+
+int PositiveInt(const huxerui::TextEditingValue& value, int fallback) {
+    int parsed = fallback;
+    const std::string& text = value.text;
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), parsed);
+    return result.ec == std::errc{} && result.ptr == text.data() + text.size() && parsed > 0
+               ? parsed
+               : fallback;
 }
 } // namespace
 
@@ -65,6 +98,8 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
     auto address = huxerui::UseState(huxerui::TextEditingValue{});
     auto message = huxerui::UseState(huxerui::TextEditingValue{});
     auto hex = huxerui::UseState(false);
+    auto receiveHex = huxerui::UseState(false);
+    auto timeout = huxerui::UseState(huxerui::TextEditingValue{"15"});
     auto status = huxerui::UseState(std::string{"未连接"});
     auto events = huxerui::UseStateList<std::string>();
     // 当前会话：空 = 未连接。页面卸载时 State 释放，会话析构即关闭连接。
@@ -72,11 +107,8 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
 
     // 追加一行事件（带 300 行裁剪）。UI 线程调用。
     auto appendEvent = [events](std::string line) {
-        std::vector<std::string> lines = events.Get();
-        lines.push_back(std::move(line));
-        if (lines.size() > 300)
-            lines.erase(lines.begin(), lines.begin() + (lines.size() - 300));
-        events = lines;
+        events.PushBack(std::move(line));
+        while (events.Size() > 300) events.Erase(0);
     };
 
     // 本页嵌在请求页右岛里（右岛已有 Padding/Background）：根 Column 占满右岛
@@ -90,9 +122,20 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
             .Variant(huxerui::TextFieldVariant::Outlined)
             .OnChanged([address](const huxerui::TextEditingValue& value) { address = value; }),
         huxerui::Row {
+            huxerui::TextField(timeout)
+                .Label("连接超时（秒）")
+                .Variant(huxerui::TextFieldVariant::Outlined)
+                .OnChanged([timeout](const huxerui::TextEditingValue& value) { timeout = value; })
+                .With(huxerui::Frame{.width = 150.0F}),
+            huxerui::Switch("接收显示为 Hex", receiveHex)
+                .OnChanged([receiveHex](bool checked) { receiveHex = checked; }),
+        }.With(huxerui::Spacing(theme.spacing.medium),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        huxerui::Row {
             huxerui::Button("连接").OnClick([=] {
                 api::TcpSpec spec;
                 spec.url = address.Get().text;
+                spec.connectTimeoutSec = PositiveInt(timeout.Get(), 15);
                 auto s = std::make_shared<TcpSession>();
                 session = s; // 取代旧会话（旧会话析构自动关闭）
                 status = "连接中";
@@ -115,10 +158,15 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
                             co_await RunOnTaskThread([s] { return s->read(); });
                         if (session.Get() != s) co_return; // 已被取代/断开
                         if (e.kind == api::TcpEventKind::Received) {
-                            std::string preview(
-                                reinterpret_cast<const char*>(e.payload.data()),
-                                std::min<std::size_t>(e.payload.size(), 200));
-                            appendEvent("← " + preview);
+                            std::string preview;
+                            if (receiveHex.Get()) {
+                                preview = HexPreview(e.payload);
+                            } else {
+                                preview.assign(reinterpret_cast<const char*>(e.payload.data()),
+                                               std::min<std::size_t>(e.payload.size(), 200));
+                                if (e.payload.size() > 200) preview += " …";
+                            }
+                            appendEvent("← [" + std::to_string(e.wireBytes) + "B] " + preview);
                             continue;
                         }
                         if (e.kind == api::TcpEventKind::Disconnected) {
@@ -142,7 +190,7 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
         huxerui::Row {
-            huxerui::Switch("Hex 发送", hex),
+            huxerui::Switch("Hex 发送", hex).OnChanged([hex](bool checked) { hex = checked; }),
             huxerui::TextField(message)
                 .Label(hex.Get() ? "Hex 字节（如 68 65 6C 6C 6F）" : "文本消息")
                 .Variant(huxerui::TextFieldVariant::Outlined)
@@ -154,10 +202,16 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
                     toast.Show("TCP 尚未连接");
                     return;
                 }
-                const std::vector<std::uint8_t> bytes =
-                    hex.Get() ? FromHex(message.Get().text)
-                              : std::vector<std::uint8_t>(message.Get().text.begin(),
-                                                          message.Get().text.end());
+                std::vector<std::uint8_t> bytes;
+                std::string parseError;
+                if (hex.Get()) {
+                    if (!FromHex(message.Get().text, bytes, parseError)) {
+                        toast.Show(parseError);
+                        return;
+                    }
+                } else {
+                    bytes.assign(message.Get().text.begin(), message.Get().text.end());
+                }
                 if (bytes.empty()) {
                     toast.Show("发送内容为空");
                     return;
@@ -165,7 +219,13 @@ std::vector<std::uint8_t> FromHex(const std::string& text) {
                 // 同步写可能阻塞（对端不收）：派任务线程，不卡 UI。
                 tasks.Launch([=]() -> huxerui::Task<void> {
                     std::string err = co_await RunOnTaskThread([s, bytes] { return s->send(bytes); });
-                    if (!err.empty()) toast.Show(err);
+                    if (!err.empty()) {
+                        toast.Show(err);
+                    } else {
+                        appendEvent("→ [" + std::to_string(bytes.size()) + "B] " +
+                                    (hex.Get() ? HexPreview(bytes)
+                                               : std::string(bytes.begin(), bytes.end())));
+                    }
                 });
             }),
         }

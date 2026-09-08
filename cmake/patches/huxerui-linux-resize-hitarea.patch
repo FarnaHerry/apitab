@@ -87,7 +87,7 @@ index 60fae33..e87722f 100644
      }
    }
  
-@@ -871,9 +863,9 @@ private:
+@@ -869,9 +861,9 @@ private:
          static_cast<float>(gtk_widget_get_width(GTK_WIDGET(drawing_area_))),
          static_cast<float>(gtk_widget_get_height(GTK_WIDGET(drawing_area_))),
      };
@@ -100,9 +100,9 @@ index 60fae33..e87722f 100644
        return true;
      }
      if (runtime_->IsWindowDragRegion(point)) {
-@@ -897,6 +889,32 @@ private:
-         changed_button,
+@@ -896,6 +888,32 @@ private:
          pressed_buttons,
+         modifiers,
      });
 +    UpdateResizeCursor(position);
 +  }
@@ -133,7 +133,7 @@ index 60fae33..e87722f 100644
    }
  
    void CancelPointer() {
-@@ -1038,7 +1056,9 @@ private:
+@@ -1037,7 +1055,9 @@ private:
    }
  
    static void WindowMaximizedChanged(GObject*, GParamSpec*, gpointer data) {
@@ -144,7 +144,7 @@ index 60fae33..e87722f 100644
    }
  
    static void ScaleChanged(GObject*, GParamSpec*, gpointer data) {
-@@ -1145,6 +1165,8 @@ private:
+@@ -1149,6 +1169,8 @@ private:
      if (self.pressed_buttons_ == PointerButton::None) {
        self.SendPointer(PointerEventType::Cancel, self.last_pointer_position_);
      }
@@ -153,7 +153,7 @@ index 60fae33..e87722f 100644
    }
  
    static gboolean Scrolled(GtkEventControllerScroll* controller, double dx, double dy, gpointer data) {
-@@ -1218,6 +1240,8 @@ private:
+@@ -1222,6 +1244,8 @@ private:
    bool suppress_pointer_release_ = false;
    bool clipboard_read_active_ = false;
    Point last_pointer_position_;

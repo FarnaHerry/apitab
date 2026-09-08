@@ -505,8 +505,8 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     // 之下，它们的 UseTheme() 是正常的。
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
     // 响应式：Compact(<600) 收窄间距，Medium/Expanded 保持现状。
-    // 根 Column 子项间隙统一 extra_small(4pt)：标题栏↔主行贴紧一些；
-    // 主行↔状态条由状态条顶部补偿 padding 补回 gap，维持原间距不变。
+    // 根 Column 子项间隙统一 extra_small(4pt)：标题栏↔主行贴紧一些。底部状态栏
+    // 仅属于项目工作区；主页和通用设置页没有它，主岛直接吃满标题栏以下的高度。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const float gap = compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small;
     const float statusTopPad = gap - rootSpec.spacing.extra_small;
@@ -566,6 +566,7 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     } else if (activeTab.kind == TopTabKind::GlobalSettings) {
         selected = indexed.size() > 0 ? indexed.size() - 1 : 0;
     }
+    const bool showProjectStatusBar = showSideShell;
     if (selected >= indexed.size()) selected = 0;
     huxerui::View page = huxerui::IndexedPages(std::move(indexed), selected);
     // IndexedPages keep-alive（P1-B0.5）：切主题只是根重组、IndexedPages 保持所有页面挂载
@@ -661,10 +662,10 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
             .With(huxerui::Spacing(gap),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Grow(1.0F)),
-        // 底部全局状态条（所有页面共享）：独立 composable（结构与主题宿主说明见
-        // GlobalStatusBar）——无顶部分隔线，一行小字 + 右缘两个文字热区
-        // （应用代理 / 项目 Cookie）。
-        GlobalStatusBar(statusTopPad),
+        // 仅项目工作区显示底栏：代理与项目 Cookie 都是项目范围的配置。Home 和
+        // GlobalSettings 返回零尺寸占位，主行 Grow 自动填满释放的全部高度。
+        showProjectStatusBar ? huxerui::View{GlobalStatusBar(statusTopPad)}
+                             : huxerui::View{huxerui::Row{}},
     }
                                .With(huxerui::Spacing(rootSpec.spacing.extra_small),
                                      // 窗口整体背景：主题背景色刷满根节点，

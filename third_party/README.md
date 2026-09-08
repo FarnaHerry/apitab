@@ -34,6 +34,7 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
 
 ### 2026-09-05 控件更新
 
-- HuxerUI 已合并至 `c00e72a`，sweetedit 保持 `d012eb7`，原本地补丁保留。
+- HuxerUI 已合并至 `371072b`，sweetedit 保持 `d012eb7`，原本地补丁保留；节点扩展
+  已随上游破坏性变更统一使用 `ViewNode`（不保留 `MountedNode` 兼容名）。
 - sweetedit `ContextMenuEntry::label` 改为拥有字符串，修复自定义菜单构建回调返回后
   `item.label.c_str()` 悬空的问题；补丁见 `cmake/patches/sweetedit-context-menu-label.patch`。
