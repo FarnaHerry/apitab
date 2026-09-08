@@ -350,29 +350,6 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/CMakeLists
             CACHE PATH "HuxerUI SDK dir (sweetedit feature detection)" FORCE)
     endif ()
 
-    # CodeEditor keeps its own retained scroll state, so forward HuxerUI's
-    # wheel event into SweetEditor. Apply the tracked patch to the local
-    # checkout during configure; an already patched checkout is left intact.
-    set(APITAB_CODEEDITOR_SCROLL_PATCH
-        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/huxerui-sweetedit-response-scroll.patch")
-    set(APITAB_CODEEDITOR_SOURCE
-        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/src/codeeditor/codeeditor.cpp")
-    if (EXISTS "${APITAB_CODEEDITOR_SOURCE}" AND EXISTS "${APITAB_CODEEDITOR_SCROLL_PATCH}")
-        file(READ "${APITAB_CODEEDITOR_SOURCE}" APITAB_CODEEDITOR_SOURCE_CONTENT)
-        if (NOT APITAB_CODEEDITOR_SOURCE_CONTENT MATCHES "CodeEditorScrollHandler")
-            execute_process(
-                COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit"
-                    apply "${APITAB_CODEEDITOR_SCROLL_PATCH}"
-                RESULT_VARIABLE APITAB_CODEEDITOR_PATCH_RESULT
-                OUTPUT_QUIET
-                ERROR_VARIABLE APITAB_CODEEDITOR_PATCH_ERROR
-            )
-            if (NOT APITAB_CODEEDITOR_PATCH_RESULT EQUAL 0)
-                message(FATAL_ERROR
-                    "apitab: failed to apply CodeEditor scroll patch: ${APITAB_CODEEDITOR_PATCH_ERROR}")
-            endif ()
-        endif ()
-    endif ()
     huxerui_use_library(apitab TARGET codeeditor
         PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit")
 

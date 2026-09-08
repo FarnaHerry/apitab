@@ -66,6 +66,7 @@ jobs:
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/sweetedit-context-menu-label.patch
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-event.patch
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-view-node.patch
+          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-handler.patch
           # SweetEditor/SweetLine 是 sweetedit 的 gitlink，但上游没有 .gitmodules，
           # 非递归 clone 拿不到内容；按 apitab 固定的 commit 显式 clone 并打本地
           # 防御性补丁（os_log 限 clang / wstring_convert 显式补 <locale>）。
@@ -233,6 +234,7 @@ jobs:
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/sweetedit-context-menu-label.patch
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-event.patch
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-view-node.patch
+          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-handler.patch
           # SweetEditor/SweetLine 是 sweetedit 的 gitlink，但上游没有 .gitmodules，
           # 非递归 clone 拿不到内容；按 apitab 固定的 commit 显式 clone 并打本地
           # 防御性补丁（os_log 限 clang / wstring_convert 显式补 <locale>）。
