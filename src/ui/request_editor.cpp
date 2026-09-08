@@ -924,7 +924,17 @@ huxerui::View SplitActionButton(
                                    : "URL 参数已移到下方 Params");
                 },
                 std::move(envBaseUrl),
-                "https://api.example.com/v1/resource"),
+                "https://api.example.com/v1/resource",
+                [section, toast](const huxerui::KeyEvent& event) {
+                    // KeyIntercept 在 TextField 的文本编辑器之前执行，直接吞掉
+                    // 手动输入的 '?'，避免先显示再依赖受控状态回写删除。
+                    if (event.type != huxerui::KeyEventType::Down || event.repeat ||
+                        event.text != "?")
+                        return false;
+                    section = 1;
+                    toast.Show("URL 不能包含 ?，请在下方 Params 输入参数");
+                    return true;
+                }),
             // 发送/取消：在途时按钮变"取消"。传输由 store 持有的引擎（api::ApiEngine
             // 抽象，curl 实现）在后台工作线程执行：send 纯入队立即返回，UI 协程
             // PollWhile 轮询 takeResponse 取回结果（恢复点恒为 UI 线程，见

@@ -791,7 +791,8 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     std::vector<std::string> methods, std::size_t methodIndex,
     std::function<void(std::size_t)> onMethodChanged, huxerui::TextEditingValue url,
     std::function<void(const huxerui::TextEditingValue&)> onUrlChanged,
-    std::string baseUrl, std::string placeholder) {
+    std::string baseUrl, std::string placeholder,
+    std::function<bool(const huxerui::KeyEvent&)> onUrlKeyIntercept) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     auto popup = huxerui::UsePopup(); // 方法下拉：自绘内容（DELETE 常驻红，MenuItem 无文字配色 API）
@@ -867,6 +868,15 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
                   huxerui::Opacity(overridden ? 0.4F : 1.0F));
     }
 
+    huxerui::TextField urlField = huxerui::TextField(url)
+                                      .Placeholder(std::move(placeholder))
+                                      .Variant(huxerui::TextFieldVariant::Outlined)
+                                      .OnChanged(std::move(onUrlChanged));
+    if (onUrlKeyIntercept) {
+        urlField = std::move(urlField).On<huxerui::ViewEvents::KeyIntercept>(
+            std::move(onUrlKeyIntercept));
+    }
+
     return huxerui::Row {
         std::move(trigger),
         std::move(baseSegment),
@@ -875,11 +885,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
                                huxerui::Background(theme.colors.outline)),
         huxerui::ProvideEnvironment(
             urlStyle,
-            huxerui::View{huxerui::TextField(url)
-                              .Placeholder(std::move(placeholder))
-                              .Variant(huxerui::TextFieldVariant::Outlined)
-                              .OnChanged(std::move(onUrlChanged))
-                              .With(huxerui::Grow(1.0F))}),
+            huxerui::View{std::move(urlField).With(huxerui::Grow(1.0F))}),
     }
         .With(huxerui::Spacing(0.0F),
               huxerui::Border(theme.colors.outline, 1.0F),
