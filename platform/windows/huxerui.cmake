@@ -1,4 +1,13 @@
 set(HUXERUI_WINDOWS_MANIFEST "${CMAKE_CURRENT_LIST_DIR}/app.manifest")
+set(HUXERUI_WINDOWS_RESOURCE_DIRECTORY
+    "${CMAKE_CURRENT_BINARY_DIR}/huxerui-platform/windows")
+file(MAKE_DIRECTORY "${HUXERUI_WINDOWS_RESOURCE_DIRECTORY}")
+configure_file(
+    "${CMAKE_CURRENT_LIST_DIR}/../../cmake/apitab.rc.in"
+    "${HUXERUI_WINDOWS_RESOURCE_DIRECTORY}/app.rc"
+    @ONLY)
+set(HUXERUI_WINDOWS_RESOURCE
+    "${HUXERUI_WINDOWS_RESOURCE_DIRECTORY}/app.rc")
 
 # `huxerui package windows` sets HUXERUI_PACKAGE and invokes this hook after
 # the normal application target has been configured. Burn owns elevation,
@@ -63,7 +72,11 @@ function(huxerui_configure_windows_project_package target_name install_component
     file(GLOB_RECURSE _apitab_installer_sources CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/src/*.cpp")
     huxerui_add_windows_installer(${target_name}_installer
-        SOURCES ${_apitab_installer_sources}
+        SOURCES
+            ${_apitab_installer_sources}
+            "${HUXERUI_WINDOWS_RESOURCE}"
+        RESOURCES
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/resources"
         RESOURCE_NAMESPACE apitab_installer
         INTEGRATION_OUTPUT "${APITAB_WINDOWS_PACKAGE_DIR}/$<CONFIG>/installer.json")
     set_target_properties(${target_name}_installer PROPERTIES OUTPUT_NAME "apitab-Installer")
