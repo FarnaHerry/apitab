@@ -1,8 +1,7 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 99a190e..164b913 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -120,6 +120,7 @@ endif ()
+@@ -117,6 +117,7 @@
  # editor drags and command taps from raising the keyboard) that released SDKs
  # may not ship. Detect it so the component overrides it only when available.
  set(HUXERUI_HAS_FOCUS_POINTER_HOOK OFF)
@@ -10,7 +9,7 @@ index 99a190e..164b913 100644
  if (HUXERUI_HOME AND IS_DIRECTORY "${HUXERUI_HOME}/include/huxerui")
      file(GLOB HUXERUI_PUBLIC_HEADERS "${HUXERUI_HOME}/include/huxerui/*.h")
      foreach (HUXERUI_HEADER ${HUXERUI_PUBLIC_HEADERS})
-@@ -127,6 +128,9 @@ if (HUXERUI_HOME AND IS_DIRECTORY "${HUXERUI_HOME}/include/huxerui")
+@@ -124,6 +125,9 @@
          if (HUXERUI_HEADER_CONTENT MATCHES "ShouldCommitFocusOnPointerUp")
              set(HUXERUI_HAS_FOCUS_POINTER_HOOK ON)
          endif ()
@@ -20,21 +19,18 @@ index 99a190e..164b913 100644
      endforeach ()
  endif ()
  if (HUXERUI_HAS_FOCUS_POINTER_HOOK)
-@@ -138,6 +142,9 @@ if (HUXERUI_HAS_FOCUS_POINTER_HOOK)
-         PRIVATE
+@@ -133,4 +137,7 @@
              CODEEDITOR_HAS_SHOULD_COMMIT_FOCUS_ON_POINTER_UP
      )
-+endif ()
+ endif ()
 +if (HUXERUI_HAS_SCROLL_INPUT_EVENT)
 +    target_compile_definitions(codeeditor PRIVATE CODEEDITOR_HAS_SCROLL_INPUT_EVENT)
- endif ()
++endif ()
  
- if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
 diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
-index a85cd16..3e3a301 100644
 --- a/src/codeeditor/codeeditor.cpp
 +++ b/src/codeeditor/codeeditor.cpp
-@@ -538,7 +538,13 @@ se::GestureEvent ToGestureEvent(const PointerEvent& event) {
+@@ -559,7 +559,13 @@
    return out;
  }
  
@@ -49,7 +45,7 @@ index a85cd16..3e3a301 100644
    se::GestureEvent out;
    out.type = se::EventType::MOUSE_WHEEL;
    out.wheel_delta_x = event.delta_x;
-@@ -1930,7 +1936,7 @@ public:
+@@ -1858,7 +1864,7 @@
      }
    }
  
@@ -58,30 +54,3 @@ index a85cd16..3e3a301 100644
      const se::EditorActionResult result = core_->handleGestureEvent(ToWheelGestureEvent(event));
      if (result.selection_changed || result.cursor_changed) {
        text_input_client_->NotifySelectionChanged();
-@@ -1008,10 +1014,14 @@ public:
-     return false;
-   }
- 
--  bool QuerySelectionGeometry(Rect&, Rect&) const override {
-+  bool ClearSelection() override {
-     return false;
-   }
- 
-+  std::optional<TextSelectionGeometry> QuerySelectionGeometry() const override {
-+    return std::nullopt;
-+  }
-+
-   Color SelectionHandleColor() const noexcept override {
-     return Argb(0xFF1F6FEB);
-   }
-@@ -3783,8 +3793,9 @@ struct EditorBehavior {
-       return false;
-     }
- 
--    void OnFocusChanged(MountedNode& node, bool focused) override {
-+    void OnFocusChanged(ViewNode& node, bool focused, bool reverse) override {
-       static_cast<void>(node);
-+      static_cast<void>(reverse);
-       holder_->SetFocused(focused);
-       InvalidatePaint();
-     }

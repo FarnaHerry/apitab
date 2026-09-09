@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout 9eff3c8f6a90f7390e4ec4fdab3ccc4b732e3ecf
+          git -C third_party/huxerui checkout 90447b16f678e5e35d9da96d7d17b1aac1b32e41
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
           # 预置宿主工具可能与运行库的资源索引格式脱节；Linux CI 后面会用同一
@@ -57,15 +57,13 @@ jobs:
           # 改动处带 NOTE(apitab local patch)。
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-linux-resize-hitarea.patch
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
-          git -C third_party/huxerui-sweetedit checkout d012eb78bf2707f57c36caff75b6f361f62b6de2
+          git -C third_party/huxerui-sweetedit checkout 21925a2c088c4224b497c010c521422b11d36502
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
           # apitab CMakeLists 由此前的 TARGET sweetedit_core 改成了 codeeditor）。
           # 补丁即本地源码微调：SweetEditor 的 FetchContent 兜底、行号右对齐、
           # 分隔线读主题色、sweetline_provider 日志静音（均带 NOTE(apitab local patch)）。
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-apitab.patch
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/sweetedit-context-menu-label.patch
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-event.patch
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-view-node.patch
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-handler.patch
           # SweetEditor/SweetLine 是 sweetedit 的 gitlink，但上游没有 .gitmodules，
           # 非递归 clone 拿不到内容；按 apitab 固定的 commit 显式 clone 并打本地
@@ -219,22 +217,20 @@ jobs:
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout 9eff3c8f6a90f7390e4ec4fdab3ccc4b732e3ecf
+          git -C third_party/huxerui checkout 90447b16f678e5e35d9da96d7d17b1aac1b32e41
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
           # 自定义窗口边框的缩放热区加宽（10dp 边 / 14dp 角）并补方向光标；
           # 仅触 Linux 平台文件，改动处带 NOTE(apitab local patch)。
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-linux-resize-hitarea.patch
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
-          git -C third_party/huxerui-sweetedit checkout d012eb78bf2707f57c36caff75b6f361f62b6de2
+          git -C third_party/huxerui-sweetedit checkout 21925a2c088c4224b497c010c521422b11d36502
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
           # apitab CMakeLists 由此前的 TARGET sweetedit_core 改成了 codeeditor）。
           # 补丁即本地源码微调：SweetEditor 的 FetchContent 兜底、行号右对齐、
           # 分隔线读主题色、sweetline_provider 日志静音（均带 NOTE(apitab local patch)）。
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-apitab.patch
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/sweetedit-context-menu-label.patch
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-event.patch
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-view-node.patch
           git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-handler.patch
           # SweetEditor/SweetLine 是 sweetedit 的 gitlink，但上游没有 .gitmodules，
           # 非递归 clone 拿不到内容；按 apitab 固定的 commit 显式 clone 并打本地

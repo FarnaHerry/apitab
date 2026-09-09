@@ -1,31 +1,20 @@
 diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
 --- a/src/codeeditor/codeeditor.cpp
 +++ b/src/codeeditor/codeeditor.cpp
-@@ -543,12 +543,13 @@
- #else
+@@ -565,4 +565,5 @@
  using CodeEditorScrollEvent = ScrollEvent;
  #endif
 +using CodeEditorScrollHandler = std::function<bool(const CodeEditorScrollEvent&)>;
  
  se::GestureEvent ToWheelGestureEvent(const CodeEditorScrollEvent& event) {
-   se::GestureEvent out;
-   out.type = se::EventType::MOUSE_WHEEL;
--  out.wheel_delta_x = event.delta_x;
--  out.wheel_delta_y = event.delta_y;
-+  out.wheel_delta_x = -event.delta_x;
-+  out.wheel_delta_y = -event.delta_y;
-   return out;
- }
- 
-@@ -3700,6 +3701,7 @@
-   EditorOptions options;
+@@ -3694,5 +3695,6 @@
    EditorController controller;
    huxerui::EventEmitter events;
+   huxerui::State<bool> search_visible;
 +  std::shared_ptr<CodeEditorScrollHandler> scroll_handler;
  
    struct Extension final : NodeExtension {
-     Extension(ViewNode& node, const EditorBehavior& behavior)
-@@ -3716,9 +3718,26 @@
+@@ -3711,6 +3713,7 @@
            )),
            document_key_(behavior.options.document_key) {
        BindController(behavior.controller);
@@ -33,6 +22,10 @@ diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
        static_cast<void>(node);
      }
  
+@@ -3721,6 +3724,22 @@
+     // Every controller entry point is bound here and released together, so
+     // controller calls after the editor unmounts observe the documented
+     // disconnected behavior instead of touching a destroyed extension.
 +    void BindScrollHandler(std::shared_ptr<CodeEditorScrollHandler> handler) {
 +      if (scroll_handler_ && scroll_handler_ != handler) {
 +        *scroll_handler_ = {};
@@ -50,18 +43,18 @@ diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
 +    }
 +
      void BindController(EditorController controller) {
-       auto& state = detail::EditorControllerAccess::State(controller);
-       state->load_document = [this](const std::string& key, const std::string& text) {
-@@ -3745,6 +3764,7 @@
+       UnbindController();
+       controller_ = std::move(controller);
+@@ -3798,6 +3817,7 @@
        options_ = behavior.options;
-       controller_ = behavior.controller;
+       search_visible_ = behavior.search_visible;
        BindController(behavior.controller);
 +      BindScrollHandler(behavior.scroll_handler);
        // Reconcile declarative configuration without resetting the editor:
        // theme, editing/presentation options, hooks, and provider lists apply
        // live; only a document switch or a font change (layout metrics)
-@@ -3866,9 +3886,16 @@
-     EditorController controller_;
+@@ -3951,9 +3971,16 @@
+     huxerui::State<bool> search_visible_;
      std::shared_ptr<EditorHolder> holder_;
      std::string document_key_;
 +    std::shared_ptr<CodeEditorScrollHandler> scroll_handler_;
@@ -77,16 +70,18 @@ diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
  View EditorSearchBar(
      State<std::string> search_text,
      State<std::string> replace_text,
-@@ -3943,9 +3970,11 @@
-         search_visible = next;
-         events.Emit<EditorEvents::SearchVisibilityChanged>(next);
-       };
+@@ -4045,8 +4072,12 @@
+   // lives on the mounted extension, so it dies with the editor instead of
+   // outliving it inside the controller state.
+   auto search_visible = UseState(false);
 +  auto scroll_handler = std::make_shared<CodeEditorScrollHandler>();
    View editor = Canvas([](PaintContext&, Size) {}).With(
--      EditorBehavior{&measurer, std::move(effective_options), controller, events}, Focusable{}
-+      EditorBehavior{&measurer, std::move(effective_options), controller, events, scroll_handler}, Focusable{}
+-      EditorBehavior{&measurer, std::move(effective_options), controller, events, search_visible}, Focusable{}
++      EditorBehavior{
++          &measurer, std::move(effective_options), controller, events, search_visible, scroll_handler
++      },
++      Focusable{}
    );
-+  editor = BindCodeEditorScrollInput(std::move(editor), scroll_handler);
-   if (!use_builtin_bar || !search_visible.Get()) {
-     return editor;
-   }
+-  return editor;
++  return BindCodeEditorScrollInput(std::move(editor), scroll_handler);
+ }

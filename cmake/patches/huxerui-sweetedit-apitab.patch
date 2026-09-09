@@ -52,6 +52,14 @@ index 2b7b5d9..99a190e 100644
          endif ()
      endforeach ()
  endif ()
+@@ -144,5 +168,6 @@
+ set(HUXERUI_CODEEDITOR_DEFAULT_TESTS OFF)
+ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY AND NOT EMSCRIPTEN AND NOT IOS AND NOT ANDROID
+-        AND HUXERUI_HOME AND EXISTS "${HUXERUI_HOME}/3dparty/catch2/huxerui_3p.cmake")
++        AND HUXERUI_HOME AND TARGET HuxerUI::huxerui_static
++        AND EXISTS "${HUXERUI_HOME}/3dparty/catch2/huxerui_3p.cmake")
+     set(HUXERUI_CODEEDITOR_DEFAULT_TESTS ON)
+ endif ()
 diff --git a/examples/preview/src/sweetline_provider.cpp b/examples/preview/src/sweetline_provider.cpp
 index c88d22e..0f0f4fa 100644
 --- a/examples/preview/src/sweetline_provider.cpp
@@ -96,3 +104,15 @@ index 351cbaf..a85cd16 100644
              number,
              line_number_style);
        }
+diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
+--- a/src/codeeditor/codeeditor.cpp
++++ b/src/codeeditor/codeeditor.cpp
+@@ -323,7 +323,6 @@
+         se::TextStyle{
+             ToArgb(theme.syntax_annotation),
+             0,
+             se::FONT_STYLE_BOLD,
+-            1.0f,
+         }
+     );
+   }
