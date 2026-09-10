@@ -117,7 +117,7 @@ std::string ResponseSyntax(const huxerui::StateList<std::string>& headers) {
 // 响应区（右侧下岛）：独立重组作用域 —— responseTab/responseBody/responseHeaders/
 // responseCookies 的变化只重组此区域，不扩散到整个编辑器（KV 表不受影响）。
 // 标题固定；Body 完成态由编辑器处理滚动，传输中（inFlight）走流式实时视图，
-// Headers/Cookies 使用普通 ScrollView。
+// Headers/Cookies 使用 VirtualList，并由 StateList 直接驱动可视区。
 [[huxerui::composable]] huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
                                                    huxerui::StateList<std::string> responseHeaders,
                                                    huxerui::StateList<std::string> responseCookies,
@@ -135,23 +135,26 @@ std::string ResponseSyntax(const huxerui::StateList<std::string>& headers) {
     } else if (responseTab.Get() == 1) {
         content = responseHeaders.Empty()
             ? huxerui::View{huxerui::Text("（无响应头）", huxerui::TextRole::Body)}
-            : huxerui::View{huxerui::SelectionArea{huxerui::Column{
-                  huxerui::ForEach(responseHeaders, [mono](const std::string& line) {
+            : huxerui::View{huxerui::SelectionArea{
+                  huxerui::VirtualList(responseHeaders, [mono](const std::string& line) {
                       return huxerui::Text(line, huxerui::TextRole::Body).Style(mono);
                   })
-              }.With(huxerui::Spacing(2.0F))}};
+                      .EstimatedItemExtent(20.0F)
+                      .CacheExtent(120.0F)
+                      .With(huxerui::ScrollBar(),
+                            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}};
     } else {
         content = responseCookies.Empty()
             ? huxerui::View{huxerui::Text("（无 Cookie）", huxerui::TextRole::Body)}
-            : huxerui::View{huxerui::SelectionArea{huxerui::Column{
-                  huxerui::ForEach(responseCookies, [mono](const std::string& line) {
+            : huxerui::View{huxerui::SelectionArea{
+                  huxerui::VirtualList(responseCookies, [mono](const std::string& line) {
                       return huxerui::Text(line, huxerui::TextRole::Body).Style(mono);
                   })
-              }.With(huxerui::Spacing(2.0F))}};
+                      .EstimatedItemExtent(20.0F)
+                      .CacheExtent(120.0F)
+                      .With(huxerui::ScrollBar(),
+                            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}};
     }
-
-    if (responseTab.Get() != 0)
-        content = huxerui::ScrollView{content}.With(huxerui::ScrollBar());
     return huxerui::Column {
         huxerui::Row {
             huxerui::Text("响应", huxerui::TextRole::Title).With(huxerui::Grow(1.0F)),

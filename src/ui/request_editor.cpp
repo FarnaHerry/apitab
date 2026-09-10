@@ -315,14 +315,38 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
     return std::move(trigger).With(popup.Anchor());
 }
 
-// KV 编辑表（回调风格）：rows 为快照，任何增删改经 onChanged 回写新 vector。
-// 之所以不用 State 参数：行数据现在寄宿在请求草稿（RequestDraft）内部。
+std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
+    return {rows.begin(), rows.end()};
+}
+
+// KV 编辑表：StateList 作为虚拟列表的数据源，rows 仍由请求草稿持有并通过
+// onChanged 回写。列表只保留可视区附近的行作用域，末尾额外保留一个虚拟空行。
 [[huxerui::composable]] huxerui::View KvTable(
     std::vector<KvRow> rows, const huxerui::ThemeSpec& theme, std::string keyLabel,
     std::string valueLabel, std::function<void(std::vector<KvRow>)> onChanged,
     KvTableOptions options) {
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
+    const std::vector<KvRow> externalRows = rows;
+    const auto stateRows = huxerui::UseStateList(std::move(rows));
+    // URL 参数解析、认证切换等路径可能在表格未发出 onChanged 时直接修改草稿；
+    // 将外部快照同步回 StateList，避免虚拟列表继续显示旧数据。
+    if (stateRows.Size() != externalRows.size() ||
+        !std::equal(stateRows.begin(), stateRows.end(), externalRows.begin())) {
+        const std::size_t common = std::min(stateRows.Size(), externalRows.size());
+        for (std::size_t i = 0; i < common; ++i) stateRows.Set(i, externalRows[i]);
+        while (stateRows.Size() > externalRows.size()) stateRows.PopBack();
+        for (std::size_t i = common; i < externalRows.size(); ++i)
+            stateRows.PushBack(externalRows[i]);
+    }
+    const auto commitRows = [stateRows, onChanged](std::vector<KvRow> updated) {
+        const std::size_t common = std::min(stateRows.Size(), updated.size());
+        for (std::size_t i = 0; i < common; ++i) stateRows.Set(i, updated[i]);
+        while (stateRows.Size() > updated.size()) stateRows.PopBack();
+        for (std::size_t i = common; i < updated.size(); ++i)
+            stateRows.PushBack(updated[i]);
+        onChanged(std::move(updated));
+    };
     // 表头与数据行共用同一套宽度约定：勾选框约 24pt，键/值/备注自适应拉伸，
     // 类型列固定 72pt。
     const auto typeWidth = huxerui::Frame{.width = 72.0F};
@@ -339,41 +363,36 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
     header.push_back(
         options.show_batch_edit
             ? huxerui::View{huxerui::Button("批量编辑")
-                                 .OnClick([dialog, rows, keyLabel, valueLabel, onChanged, options] {
+                                 .OnClick([dialog, stateRows, keyLabel, valueLabel, commitRows, options] {
+                                     const std::vector<KvRow> rows = SnapshotKvRows(stateRows);
                                      dialog.Show(
-                                         [rows, keyLabel, valueLabel, onChanged, options](huxerui::DialogContext ctx) {
+                                         [rows, keyLabel, valueLabel, commitRows,
+                                          options](huxerui::DialogContext ctx) {
                                              return BatchKvEditor(ctx, rows, keyLabel, valueLabel,
-                                                                  onChanged, options);
+                                                                  commitRows, options);
                                          },
                                          huxerui::DialogOptions{});
                                  })
                                  .With(actionWidth)}
             : huxerui::View{huxerui::Row{}.With(actionWidth)});
-    std::vector<huxerui::View> children{
-        huxerui::Row(std::move(header))
-            .With(huxerui::Spacing(theme.spacing.small),
-                  huxerui::Foreground(theme.colors.on_surface_variant)),
-    };
 
-    // 自动追加语义：末尾恒渲染一个虚拟空行；对它写入即物化为真实行，
-    // 重组后尾部再出现新的虚拟空行。✕ 只给真实行（虚拟行留占位保持行高）。
-    for (std::size_t i = 0; i <= rows.size(); ++i) {
-        const bool phantom = i == rows.size();
-        const KvRow row = phantom ? KvRow{} : rows[i];
+    const auto buildRow = [=](std::size_t i) -> huxerui::View {
+        const std::size_t rowCount = stateRows.Size();
+        const bool phantom = i == rowCount;
+        const KvRow row = phantom ? KvRow{} : stateRows.At(i);
         // 行写入：i 越界（虚拟行）时物化新行，否则改写原行。
         // 虚拟行只在真正输入了键/值文本时才物化——聚焦/移动光标触发的
         // OnChanged（text 为空、仅选区变化）不追加新行；只填类型/备注也不物化。
-        auto applyRow = [rows, onChanged](std::size_t i, KvRow updated) {
-            std::vector<KvRow> copy = rows;
+        const auto applyRow = [stateRows, commitRows](std::size_t i, KvRow updated) {
+            std::vector<KvRow> copy = SnapshotKvRows(stateRows);
             if (i < copy.size()) {
                 copy[i] = std::move(updated);
             } else {
                 if (updated.key.text.empty() && updated.value.text.empty()) return;
                 copy.push_back(std::move(updated));
             }
-            onChanged(std::move(copy));
+            commitRows(std::move(copy));
         };
-        children.push_back(huxerui::Divider());
         std::vector<huxerui::View> rowViews{
                 huxerui::Checkbox(row.enabled).OnChanged([row, i, applyRow](bool checked) {
                     KvRow updated = row;
@@ -414,23 +433,43 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
         rowViews.push_back(phantom
                     ? huxerui::View{huxerui::Row{}.With(
                           huxerui::Frame{.width = 88.0F, .height = 28.0F})}
-                    : AppIconButton("✕", "删除此行", [tasks, rows, i, onChanged] {
+                    : AppIconButton("✕", "删除此行", [tasks, stateRows, i, commitRows] {
                         // 删除会移除本按钮所在行：推迟出指针事件路径
                         tasks.Launch([=]() -> huxerui::Task<void> {
                             co_await huxerui::Delay(std::chrono::duration<double>{0});
-                            std::vector<KvRow> copy = rows;
+                            std::vector<KvRow> copy = SnapshotKvRows(stateRows);
                             if (i < copy.size()) copy.erase(copy.begin() + static_cast<long>(i));
-                            onChanged(std::move(copy));
+                            commitRows(std::move(copy));
                         });
                     }, AppIconButtonShape::Bare).With(actionWidth));
-        children.push_back(huxerui::Row(std::move(rowViews))
-                               .With(huxerui::Spacing(theme.spacing.small),
-                                     huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
-    }
-    children.push_back(huxerui::Divider());
+        return huxerui::Column{
+                   huxerui::Divider(),
+                   huxerui::Row(std::move(rowViews))
+                       .With(huxerui::Spacing(theme.spacing.small),
+                             huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+               }
+            .With(huxerui::Spacing(theme.spacing.extra_small),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
+            .Key(static_cast<std::uint64_t>(i));
+    };
 
-    return huxerui::Column(std::move(children))
-        .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    const std::size_t itemCount = stateRows.Size() + 1; // 末尾虚拟空行
+    huxerui::View list = huxerui::VirtualList(itemCount, buildRow)
+                             .EstimatedItemExtent(options.show_type || options.show_remark
+                                                       ? 52.0F
+                                                       : 44.0F)
+                             .CacheExtent(160.0F)
+                             .With(huxerui::ScrollBar(), huxerui::Grow(1.0F),
+                                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    return huxerui::Column{
+               huxerui::Row(std::move(header))
+                   .With(huxerui::Spacing(theme.spacing.small),
+                         huxerui::Foreground(theme.colors.on_surface_variant)),
+               std::move(list),
+               huxerui::Divider(),
+           }
+        .With(huxerui::Grow(1.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 // ---- 测试用例 / Mock：草稿编辑形态 ⇄ db 落库形态 ----
@@ -663,9 +702,11 @@ huxerui::View SplitActionButton(
         {"Auth", "Params", "Headers", "Cookies", "Body", "设置"}, section)
                                       .OnChanged([section](std::size_t i) { section = i; })};
     // sectionFixed：分区各自的固定头（仅 Body 有：类型选择行 + 条件渲染的格式化行）；
-    // sectionContent：进内部 ScrollView 的滚动内容（KV 表 / Body 编辑器）。
+    // sectionContent：普通内容进入 ScrollView；KV 表自身包含 VirtualList，不能再
+    // 套滚动容器，否则会失去有界视口并产生嵌套滚动竞争。
     std::optional<huxerui::View> sectionFixed;
     huxerui::View sectionContent = huxerui::Column{};
+    bool sectionOwnsScroll = false;
     switch (section.Get()) {
         case 0:
             sectionContent = huxerui::Column {
@@ -701,7 +742,9 @@ huxerui::View SplitActionButton(
                 [drafts, index](std::vector<KvRow> rows) {
                     MutateDraft(drafts, index,
                                 [&](RequestDraft& d) { d.params = std::move(rows); });
-                });
+                })
+                .Key(1);
+            sectionOwnsScroll = true;
             break;
         case 2:
             sectionContent = KvTable(
@@ -709,7 +752,9 @@ huxerui::View SplitActionButton(
                 [drafts, index](std::vector<KvRow> rows) {
                     MutateDraft(drafts, index,
                                 [&](RequestDraft& d) { d.headers = std::move(rows); });
-                });
+                })
+                .Key(2);
+            sectionOwnsScroll = true;
             break;
         case 3:
             sectionContent = KvTable(
@@ -717,7 +762,9 @@ huxerui::View SplitActionButton(
                 [drafts, index](std::vector<KvRow> rows) {
                     MutateDraft(drafts, index,
                                 [&](RequestDraft& d) { d.cookies = std::move(rows); });
-                });
+                })
+                .Key(3);
+            sectionOwnsScroll = true;
             break;
         case 5:
             sectionContent = huxerui::Column {
@@ -807,7 +854,9 @@ huxerui::View SplitActionButton(
                         [drafts, index](std::vector<KvRow> rows) {
                             MutateDraft(drafts, index,
                                         [&](RequestDraft& d) { d.bodyFields = std::move(rows); });
-                        });
+                        })
+                        .Key(4);
+                    sectionOwnsScroll = true;
                     break;
                 default: // JSON/Text/XML/GraphQL：带行号的代码编辑器
                     sectionContent =
@@ -1154,9 +1203,13 @@ huxerui::View SplitActionButton(
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
         children.push_back(std::move(sectionTabs));
         if (sectionFixed.has_value()) children.push_back(std::move(*sectionFixed));
-        // 分区内容：内部滚动 + 垂直滚动条（Grow 撑满上岛剩余高度）。
-        children.push_back(huxerui::ScrollView{std::move(sectionContent)}
-                               .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)));
+        // 分区内容：KV 表自身用 VirtualList；其它分区使用普通内部滚动。
+        if (sectionOwnsScroll) {
+            children.push_back(std::move(sectionContent).With(huxerui::Grow(1.0F)));
+        } else {
+            children.push_back(huxerui::ScrollView{std::move(sectionContent)}
+                                   .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)));
+        }
         return huxerui::Column(std::move(children))
             .With(huxerui::Spacing(theme.spacing.medium),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));

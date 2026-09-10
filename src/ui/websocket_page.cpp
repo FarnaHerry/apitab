@@ -187,7 +187,8 @@ std::vector<api::KeyValue> ToHeaders(const std::vector<KvRow>& rows) {
         huxerui::Text("握手请求头", huxerui::TextRole::Label),
         KvTable(headers.Get(), theme, "名称", "值",
                 [headers](std::vector<KvRow> rows) { headers = std::move(rows); },
-                KvTableOptions{.show_type = false, .show_remark = false}),
+                KvTableOptions{.show_type = false, .show_remark = false})
+            .With(huxerui::Grow(1.0F)),
         huxerui::Row {
             huxerui::Button("连接").OnClick([=] {
                 api::WebSocketSpec spec;

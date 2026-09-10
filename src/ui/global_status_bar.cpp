@@ -172,113 +172,15 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
 // 每字符一次 SQLite upsert、失败时 toast 刷屏，且重组回读 store 只剩纯文本会丢
 // 光标。改为：文本改动只进缓冲，「保存」按钮统一落库（小表整表 upsert，不 diff；
 // 名称非空才物化，空名行丢弃）；Checkbox 启用/禁用与 ✕ 删除是离散操作即点即落库
-// （✕ 所在行会卸载，经 tasks.Launch + Delay(0) 推迟出指针事件路径，约定 6）。
-// 先例：project_settings_page.cpp ProjectHeaderTable（同为缓冲 + 统一保存 + 虚拟末行）。
+// （✕ 所在行会卸载，KvTable 内部负责推迟出指针事件路径，约定 6）。
+// 编辑表使用共享 KvTable（同为缓冲 + 统一保存 + 虚拟末行）。
 [[huxerui::composable]] huxerui::View GlobalCookieDialogContent(
     huxerui::DialogContext ctx, huxerui::State<int> version) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
-    auto tasks = huxerui::UseTaskScope();
     (void)version.Get();
     std::vector<CookieRow> initial = CookieRowsFromStore();
     auto rows = huxerui::UseState(std::move(initial));
-
-    const std::vector<CookieRow> data = rows.Get();
-    std::vector<huxerui::View> children{
-        huxerui::Row {
-            huxerui::Text("", huxerui::TextRole::Label).With(huxerui::Frame{.width = 24.0F}),
-            huxerui::Text("名称", huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
-            huxerui::Text("值", huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
-        }
-            .With(huxerui::Spacing(theme.spacing.small),
-                  huxerui::Foreground(theme.colors.on_surface_variant)),
-    };
-    for (std::size_t i = 0; i <= data.size(); ++i) {
-        const bool phantom = i == data.size();
-        const CookieRow row = phantom ? CookieRow{} : data[i];
-        // 行写入缓冲：越界（虚拟行）时仅名称非空才物化追加。
-        auto applyRow = [rows](std::size_t i, CookieRow updated) {
-            std::vector<CookieRow> copy = rows.Get();
-            if (i < copy.size()) {
-                copy[i] = std::move(updated);
-            } else {
-                if (updated.name.text.empty()) return;
-                copy.push_back(std::move(updated));
-            }
-            rows = copy;
-        };
-        // 离散操作即落库：先写缓冲再 upsert；新物化行回填 id。
-        auto saveRow = [rows, toast, applyRow](std::size_t i, const CookieRow& updated) {
-            applyRow(i, updated);
-            if (updated.name.text.empty()) return;
-            db::GlobalCookie cookie{updated.id, 0, updated.name.text, updated.value.text,
-                                    updated.enabled};
-            if (const std::string err = g_requests.saveGlobalCookie(cookie); !err.empty()) {
-                toast.Show("保存 Cookie 失败: " + err);
-                return;
-            }
-            if (cookie.id != updated.id) {
-                std::vector<CookieRow> copy = rows.Get();
-                if (i < copy.size()) {
-                    copy[i].id = cookie.id;
-                    rows = copy;
-                }
-            }
-        };
-        children.push_back(
-            huxerui::Row {
-                huxerui::Checkbox(row.enabled).OnChanged([row, i, saveRow](bool checked) {
-                    CookieRow updated = row;
-                    updated.enabled = checked;
-                    saveRow(i, updated);
-                }),
-                huxerui::TextField(row.name)
-                    .Label("名称")
-                    .Variant(huxerui::TextFieldVariant::Standard)
-                    .OnChanged([row, i, applyRow](const huxerui::TextEditingValue& value) {
-                        CookieRow updated = row;
-                        updated.name = value;
-                        applyRow(i, std::move(updated));
-                    })
-                    .With(huxerui::Grow(1.0F)),
-                huxerui::TextField(row.value)
-                    .Label("值")
-                    .Variant(huxerui::TextFieldVariant::Standard)
-                    .OnChanged([row, i, applyRow](const huxerui::TextEditingValue& value) {
-                        CookieRow updated = row;
-                        updated.value = value;
-                        applyRow(i, std::move(updated));
-                    })
-                    .With(huxerui::Grow(1.0F)),
-                phantom
-                    ? huxerui::View{huxerui::Row{}.With(
-                          huxerui::Frame{.width = 28.0F, .height = 28.0F})}
-                    : AppIconButton("✕", "删除 Cookie",
-                          [tasks, rows, toast, version, row, i] {
-                              // 删除会卸载 ✕ 所在行：推迟出指针事件路径（约定 6）；
-                              // 落库删除同样在推迟任务里做，失败则保留缓冲行。
-                              tasks.Launch([=]() -> huxerui::Task<void> {
-                                  co_await huxerui::Delay(std::chrono::duration<double>{0});
-                                  if (row.id != 0) {
-                                      if (const std::string err =
-                                              g_requests.deleteGlobalCookie(row.id);
-                                          !err.empty()) {
-                                          toast.Show("删除 Cookie 失败: " + err);
-                                          co_return;
-                                      }
-                                  }
-                                  std::vector<CookieRow> copy = rows.Get();
-                                  if (i < copy.size()) {
-                                      copy.erase(copy.begin() + static_cast<long>(i));
-                                  }
-                                  rows = copy;
-                                  version = version.Get() + 1;
-                              });
-                          }, AppIconButtonShape::Bare),
-            }
-                .With(huxerui::Spacing(theme.spacing.small),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
-    }
 
     return DialogCard(huxerui::Column {
         huxerui::Text("项目 Cookie", huxerui::TextRole::Title),
@@ -286,13 +188,12 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
                       "{{var}} 环境变量替换。",
                       huxerui::TextRole::Body)
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-        huxerui::ScrollView{KvTable(
-                                CookieKvRows(rows.Get()), theme, "Cookie 名", "Cookie 值",
-                                [rows](std::vector<KvRow> values) {
-                                    rows = ReconcileCookieRows(rows.Get(), std::move(values));
-                                },
-                                KvTableOptions{.show_type = false, .show_remark = false})}
-            .With(huxerui::ScrollBar{}, huxerui::Frame{.max_height = 300.0F}),
+        KvTable(CookieKvRows(rows.Get()), theme, "Cookie 名", "Cookie 值",
+                [rows](std::vector<KvRow> values) {
+                    rows = ReconcileCookieRows(rows.Get(), std::move(values));
+                },
+                KvTableOptions{.show_type = false, .show_remark = false})
+            .With(huxerui::Frame{.max_height = 300.0F}),
         huxerui::Row {
             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
             huxerui::Button("保存").OnClick([ctx, rows, toast, version] {

@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -251,6 +252,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
     auto runGen = huxerui::UseState<std::uint64_t>(0);
 
     const std::vector<TestCaseDraft> cases = snapshot.cases;
+    const auto caseItems = huxerui::UseStateList(cases);
     const auto res = results; // 订阅：运行结束/清结果即重组
 
     const bool lightTheme = theme.colors.surface.red > 0.5F;
@@ -303,25 +305,31 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
     };
 
     // ---- 草稿写回帮助：只动本用例的下标字段，越界静默忽略 ----
-    const auto setCaseEnabled = [drafts, index](std::size_t ci, bool enabled) {
-        MutateDraft(drafts, index,
-                    [ci, enabled](RequestDraft& d) {
-                        if (ci < d.cases.size()) d.cases[ci].enabled = enabled;
-                    });
+    const auto updateCase = [caseItems, drafts, index](
+                                std::size_t ci, std::function<void(TestCaseDraft&)> update) {
+        if (ci >= caseItems.Size()) return;
+        TestCaseDraft next = caseItems.At(ci);
+        update(next);
+        caseItems.Set(ci, next);
+        MutateDraft(drafts, index, [ci, update = std::move(update)](RequestDraft& d) mutable {
+            if (ci < d.cases.size()) update(d.cases[ci]);
+        });
     };
-    const auto setCaseName = [drafts, index](std::size_t ci, huxerui::TextEditingValue name) {
-        MutateDraft(drafts, index,
-                    [ci, name = std::move(name)](RequestDraft& d) {
-                        if (ci < d.cases.size()) d.cases[ci].name = name;
-                    });
+    const auto setCaseEnabled = [updateCase](std::size_t ci, bool enabled) {
+        updateCase(ci, [enabled](TestCaseDraft& c) { c.enabled = enabled; });
     };
-    const auto setCaseAsserts = [drafts, index](std::size_t ci, std::vector<KvRow> rows) {
-        MutateDraft(drafts, index,
-                    [ci, rows = std::move(rows)](RequestDraft& d) {
-                        if (ci < d.cases.size()) d.cases[ci].asserts = std::move(rows);
-                    });
+    const auto setCaseName = [updateCase](std::size_t ci, huxerui::TextEditingValue name) {
+        updateCase(ci, [name = std::move(name)](TestCaseDraft& c) mutable {
+            c.name = std::move(name);
+        });
     };
-    const auto addCase = [drafts, index] {
+    const auto setCaseAsserts = [updateCase](std::size_t ci, std::vector<KvRow> rows) {
+        updateCase(ci, [rows = std::move(rows)](TestCaseDraft& c) mutable {
+            c.asserts = std::move(rows);
+        });
+    };
+    const auto addCase = [caseItems, drafts, index] {
+        caseItems.PushBack(TestCaseDraft{});
         MutateDraft(drafts, index, [](RequestDraft& d) { d.cases.emplace_back(); });
     };
     const huxerui::View addButton = huxerui::Button("+ 添加用例").OnClick(addCase);
@@ -361,9 +369,10 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                                          huxerui::Grow(1.0F)));
     } else {
-        std::vector<huxerui::View> cards;
-        for (std::size_t ci = 0; ci < cases.size(); ++ci) {
-            const TestCaseDraft c = cases[ci];
+        // 测试用例卡片高度可变（断言数/运行结果数不同），使用估算高度的
+        // VirtualList；每个卡片只在进入视口及缓存区时创建控件子树。
+        const auto buildCase = [=](std::size_t ci) -> huxerui::View {
+            const TestCaseDraft c = caseItems.At(ci);
             const bool evaluated = ci < res.Size() && !res[ci].checks.empty();
 
             // 行头：启用 + 用例名 + PASS/FAIL 汇总徽标 + 删除。
@@ -388,12 +397,14 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                     })
                     .With(huxerui::Grow(1.0F)),
                 badge,
-                AppIconButton("✕", "删除测试用例", [tasks, drafts, index, ci, results, runGen] {
+                AppIconButton("✕", "删除测试用例", [tasks, caseItems, drafts, index, ci,
+                                                        results, runGen] {
                     // 删除会卸载本按钮所在卡片：写回推迟出指针事件路径（约定 6）；
                     // 结果向量与用例按下标对齐，删一行会整体错位 → 清空结果并升代际
                     // （作废在途运行的回写）。
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         co_await huxerui::Delay(std::chrono::duration<double>{0});
+                        if (ci < caseItems.Size()) caseItems.Erase(ci);
                         MutateDraft(drafts, index, [ci](RequestDraft& d) {
                             if (ci < d.cases.size())
                                 d.cases.erase(d.cases.begin() + static_cast<long>(ci));
@@ -519,20 +530,21 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                 }
             }
 
-            cards.push_back(huxerui::Column(std::move(card))
-                                .With(huxerui::Padding(theme.spacing.medium),
-                                      huxerui::Spacing(theme.spacing.small),
-                                      huxerui::Background(theme.colors.surface_container),
-                                      huxerui::CornerRadius(theme.shapes.medium),
-                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
-                                .Key(ci));
-        }
-        cards.push_back(addButton);
-        pageChildren.push_back(huxerui::ScrollView{
-            huxerui::Column(std::move(cards))
-                .With(huxerui::Spacing(theme.spacing.medium),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
-                                   .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)));
+            return huxerui::Column(std::move(card))
+                .With(huxerui::Padding(theme.spacing.medium),
+                      huxerui::Spacing(theme.spacing.small),
+                      huxerui::Background(theme.colors.surface_container),
+                      huxerui::CornerRadius(theme.shapes.medium),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
+                .Key(ci);
+        };
+        pageChildren.push_back(
+            huxerui::VirtualList(caseItems.Size(), buildCase)
+                .EstimatedItemExtent(260.0F)
+                .CacheExtent(360.0F)
+                .With(huxerui::ScrollBar(), huxerui::Grow(1.0F),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+        pageChildren.push_back(addButton);
     }
 
     pageChildren.push_back(

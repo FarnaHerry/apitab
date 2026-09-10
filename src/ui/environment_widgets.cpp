@@ -59,7 +59,6 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
     auto vars = huxerui::UseState<std::vector<KvRow>>(std::move(initialVars));
 
     return huxerui::Column {
-        huxerui::ScrollView{huxerui::Column {
             huxerui::TextField(name.Get())
                 .Label("名称")
                 .Variant(huxerui::TextFieldVariant::Outlined)
@@ -71,11 +70,8 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                 .OnChanged([baseUrl](const huxerui::TextEditingValue& value) { baseUrl = value; }),
             huxerui::Text("环境变量（请求里用 {{变量名}} 引用）", huxerui::TextRole::Label),
             KvTable(vars.Get(), theme, "变量名", "变量值",
-                    [vars](std::vector<KvRow> rows) { vars = std::move(rows); }),
-        }
-            .With(huxerui::Spacing(theme.spacing.small),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
-            .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+                    [vars](std::vector<KvRow> rows) { vars = std::move(rows); })
+                .With(huxerui::Grow(1.0F)),
         huxerui::Row {
             // 保存不卸载本按钮（表单 Key 不变、State 保留）：同步写即可。
             huxerui::Button("保存").OnClick([ctx, envId, name, baseUrl, vars, envVersion, toast] {
