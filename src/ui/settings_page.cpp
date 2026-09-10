@@ -934,8 +934,12 @@ struct AvatarCropOutput {
         });
         // 必须在同步事件回调内调用（Select OnChanged 满足）；mutation 由过渡
         // 服务在换帧点调用（已在指针事件路径之外），无需再手动推迟。
-        transition.RunFromCurrentInteraction(huxerui::CircularRevealSceneTransition{},
-                                             std::move(mutation));
+        transition.RunFromCurrentInteraction(
+            huxerui::TransitionSpec{
+                huxerui::CircularRevealTransition{},
+                huxerui::TweenSpec{0.36, huxerui::Easing::EaseInOut},
+            },
+            std::move(mutation));
     };
 
     // 按当前分类渲染对应分区；分区受控 State 在页面顶层，分类切换不丢输入。

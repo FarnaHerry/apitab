@@ -557,14 +557,12 @@ huxerui::View SplitActionButton(
     auto toast = huxerui::UseToast();
     auto overflow = huxerui::UsePopup(); // ⋮ 溢出菜单（删除当前请求；自绘 PopupMenu）
     auto dialog = huxerui::UseDialog(); // 删除确认弹窗（危险确认，确认按钮染红）
+    const huxerui::ApplicationHandle application = huxerui::UseApplication();
     std::shared_ptr<huxerui::FilePicker> filePicker;
-    std::shared_ptr<huxerui::FileSystem> fileSystem;
     try {
         filePicker = huxerui::UseService<huxerui::FilePicker>();
-        fileSystem = huxerui::UseService<huxerui::FileSystem>();
     } catch (const std::exception&) {
         filePicker = nullptr;
-        fileSystem = nullptr;
     }
     auto sendSeq = huxerui::UseState<std::uint64_t>(0); // 发送代际：取消/取代使旧结果失效
     auto sendTask = huxerui::UseState<huxerui::TaskHandle>(huxerui::TaskHandle{});
@@ -589,9 +587,9 @@ huxerui::View SplitActionButton(
     // “发送并下载”：传输完成后把原始响应体写入应用临时目录，再交给系统保存选择器。
     // 临时文件无论保存/取消都会清理；文件服务不可用时给出明确提示。
     const auto downloadResponse =
-        [filePicker, fileSystem, toast](std::string body,
-                                        std::string suggestedStem) -> huxerui::Task<void> {
-            if (!filePicker || !fileSystem || !filePicker->CanSaveFiles()) {
+        [filePicker, application, toast](std::string body,
+                                          std::string suggestedStem) -> huxerui::Task<void> {
+            if (!filePicker || !filePicker->CanSaveFiles()) {
                 toast.Show("当前平台不支持保存响应文件");
                 co_return;
             }
@@ -601,19 +599,25 @@ huxerui::View SplitActionButton(
                     ch = '_';
             }
             if (suggestedStem.empty()) suggestedStem = "response";
-            const huxerui::File temporary = fileSystem->Directories().temporary_directory.Child(
-                "apitab-response-" + std::to_string(NextDraftUid()) + ".txt");
-            if (!co_await temporary.WriteStringAsync(std::move(body))) {
+            std::optional<huxerui::File> temporary;
+            try {
+                temporary.emplace(application.Directories().temporary_directory.Child(
+                    "apitab-response-" + std::to_string(NextDraftUid()) + ".txt"));
+            } catch (const std::exception&) {
+                toast.Show("准备响应下载目录失败");
+                co_return;
+            }
+            if (!co_await temporary->WriteStringAsync(std::move(body))) {
                 toast.Show("准备响应下载文件失败");
                 co_return;
             }
             const bool saved = co_await filePicker->SaveFileAsync(
-                temporary,
+                *temporary,
                 huxerui::SaveFileOptions{
                     .suggested_name = suggestedStem + ".txt",
                     .filter = huxerui::FilePickerFilter{.name = "响应文件",
                                                         .extensions = {"txt", "json"}}});
-            (void)co_await temporary.DeleteAsync();
+            (void)co_await temporary->DeleteAsync();
             toast.Show(saved ? "响应已下载" : "已取消下载");
         };
 

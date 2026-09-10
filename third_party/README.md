@@ -38,3 +38,12 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
   已随上游破坏性变更统一使用 `ViewNode`（不保留 `MountedNode` 兼容名）。
 - sweetedit `ContextMenuEntry::label` 改为拥有字符串，修复自定义菜单构建回调返回后
   `item.label.c_str()` 悬空的问题；补丁见 `cmake/patches/sweetedit-context-menu-label.patch`。
+
+### 2026-09-10 第三方上游更新
+
+- HuxerUI 更新至 `065ab79`（v0.3.0 系列），包含应用目录/剪贴板统一通过
+  `ApplicationHandle` 访问、共享转场、UI 测试、mcpp 构建前端及测试/打包链路重构。
+- SweetEdit 保持 `21925a2`，其上游已包含 `ViewNode` 和新版选择/焦点接口；本地滚轮
+  事件与处理器适配仍通过 `cmake/patches/huxerui-sweetedit-*.patch` 维护。
+- 与 HuxerUI/SweetEdit 上游冲突的本地窗口缩放、工具链及编辑器适配均只保留为补丁，
+  不写入第三方上游历史。

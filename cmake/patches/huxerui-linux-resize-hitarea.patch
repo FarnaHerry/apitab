@@ -223,10 +223,10 @@ index 2eb1e89..e5a8a92 100644
  
  inline WindowTitleBarMetrics ResolveLinuxTitleBarMetrics(
      float preferred_height, Size viewport, bool maximized
-diff --git a/tests/platform/linux_window_chrome.cpp b/tests/platform/linux_window_chrome.cpp
+diff --git a/tests/platform/linux/window_chrome.cpp b/tests/platform/linux/window_chrome.cpp
 index 3ce39bd..e464453 100644
---- a/tests/platform/linux_window_chrome.cpp
-+++ b/tests/platform/linux_window_chrome.cpp
+--- a/tests/platform/linux/window_chrome.cpp
++++ b/tests/platform/linux/window_chrome.cpp
 @@ -42,6 +42,34 @@ TEST_CASE("LinuxApplicationLifecycleIncludesMinimizedToplevelState") {
    );
  }

@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout 90447b16f678e5e35d9da96d7d17b1aac1b32e41
+          git -C third_party/huxerui checkout 065ab79fc989438221b964aaaf9b03226b0301d2
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
           # 预置宿主工具可能与运行库的资源索引格式脱节；Linux CI 后面会用同一
@@ -217,7 +217,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout 90447b16f678e5e35d9da96d7d17b1aac1b32e41
+          git -C third_party/huxerui checkout 065ab79fc989438221b964aaaf9b03226b0301d2
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
           # 自定义窗口边框的缩放热区加宽（10dp 边 / 14dp 角）并补方向光标；
