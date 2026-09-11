@@ -56,7 +56,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
     auto baseUrl = huxerui::UseState(huxerui::TextEditingValue{env->baseUrl});
     std::vector<KvRow> initialVars;
     for (const api::KeyValue& kv : env->variables) initialVars.push_back(FromKeyValue(kv));
-    auto vars = huxerui::UseState<std::vector<KvRow>>(std::move(initialVars));
+    const auto vars = huxerui::UseStateList(std::move(initialVars));
 
     return huxerui::Column {
             huxerui::TextField(name.Get())
@@ -69,8 +69,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                 .Variant(huxerui::TextFieldVariant::Outlined)
                 .OnChanged([baseUrl](const huxerui::TextEditingValue& value) { baseUrl = value; }),
             huxerui::Text("环境变量（请求里用 {{变量名}} 引用）", huxerui::TextRole::Label),
-            KvTable(vars.Get(), theme, "变量名", "变量值",
-                    [vars](std::vector<KvRow> rows) { vars = std::move(rows); })
+            KvTableStateList(vars, theme, "变量名", "变量值", [] {})
                 .With(huxerui::Grow(1.0F)),
         huxerui::Row {
             // 保存不卸载本按钮（表单 Key 不变、State 保留）：同步写即可。
@@ -80,8 +79,8 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                     return;
                 }
                 std::vector<api::KeyValue> kvs;
-                kvs.reserve(vars.Get().size());
-                for (const KvRow& row : vars.Get()) kvs.push_back(ToKeyValue(row));
+                kvs.reserve(vars.Size());
+                for (const KvRow& row : vars) kvs.push_back(ToKeyValue(row));
                 if (const std::string err = g_requests.updateEnvironment(
                         envId, name.Get().text, baseUrl.Get().text, kvs);
                     !err.empty()) {

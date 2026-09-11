@@ -42,7 +42,7 @@ namespace apitab::ui {
                                         huxerui::TextEditingValue{h.type},
                                         huxerui::TextEditingValue{h.remark}, h.enabled});
     }
-    auto headers = huxerui::UseState(std::move(initial_headers));
+    const auto headers = huxerui::UseStateList(std::move(initial_headers));
 
     // 岛屿分区模型：普通表单控件固定在顶部，公共请求头表自身使用 VirtualList。
     // 不再给 VirtualList 套外层 ScrollView，避免无界内容约束和嵌套滚动竞争。
@@ -76,8 +76,7 @@ namespace apitab::ui {
             "则不覆盖；环境变量 {{var}} 不参与公共头替换。",
             huxerui::TextRole::Body)
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-        KvTable(headers.Get(), theme, "头名称", "头值",
-                [headers](std::vector<KvRow> values) { headers = std::move(values); })
+        KvTableStateList(headers, theme, "头名称", "头值", [] {})
             .With(huxerui::Grow(1.0F)),
         huxerui::Row {
             huxerui::Button("保存").OnClick(
@@ -88,7 +87,7 @@ namespace apitab::ui {
                     }
                     // KvRow → api::KeyValue 手转（字段序 key/value/enabled/type/remark）
                     std::vector<api::KeyValue> kvs;
-                    for (const KvRow& r : headers.Get()) {
+                    for (const KvRow& r : headers) {
                         kvs.push_back(api::KeyValue{r.key.text, r.value.text, r.enabled,
                                                     r.type.text, r.remark.text});
                     }

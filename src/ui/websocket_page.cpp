@@ -73,7 +73,7 @@ int PositiveInt(const huxerui::TextEditingValue& value, int fallback) {
                : fallback;
 }
 
-std::vector<api::KeyValue> ToHeaders(const std::vector<KvRow>& rows) {
+std::vector<api::KeyValue> ToHeaders(const huxerui::StateList<KvRow>& rows) {
     std::vector<api::KeyValue> headers;
     for (const KvRow& row : rows) {
         if (!row.key.text.empty())
@@ -113,7 +113,7 @@ std::vector<api::KeyValue> ToHeaders(const std::vector<KvRow>& rows) {
     auto events = huxerui::UseStateList<std::string>();
     // 当前会话：空 = 未连接。页面卸载时 State 释放，会话析构即停 IX 线程。
     auto session = huxerui::UseState(std::shared_ptr<WsSession>{});
-    auto headers = huxerui::UseState<std::vector<KvRow>>({});
+    const auto headers = huxerui::UseStateList<KvRow>();
     auto subprotocol = huxerui::UseState(huxerui::TextEditingValue{});
     auto timeout = huxerui::UseState(huxerui::TextEditingValue{"15"});
 
@@ -185,15 +185,14 @@ std::vector<api::KeyValue> ToHeaders(const std::vector<KvRow>& rows) {
                 .With(huxerui::Frame{.width = 130.0F}),
         }.With(huxerui::Spacing(theme.spacing.medium)),
         huxerui::Text("握手请求头", huxerui::TextRole::Label),
-        KvTable(headers.Get(), theme, "名称", "值",
-                [headers](std::vector<KvRow> rows) { headers = std::move(rows); },
-                KvTableOptions{.show_type = false, .show_remark = false})
+        KvTableStateList(headers, theme, "名称", "值", [] {},
+                         KvTableOptions{.show_type = false, .show_remark = false})
             .With(huxerui::Grow(1.0F)),
         huxerui::Row {
             huxerui::Button("连接").OnClick([=] {
                 api::WebSocketSpec spec;
                 spec.url = url.Get().text;
-                spec.headers = ToHeaders(headers.Get());
+                spec.headers = ToHeaders(headers);
                 spec.subprotocol = subprotocol.Get().text;
                 spec.handshakeTimeoutSec = PositiveInt(timeout.Get(), 15);
                 auto s = std::make_shared<WsSession>();

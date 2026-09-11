@@ -572,6 +572,13 @@ struct KvTableOptions {
     bool show_batch_edit = true;
 };
 
+// 直接以 HuxerUI StateList 作为控件数据源，适用于页面内独立维护的可编辑大表。
+// 与 vector 版本相比不会在每次重组时复制整份列表；onChanged 在 StateList 已更新后触发。
+huxerui::View KvTableStateList(
+    huxerui::StateList<KvRow> rows, const huxerui::ThemeSpec& theme,
+    std::string keyLabel, std::string valueLabel, std::function<void()> onChanged,
+    KvTableOptions options = {});
+
 huxerui::View KvTable(std::vector<KvRow> rows, const huxerui::ThemeSpec& theme,
                       std::string keyLabel, std::string valueLabel,
                       std::function<void(std::vector<KvRow>)> onChanged,

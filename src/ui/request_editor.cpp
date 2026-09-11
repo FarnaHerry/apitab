@@ -319,33 +319,21 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
     return {rows.begin(), rows.end()};
 }
 
-// KV 编辑表：StateList 作为虚拟列表的数据源，rows 仍由请求草稿持有并通过
-// onChanged 回写。列表只保留可视区附近的行作用域，末尾额外保留一个虚拟空行。
-[[huxerui::composable]] huxerui::View KvTable(
-    std::vector<KvRow> rows, const huxerui::ThemeSpec& theme, std::string keyLabel,
-    std::string valueLabel, std::function<void(std::vector<KvRow>)> onChanged,
+// KV 编辑表：StateList 作为虚拟列表的数据源。列表只保留可视区附近的行作用域，
+// 末尾额外保留一个虚拟空行；页面若直接持有 StateList，不再在每次重组时复制整表。
+[[huxerui::composable]] huxerui::View KvTableStateList(
+    huxerui::StateList<KvRow> stateRows, const huxerui::ThemeSpec& theme,
+    std::string keyLabel, std::string valueLabel, std::function<void()> onChanged,
     KvTableOptions options) {
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
-    const std::vector<KvRow> externalRows = rows;
-    const auto stateRows = huxerui::UseStateList(std::move(rows));
-    // URL 参数解析、认证切换等路径可能在表格未发出 onChanged 时直接修改草稿；
-    // 将外部快照同步回 StateList，避免虚拟列表继续显示旧数据。
-    if (stateRows.Size() != externalRows.size() ||
-        !std::equal(stateRows.begin(), stateRows.end(), externalRows.begin())) {
-        const std::size_t common = std::min(stateRows.Size(), externalRows.size());
-        for (std::size_t i = 0; i < common; ++i) stateRows.Set(i, externalRows[i]);
-        while (stateRows.Size() > externalRows.size()) stateRows.PopBack();
-        for (std::size_t i = common; i < externalRows.size(); ++i)
-            stateRows.PushBack(externalRows[i]);
-    }
     const auto commitRows = [stateRows, onChanged](std::vector<KvRow> updated) {
         const std::size_t common = std::min(stateRows.Size(), updated.size());
         for (std::size_t i = 0; i < common; ++i) stateRows.Set(i, updated[i]);
         while (stateRows.Size() > updated.size()) stateRows.PopBack();
         for (std::size_t i = common; i < updated.size(); ++i)
             stateRows.PushBack(updated[i]);
-        onChanged(std::move(updated));
+        if (onChanged) onChanged();
     };
     // 表头与数据行共用同一套宽度约定：勾选框约 24pt，键/值/备注自适应拉伸，
     // 类型列固定 72pt。
@@ -470,6 +458,21 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
            }
         .With(huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
+// 请求草稿等领域模型仍由 vector 持有时使用此适配层；控件内部依旧只用官方
+// StateList 驱动虚拟列表，并在编辑后通过原有回调回写领域模型。
+[[huxerui::composable]] huxerui::View KvTable(
+    std::vector<KvRow> rows, const huxerui::ThemeSpec& theme, std::string keyLabel,
+    std::string valueLabel, std::function<void(std::vector<KvRow>)> onChanged,
+    KvTableOptions options) {
+    const auto stateRows = huxerui::UseStateList(std::move(rows));
+    return KvTableStateList(
+        stateRows, theme, std::move(keyLabel), std::move(valueLabel),
+        [stateRows, onChanged = std::move(onChanged)] {
+            if (onChanged) onChanged(SnapshotKvRows(stateRows));
+        },
+        options);
 }
 
 // ---- 测试用例 / Mock：草稿编辑形态 ⇄ db 落库形态 ----

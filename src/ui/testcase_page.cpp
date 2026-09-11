@@ -536,7 +536,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                       huxerui::Background(theme.colors.surface_container),
                       huxerui::CornerRadius(theme.shapes.medium),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
-                .Key(ci);
+                .Key(c.uid);
         };
         pageChildren.push_back(
             huxerui::VirtualList(caseItems.Size(), buildCase)

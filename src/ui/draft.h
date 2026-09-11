@@ -47,10 +47,17 @@ struct KvRow {
 // KV 类型列的固定选项（下拉值；仅记录与展示，不参与发送逻辑）。
 inline constexpr std::array<std::string_view, 3> kKvTypeNames{"string", "number", "boolean"};
 
+// 测试用例卡片的 UI 稳定标识：只用于 VirtualList 的 key，不参与持久化。
+inline std::uint64_t NextTestCaseUid() {
+    static std::atomic<std::uint64_t> next{1};
+    return next.fetch_add(1, std::memory_order_relaxed);
+}
+
 // 测试用例草稿：一组对响应的断言（编辑器子页"测试用例"的数据）。
 // 数字字段用文本承载（受控 TextField 语义），空串 = 不校验该项；
 // 落库换算（→ db::RequestTestCase）在 request_page.cpp 的保存/载入路径。
 struct TestCaseDraft {
+    std::uint64_t uid = NextTestCaseUid(); // UI key；复制草稿时保持不变
     huxerui::TextEditingValue name;         // 用例名
     bool enabled = true;
     huxerui::TextEditingValue expectStatus; // 期望状态码，空 = 不校验
