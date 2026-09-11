@@ -381,17 +381,12 @@ jobs:
           "HUXERUI_HOME=$sdkPrefix" | Out-File -FilePath $env:GITHUB_ENV -Append
           if (-not (Test-Path (Join-Path $sdkPrefix 'bin/huxerui.dll'))) { throw 'HuxerUI SDK DLL not installed' }
 
-      - name: Configure (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR" `
-            "-DHUXERUI_HOME=$env:HUXERUI_HOME" -DAPITAB_HUXERUI_FORCE_SDK=ON
-
       - name: Build release
-        run: cmake --build build --config Release --parallel
+        if: runner.os == 'macOS'
+        run: cmake --build build --config Release --target apitab --parallel
 
       - name: Stage executable
+        if: runner.os == 'macOS'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -448,6 +443,7 @@ jobs:
         run: git diff --check
 
       - name: Upload build artifact
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.name }}
@@ -464,8 +460,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # The package job rebuilds apitab through HuxerUI's package command. Keep
-      # the already patched SweetEdit source in lockstep with the SDK artifact.
+      # The Windows package job consumes these exact SDK/source artifacts and
+      # performs the only Windows application build together with the installer.
       - name: Upload patched SweetEdit source for Windows installer packaging
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -504,6 +500,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download built executable
+        if: runner.os != 'Windows'
         uses: actions/download-artifact@v4
         with:
           name: build-${{ matrix.name }}
@@ -613,6 +610,9 @@ jobs:
           # the shell path required by HuxerUI's package diagnostic.
           Copy-Item cmake/apitab.rc.in platform/windows/app.rc.in -Force
           $env:HUXERUI_HOME = (Resolve-Path huxerui-sdk).Path
+          # HuxerUI's desktop build uses Ninja here; keep the app and installer
+          # compilation fully parallel on the Windows runner.
+          $env:CMAKE_BUILD_PARALLEL_LEVEL = "$([Environment]::ProcessorCount)"
           # Keep this aligned with the Windows build job's Chocolatey package
           # location; CMake locates libssl/libcrypto from this prefix.
           $env:OPENSSL_ROOT_DIR = 'C:\Program Files\OpenSSL'

@@ -553,6 +553,11 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # 独立于 CTest 的 BUILD_TESTING 变量：curl 等子项目会把它改成 OFF，不能让它
     # 决定 apitab 自己的测试。
     option(APITAB_BUILD_TESTS "Build apitab test executables" ON)
+    # 发布打包只需要应用和安装器目标；测试目标会增加无关的构建时间，且在
+    # Windows/MSVC 的 std 模块测试链接中可能受工具链兼容性影响。
+    if (HUXERUI_PACKAGE)
+        set(APITAB_BUILD_TESTS OFF)
+    endif ()
     if (APITAB_BUILD_TESTS)
         enable_testing()
         add_executable(test_smoke tests/test_smoke.cpp)
