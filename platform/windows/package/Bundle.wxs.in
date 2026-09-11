@@ -3,7 +3,6 @@
           UpgradeCode="@_apitab_bundle_upgrade_code@">
     <BootstrapperApplication SourceFile="!(bindpath.Installer)\apitab-Installer.exe">
       <PayloadGroupRef Id="HuxerUIInstallerPayloads" />
-      <Payload SourceFile="!(bindpath.Installer)\mbanative.dll" />
     </BootstrapperApplication>
     <Variable Name="InstallFolder" Type="formatted" Value="[ProgramFiles64Folder]apitab" />
     <Variable Name="CreateDesktopShortcut" Type="numeric" Value="0" />
