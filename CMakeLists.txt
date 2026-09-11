@@ -72,7 +72,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     find_package(Threads REQUIRED)
 endif ()
 
-# ---- HuxerUI（0.2.0 SDK / 源码双通道，HUXERUI_HOME 契约）-------------------
+# ---- HuxerUI（0.3.0 SDK / 源码双通道，HUXERUI_HOME 契约）-------------------
 # 优先级（P1-B1.0 固定顺序，见 docs/plans/island-structure-theme.md §14.4）：
 #   1. 显式 HUXERUI_HOME 源码（有 CMakeLists.txt + include/huxerui/huxerui.h）。
 #   2. third_party/huxerui 源码（本地 git clone 的上游仓库，add_subdirectory 编译，
@@ -86,7 +86,7 @@ endif ()
 # ComboBox 等新 API 允许在默认源码通道使用；进入合并/发布验收前必须刷新可消费 SDK，
 # 确保 APITAB_HUXERUI_FORCE_SDK=ON 恢复通过（见 island-structure-theme.md §14.2）。
 include(cmake/apitab_vendor.cmake)
-set(HUXERUI_HOME "$ENV{HUXERUI_HOME}" CACHE PATH "HuxerUI 0.2.0 SDK or source directory")
+set(HUXERUI_HOME "$ENV{HUXERUI_HOME}" CACHE PATH "HuxerUI 0.3.0 SDK or source directory")
 set(APITAB_HUXERUI_BUNDLED_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui" CACHE PATH "Bundled HuxerUI source checkout (override for testing to simulate missing source without moving shared directory)")
 set(APITAB_HUXERUI_SOURCE_DIR "")
 option(APITAB_HUXERUI_FORCE_SDK "Skip source checkout; use SDK fallback only" OFF)
@@ -154,7 +154,7 @@ if (APITAB_HUXERUI_SOURCE_DIR)
     endif ()
     add_subdirectory("${APITAB_HUXERUI_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/huxerui-sdk"
         EXCLUDE_FROM_ALL)
-    # HuxerUI 0.2 currently attaches -fobjc-arc to the whole macOS object
+    # HuxerUI currently attaches -fobjc-arc to the whole macOS object
     # target. That works with AppleClang but breaks the GCC C++ compiler used
     # for C++23 `import std`; retain ARC only for Objective-C++ sources.
     if (APPLE AND TARGET huxerui_core_objects)
@@ -186,13 +186,13 @@ else ()
     elseif (APPLE OR WIN32)
         message(FATAL_ERROR
             "apitab: macOS/Windows 未提供离线 SDK 包；"
-            "请用 HUXERUI_HOME 指向 0.2.0 源码或已安装 SDK，"
+            "请用 HUXERUI_HOME 指向 0.3.0 源码或已安装 SDK，"
             "或 clone third_party/huxerui 后默认以源码模式编译")
     else ()
         apitab_extract(huxerui
-            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/huxerui-sdk-0.2.0-linux-x86_64.tar.gz"
-            "e184a62a0e5e22cd71835d5278034d65f8a30a2c48273513633f88719a1243e5"
-            "huxerui-sdk-0.2.0-linux-x86_64")
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tarballs/huxerui-sdk-0.3.0-linux-x86_64.tar.gz"
+            "5413ccd9d35d0ad50c08c67045d73cb9faff23c04005a554af0faa7a914eb916"
+            "huxerui-sdk-0.3.0-linux-x86_64")
         set(HUXERUI_SDK_DIR "${huxerui_SOURCE_DIR}" CACHE INTERNAL "HuxerUI SDK root" FORCE)
         message(STATUS "apitab: HuxerUI SDK（离线 tarball，${HUXERUI_SDK_DIR}）")
     endif ()
@@ -203,7 +203,7 @@ else ()
     set(HUXERUI_RESOURCES_BIN "${HUXERUI_SDK_DIR}/share/huxerui/resources/huxerui/resources.bin" CACHE INTERNAL "")
     # shared 组件：桌面 Linux/Windows 运行时动态库（static 切片在 Linux 要 gtk4
     # 开发包，本仓库不用）。
-    find_package(HuxerUI 0.2.0 CONFIG REQUIRED COMPONENTS shared
+    find_package(HuxerUI 0.3.0 CONFIG REQUIRED COMPONENTS shared
         PATHS "${HUXERUI_SDK_DIR}" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
 endif ()
 
@@ -290,11 +290,11 @@ huxerui_add_app(apitab
 )
 
 # Charts / SQLite / WebView 官方扩展并未被应用源码使用。它们分别跟踪框架 main
-# 的私有 API，不能与 Linux 离线 HuxerUI 0.2.0 SDK 混编；保留链接会使无关的
+# 的私有 API，不能与 Linux 离线 HuxerUI 0.3.0 SDK 混编；保留链接会使无关的
 # 依赖编译失败并阻止 apitab 链接。需要采用其中任一库时，再连同 HuxerUI SDK 一起
 # 升级并在这里以相互兼容的提交重新接入。
 
-# P1-B1.1 SDK 能力检测：源码渠道会先于离线 0.2.0 SDK 演进。仅在实际头文件
+# P1-B1.1 SDK 能力检测：源码渠道会先于离线 0.3.0 SDK 演进。仅在实际头文件
 # 提供某项 API 时编译相应交互，保证源码开发和发布 SDK 验收使用同一应用源码。
 set(APITAB_HAS_COMBOBOX OFF)
 set(APITAB_HAS_TEXT_FIELD_TRAILING_ICON_ACTION OFF)
