@@ -912,8 +912,8 @@ struct AvatarCropOutput {
     // 切换主题模式（0=跟随系统 1=深色 2=浅色）。检测当前有效深浅：
     // 目标与现状一致（含"跟随系统"已等于系统偏好）时直接落盘、不放动画。
     // 动画原点 = 本次点击的指针位置（RunFromCurrentInteraction 取当前事件
-    // 派发的精确坐标；键盘激活时回落到锚点 View 中心）。深→浅的"收束"方向
-    // 上游刻意不提供（场景过渡不支持反向播放），两个方向都用展开。
+    // 派发的精确坐标；键盘激活时回落到锚点 View 中心）。浅→深正向展开，
+    // 深→浅使用 Reversed() 收束。
     auto applyTheme = [themeMode, transition, tasks, animating](int mode) {
         if (animating.Get()->animating) return; // 动画进行中：冻结，再按无反应
         const bool currentDark =
@@ -934,11 +934,12 @@ struct AvatarCropOutput {
         });
         // 必须在同步事件回调内调用（Select OnChanged 满足）；mutation 由过渡
         // 服务在换帧点调用（已在指针事件路径之外），无需再手动推迟。
+        const huxerui::TransitionSpec reveal{
+            huxerui::CircularRevealTransition{},
+            huxerui::TweenSpec{0.36, huxerui::Easing::EaseInOut},
+        };
         transition.RunFromCurrentInteraction(
-            huxerui::TransitionSpec{
-                huxerui::CircularRevealTransition{},
-                huxerui::TweenSpec{0.36, huxerui::Easing::EaseInOut},
-            },
+            currentDark ? reveal.Reversed() : reveal,
             std::move(mutation));
     };
 
