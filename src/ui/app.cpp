@@ -590,7 +590,9 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
                 menuEntries.push_back(huxerui::MenuSection{});
                 menuEntries.push_back(
                     huxerui::MenuItem("退出", [application] { application.Quit(); }));
-                tray.Show(app::images::apitab_tray,
+                // SystemTray 当前只接受可解析为 ImageAsset 的栅格资源；tray.png
+                // 已替换为新的水母图标，不能直接传 SVG 的 VectorAsset。
+                tray.Show(app::images::tray,
                           huxerui::SystemTrayOptions{
                               .tooltip = "apitab — API 测试与压测",
                               .menu = std::move(menuEntries)});
