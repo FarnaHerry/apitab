@@ -1,4 +1,4 @@
-// request_tab_strip.cpp — 右岛顶部内部标签条（草稿 chip + 环境选择 + ☰）。
+// request_tab_strip.cpp — 右岛顶部内部标签条（草稿 chip + 环境选择 + 菜单图标）。
 // 自 request_page.cpp 拆出（P1-C1，功能域 = 标签条），纯搬移。
 #include <huxerui/huxerui.h>
 
@@ -26,8 +26,8 @@ struct DraftTabDragPayload {
     std::uint64_t uid = 0;
 };
 
-// 右岛顶部内部标签条：每个打开的草稿一个标签（点击切换 / ✕ 关闭），末尾 "＋" 新建；
-// 最右侧为环境选择 + ☰ 合并控件（"无" + 当前项目环境，选中 = currentEnvId；☰ 开
+// 右岛顶部内部标签条：每个打开的草稿一个标签（点击切换 / 关闭图标），末尾加号图标新建；
+// 最右侧为环境选择 + 菜单图标合并控件（"无" + 当前项目环境，选中 = currentEnvId；菜单图标打开
 // 环境配置弹窗）。envVersion 由 RequestPage 持有：环境 CRUD 后 bump，本条按它重读 store。
 [[huxerui::composable]] huxerui::View RequestTabStrip(
     huxerui::State<std::vector<RequestDraft>> drafts, huxerui::State<std::size_t> activeTab,
@@ -42,9 +42,9 @@ struct DraftTabDragPayload {
         huxerui::Font::Monospace(font_size::kCaption).WithWeight(huxerui::FontWeight::SemiBold);
 
     const std::vector<RequestDraft> snapshot = drafts.Get();
-    // 悬停标签 uid：只有悬停的 chip 显示 ✕（0 = 无）。Hover 事件是包含
+    // 悬停标签 uid：只有悬停的 chip 显示关闭图标（0 = 无）。Hover 事件是包含
     // 生命周期：指针进入 chip 呈现边界发 Enter、离开才发 Leave，在子组件
-    // （徽标/名称/✕）之间移动不重触发——挂在 chip 最外层即覆盖整 chip。
+    // （徽标/名称/关闭图标）之间移动不重触发——挂在 chip 最外层即覆盖整 chip。
     auto hoveredChip = huxerui::UseState<std::uint64_t>(0);
     auto newTabHovered = huxerui::UseState(false);
     // 拖拽中的水平位移（Chrome 式贴条滑动，同顶级标签）：被拖 chip 的 uid +
@@ -141,7 +141,7 @@ struct DraftTabDragPayload {
                 huxerui::Text(DraftDisplayName(snapshot[i]), huxerui::TextRole::Label)
                     .Style(huxerui::TextStyle{.font = chipFont, .foreground = foreground})
                     .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
-                          // 限宽给行尾 ✕ 留位（固定宽 160：徽标+名称+✕）。
+                          // 限宽给行尾关闭图标留位（固定宽 160：徽标+名称+关闭图标）。
                           huxerui::Frame{.max_width = 100.0F},
                           huxerui::Indication{})
                     .OnClick([drafts, activeTab, newTabOpen, i] {
@@ -151,12 +151,12 @@ struct DraftTabDragPayload {
                             newTabOpen = false;
                         }
                     }),
-                // 弹性占位把 ✕ 顶到固定宽 chip 的右缘（Spacer 自带 Grow(1)）。
+                // 弹性占位把关闭图标顶到固定宽 chip 的右缘（Spacer 自带 Grow(1)）。
                 huxerui::Spacer{},
                 // 关闭钮：常驻、透明占位，悬停才显示（Opacity 只改绘制不动结构，
                 // 避免悬停重组换子节点类型引起抖动）。透明时点击空转。
-                AppIconButton("✕", "关闭请求标签", [tasks, drafts, activeTab, i] {
-                        // 关闭会卸载本 ✕ 所在标签：推迟出指针事件路径
+                AppIconButton(app::images::close, "关闭请求标签", [tasks, drafts, activeTab, i] {
+                        // 关闭会卸载本按钮所在标签：推迟出指针事件路径
                         tasks.Launch([=]() -> huxerui::Task<void> {
                             co_await huxerui::Delay(std::chrono::duration<double>{0});
                             std::vector<RequestDraft> copy = drafts.Get();
@@ -189,7 +189,7 @@ struct DraftTabDragPayload {
                       huxerui::DragSource(
                           DraftTabDragPayload{snapshot[i].uid},
                           huxerui::DragGesture{.axis = huxerui::Axis::Horizontal}))
-                // 悬停显隐 ✕：Enter 记 uid，Leave 时仅当仍是本 chip 才清空
+                // 悬停显隐关闭图标：Enter 记 uid，Leave 时仅当仍是本 chip 才清空
                 // （防跨 chip 误清）。只写 hoveredChip，不做重活。
                 .On<huxerui::ViewEvents::Hover>(
                     [hoveredChip, uid = snapshot[i].uid](const huxerui::HoverEvent& e) {
@@ -261,14 +261,15 @@ struct DraftTabDragPayload {
         if (!snapshot.empty()) chips.push_back(chipDivider(false));
         chips.push_back(
             huxerui::Row {
-                huxerui::Text("+", huxerui::TextRole::Label)
-                    .Style(huxerui::TextStyle{.font = badgeFont,
-                                              .foreground = theme.colors.on_surface_variant}),
+                huxerui::Image(app::images::add)
+                    .Fit(huxerui::ImageFit::Contain)
+                    .Tint(theme.colors.on_surface_variant)
+                    .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}),
                 huxerui::Text("新建请求", huxerui::TextRole::Label)
                     .Style(huxerui::TextStyle{.font = chipFont,
                                               .foreground = theme.colors.on_surface}),
                 huxerui::Spacer{},
-                AppIconButton("✕", "关闭新建请求标签", [tasks, newTabOpen] {
+                AppIconButton(app::images::close, "关闭新建请求标签", [tasks, newTabOpen] {
                     tasks.Launch([newTabOpen]() -> huxerui::Task<void> {
                         co_await huxerui::Delay(std::chrono::duration<double>{0});
                         newTabOpen = false;
@@ -285,7 +286,7 @@ struct DraftTabDragPayload {
     // 末尾 "＋"：只打开新建状态标签，类型卡片确认后才创建草稿。
     // 常态保持透明且无轮廓，悬停时仅显示圆形轮廓。
     huxerui::View newTabButton = AppIconButton(
-        "+", "新建请求标签", [newTabOpen] { newTabOpen = true; },
+        app::images::add, "新建请求标签", [newTabOpen] { newTabOpen = true; },
         AppIconButtonShape::Bare);
     newTabButton = std::move(newTabButton)
                        .With(huxerui::CornerRadius(theme.shapes.full),
@@ -326,12 +327,12 @@ struct DraftTabDragPayload {
                                                   .foreground = overlayForeground})
                         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
                               huxerui::Frame{.max_width = 100.0F}),
-                    // 与本体一致：✕ 顶到右缘。
+                    // 与本体一致：关闭图标顶到右缘。
                     huxerui::Spacer{},
-                    huxerui::Text("✕", huxerui::TextRole::Label)
-                        .Style(huxerui::TextStyle{.font = chipFont,
-                                                  .foreground = overlayForeground})
-                        .With(huxerui::Padding(4.0F)),
+                    huxerui::Image(app::images::close)
+                        .Fit(huxerui::ImageFit::Contain)
+                        .Tint(overlayForeground)
+                        .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
                 }
                     .With(huxerui::Spacing(0.0F), huxerui::Background(overlayFill),
                           huxerui::CornerRadius(theme.shapes.small),
@@ -345,7 +346,7 @@ struct DraftTabDragPayload {
         }
     }
 
-    // 环境选择 + ☰ 合并控件。选项 = "无" + 当前项目环境；搜索、展开/收起和
+    // 环境选择 + 菜单图标合并控件。选项 = "无" + 当前项目环境；搜索、展开/收起和
     // 闭合态选中项显示统一由作者推荐的 SearchablePicker 负责。
     const std::vector<db::Environment>& envs = g_requests.environments();
     const IslandTheme islands = ResolveIslandTheme(theme);
@@ -414,15 +415,15 @@ struct DraftTabDragPayload {
             .With(huxerui::Frame{.width = 136.0F, .height = islands.control_height},
                   huxerui::ClipChildren()));
 
-    // ☰：环境配置弹窗（自定义内容层，DialogFactory）。P1-A4 收口：原
-    // Text("☰")+Padding 热区不足 28pt 且无语义标签/Tooltip，迁为统一 Bare
+    // 菜单图标：环境配置弹窗（自定义内容层，DialogFactory）。P1-A4 收口：原
+    // Text+Padding 热区不足 28pt 且无语义标签/Tooltip，迁为统一 Bare
     // AppIconButton——semanticLabel"环境配置"兼作可访问名称与 Tooltip，hover/
     // press indication 覆盖整个 28×28 命中区。外包垂直居中容器：外层 Row 交叉
     // 轴 Stretch 会把固定高子项拉到行高，包一层 CrossAlign(Center) 保住
     // 28×28 命中区与方形 hover 底。
     huxerui::View envSettingsTrigger =
         huxerui::Row {
-            AppIconButton("☰", "环境配置",
+            AppIconButton(app::images::menu, "环境配置",
                           [dialog, envVersion] {
                               dialog.Show(
                                   [envVersion](huxerui::DialogContext ctx) -> huxerui::View {

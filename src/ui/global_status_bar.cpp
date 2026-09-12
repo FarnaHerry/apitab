@@ -175,8 +175,8 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
 // 行内保留完整 TextEditingValue——若逐键直通写库（OnChanged 即 saveGlobalCookie），
 // 每字符一次 SQLite upsert、失败时 toast 刷屏，且重组回读 store 只剩纯文本会丢
 // 光标。改为：文本改动只进缓冲，「保存」按钮统一落库（小表整表 upsert，不 diff；
-// 名称非空才物化，空名行丢弃）；Checkbox 启用/禁用与 ✕ 删除是离散操作即点即落库
-// （✕ 所在行会卸载，KvTable 内部负责推迟出指针事件路径，约定 6）。
+// 名称非空才物化，空名行丢弃）；Checkbox 启用/禁用与删除图标是离散操作即点即落库
+// （删除图标所在行会卸载，KvTable 内部负责推迟出指针事件路径，约定 6）。
 // 编辑表使用共享 KvTable（同为缓冲 + 统一保存 + 虚拟末行）。
 [[huxerui::composable]] huxerui::View GlobalCookieDialogContent(
     huxerui::DialogContext ctx, huxerui::State<int> version) {

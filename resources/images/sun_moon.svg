@@ -1,4 +1,8 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- Material brightness_auto 太阳+月亮/A（跟随系统，fill 版本，画布为 24x24） -->
-  <path d="M10.85 12.65h2.3L12 9l-1.15 3.65zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM14.3 16l-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9h-1.9z" fill="#000000" stroke="none"/>
+  <!-- 跟随系统：太阳与弧月组合，保持同一线性图标语言。 -->
+  <circle cx="10" cy="10" r="3.3" fill="none" stroke="currentColor" stroke-width="1.7"/>
+  <path d="M10 3.5v1.2M10 15.3v1.2M3.5 10h1.2M15.3 10h1.2M5.4 5.4l.9.9M13.7 13.7l.9.9M14.6 5.4l-.9.9M6.3 13.7l-.9.9"
+        fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M20.3 14.7A5.8 5.8 0 1 1 14 8.4a4.7 4.7 0 0 0 6.3 6.3Z" fill="none"
+        stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

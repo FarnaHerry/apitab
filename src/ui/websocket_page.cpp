@@ -13,6 +13,7 @@
 #include "ui.h"
 #include "task_bridge.h"
 #include "ws_session.h"
+#include "app_resources.h"
 
 import apitab.api_engine;
 
@@ -81,18 +82,56 @@ std::vector<api::KeyValue> ToHeaders(const huxerui::StateList<KvRow>& rows) {
     }
     return headers;
 }
+
+enum class WsEventKind { Connected, Sent, Received, Closed, Error };
+
+struct WsEvent {
+    WsEventKind kind;
+    std::string text;
+};
+
+const huxerui::ImageResource& WsEventIcon(WsEventKind kind) {
+    switch (kind) {
+        case WsEventKind::Connected: return app::images::check;
+        case WsEventKind::Sent: return app::images::chevron_right;
+        case WsEventKind::Received: return app::images::chevron_left;
+        case WsEventKind::Closed: return app::images::close;
+        case WsEventKind::Error: return app::images::close;
+    }
+    return app::images::close;
+}
+
+huxerui::Color WsEventColor(WsEventKind kind, const huxerui::ThemeSpec& theme) {
+    switch (kind) {
+        case WsEventKind::Connected: return theme.colors.primary;
+        case WsEventKind::Sent: return theme.colors.secondary;
+        case WsEventKind::Received: return theme.colors.on_surface_variant;
+        case WsEventKind::Closed: return theme.colors.outline;
+        case WsEventKind::Error: return theme.colors.error;
+    }
+    return theme.colors.on_surface_variant;
+}
 } // namespace
 
 // 事件流：独立重组作用域 —— 每 150ms 的 events 更新只重绘事件区。
 // 不定高：由调用方用 Grow 分配剩余高度，本区内部滚动。
-[[huxerui::composable]] huxerui::View WsEventStream(huxerui::StateList<std::string> events,
+[[huxerui::composable]] huxerui::View WsEventStream(huxerui::StateList<WsEvent> events,
                                                   const huxerui::ThemeSpec& theme) {
     return huxerui::VirtualList(
-               events, [theme](const std::string& line) {
-            return huxerui::Text(line, huxerui::TextRole::Body)
-                .With(huxerui::Foreground(theme.colors.on_surface_variant));
+               events, [theme](const WsEvent& event) {
+            const huxerui::Color color = WsEventColor(event.kind, theme);
+            return huxerui::Row{
+                       huxerui::Image(WsEventIcon(event.kind))
+                           .Fit(huxerui::ImageFit::Contain)
+                           .Tint(color)
+                           .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
+                       huxerui::Text(event.text, huxerui::TextRole::Body)
+                           .With(huxerui::Grow(1.0F), huxerui::Foreground(color)),
+                   }
+                .With(huxerui::Spacing(theme.spacing.small),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
         })
-        .EstimatedItemExtent(20.0F)
+        .EstimatedItemExtent(24.0F)
         .CacheExtent(120.0F)
         .With(huxerui::ScrollBar(),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -110,7 +149,7 @@ std::vector<api::KeyValue> ToHeaders(const huxerui::StateList<KvRow>& rows) {
     auto showBinaryHex = huxerui::UseState(true);
     auto connected = huxerui::UseState(false);
     auto status = huxerui::UseState(std::string{"未连接"});
-    auto events = huxerui::UseStateList<std::string>();
+    auto events = huxerui::UseStateList<WsEvent>();
     // 当前会话：空 = 未连接。页面卸载时 State 释放，会话析构即停 IX 线程。
     auto session = huxerui::UseState(std::shared_ptr<WsSession>{});
     const auto headers = huxerui::UseStateList<KvRow>();
@@ -130,25 +169,29 @@ std::vector<api::KeyValue> ToHeaders(const huxerui::StateList<KvRow>& rows) {
                     for (const api::WebSocketEvent& e : drained) {
                         switch (e.kind) {
                             case api::WebSocketEventKind::Open:
-                                events.PushBack("● 已连接");
+                                events.PushBack(WsEvent{WsEventKind::Connected, "已连接"});
                                 connected = true;
                                 status = "已连接";
                                 break;
                             case api::WebSocketEventKind::Text:
-                                events.PushBack("← " + e.payload);
+                                events.PushBack(WsEvent{WsEventKind::Received, e.payload});
                                 break;
                             case api::WebSocketEventKind::Binary:
-                                events.PushBack("← [binary " + std::to_string(e.wireBytes) + "B] " +
-                                               (showBinaryHex.Get() ? HexPreview(e.payload) : e.payload));
+                                events.PushBack(WsEvent{
+                                    WsEventKind::Received,
+                                    "[binary " + std::to_string(e.wireBytes) + "B] " +
+                                        (showBinaryHex.Get() ? HexPreview(e.payload) : e.payload)});
                                 break;
                             case api::WebSocketEventKind::Close:
-                                events.PushBack("○ 连接关闭" +
-                                               (e.closeCode ? " (code " + std::to_string(e.closeCode) + ")" : ""));
+                                events.PushBack(WsEvent{
+                                    WsEventKind::Closed,
+                                    "连接关闭" +
+                                        (e.closeCode ? " (code " + std::to_string(e.closeCode) + ")" : "")});
                                 connected = false;
                                 status = "未连接";
                                 break;
                             case api::WebSocketEventKind::Error:
-                                events.PushBack("✗ " + e.detail);
+                                events.PushBack(WsEvent{WsEventKind::Error, e.detail});
                                 connected = false;
                                 status = "失败";
                                 break;
@@ -213,7 +256,7 @@ std::vector<api::KeyValue> ToHeaders(const huxerui::StateList<KvRow>& rows) {
                 if (!s) { toast.Show("WebSocket 尚未连接"); return; }
                 if (const std::string err = s->ping(); !err.empty()) toast.Show(err);
                 else {
-                    events.PushBack("→ Ping");
+                    events.PushBack(WsEvent{WsEventKind::Sent, "Ping"});
                     while (events.Size() > 300) events.Erase(0);
                 }
             }),
@@ -254,10 +297,12 @@ std::vector<api::KeyValue> ToHeaders(const huxerui::StateList<KvRow>& rows) {
                     !err.empty())
                     toast.Show(err);
                 else
-                    events.PushBack(binary.Get()
-                                        ? "→ [binary " + std::to_string(payload.size()) + "B] " +
-                                              (binaryHex.Get() ? HexPreview(payload) : payload)
-                                        : "→ " + payload);
+                    events.PushBack(WsEvent{
+                        WsEventKind::Sent,
+                        binary.Get()
+                            ? "[binary " + std::to_string(payload.size()) + "B] " +
+                                  (binaryHex.Get() ? HexPreview(payload) : payload)
+                            : payload});
                 while (events.Size() > 300) events.Erase(0);
             }),
         }

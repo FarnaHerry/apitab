@@ -1,5 +1,5 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
   <!-- 统一系统图标族：currentColor + 1.8pt 圆角线条，由界面主题负责着色。 -->
-  <path d="m5 9 7 7 7-7" fill="none" stroke="currentColor" stroke-width="1.8"
+  <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8"
         stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

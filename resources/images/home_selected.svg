@@ -1,3 +1,5 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path d="M12 3.5 L21 11 H18.5 V20 H14 V14.5 H10 V20 H5.5 V11 Z" fill="#000000" stroke="#000000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 选中态：同一屋顶几何的实心版本，颜色由主题/调用方控制。 -->
+  <path d="m3.5 10.8 8.5-7 8.5 7v9.4h-5v-5h-3v5h-5v-9.4Z" fill="currentColor"
+        stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
 </svg>

@@ -239,7 +239,7 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
            huxerui::Align(huxerui::HorizontalAlignment::Center, huxerui::VerticalAlignment::Center));
 }
 
-// 统一图标动作：glyph 只负责绘制（固定 kIconGlyph 字号，不反向决定按钮大小），
+// 统一图标动作：ImageResource 只负责绘制（固定 16pt 视觉槽，不反向决定按钮大小），
 // 命中区固定 icon_button_compact/icon_button_regular 两档（size 只认 28/32，
 // 其他值就近收敛：>=30 归 regular，否则 compact）；圆形/圆角方形由 shape 显式
 // 选择。所有形状（含 Bare）的 hover/press indication 都覆盖整个命中区——
@@ -256,7 +256,7 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
 // 挂在按钮 View 上即整块命中区触发；服务在框架根自动装配，TooltipStyle 随主题
 // （inverse_surface 底）自动解析，无需调用方接线。禁用态 Tooltip 仍可悬停查看
 // （官方 gallery 同款用法），"更多操作"等语义标签即悬浮说明。
-[[huxerui::composable]] huxerui::View AppIconButton(std::string glyph,
+[[huxerui::composable]] huxerui::View AppIconButton(huxerui::ImageResource icon,
                                                     std::string semanticLabel,
                                                     std::function<void()> onClick,
                                                     AppIconButtonShape shape, float size,
@@ -281,10 +281,12 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
     hitIndication.press = huxerui::IndicationLayer{
         .fill = huxerui::VisualFill{huxerui::Brush{pressTint}}};
     return huxerui::Row {
-        huxerui::Text(std::move(glyph), huxerui::TextRole::Label)
-            .With(huxerui::FontSize(font_size::kIconGlyph),
-                  huxerui::Foreground(accent ? theme.colors.on_primary
-                                             : theme.colors.on_surface)),
+        huxerui::Image(icon)
+            .Fit(huxerui::ImageFit::Contain)
+            .Align(huxerui::HorizontalAlignment::Center,
+                   huxerui::VerticalAlignment::Center)
+            .Tint(accent ? theme.colors.on_primary : theme.colors.on_surface)
+            .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
     }
         .With(huxerui::Frame{.width = target, .height = target},
               huxerui::Background(bare ? huxerui::Color::Transparent()
@@ -304,14 +306,14 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
               // CollectFocusableNodes 收集 enabled && focusable）。补上本修饰符
               // 后 enabled 的图标按钮进入 Tab 序、键盘可激活——补齐 §十
               // "图标按钮…均具有…焦点态" 的最后一项。注意 disabled 节点仍不
-              // 参与遍历（如顶级标签 ✕ 的悬停门控，见 app.cpp TopTab）。
+              // 参与遍历（如顶级标签关闭动作的悬停门控，见 app.cpp TopTab）。
               huxerui::Focusable(true),
               huxerui::Enabled(enabled))
         .OnClick(std::move(onClick));
 }
 
 // 列表行尾部固定动作区：槽位固定 icon_button_regular 档（32×32 正方形）、
-// 间距 4pt；固定 Frame 宽 = 右对齐且槽宽不随 glyph/标签内容抖动。
+// 间距 4pt；固定 Frame 宽 = 右对齐且槽宽不随图标/标签内容抖动。
 // 空 actions 返回零宽占位（调用方按列表整体决定是否保留占位）。
 [[huxerui::composable]] huxerui::View TrailingActionGroup(std::vector<huxerui::View> actions) {
     const IslandTheme islands = ResolveIslandTheme(huxerui::UseTheme());
@@ -325,14 +327,14 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
-// "⋮" 语义图标按钮：AppIconButton Bare + compact 档，只封装菜单触发回调，
+// "更多" 语义图标按钮：AppIconButton Bare + compact 档，只封装菜单触发回调，
 // 不引入新菜单数据模型（菜单内容/弹出方式由调用方决定，request_page 的
 // RowMenuButton 是参照实现）。禁用时点击空转、整体降透明提示不可用。
 [[huxerui::composable]] huxerui::View OverflowButton(std::function<void()> onOpenMenu,
                                                      bool enabled) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     // 使用中点而不是基线省略号，确保三点在方形命中区内水平、垂直视觉居中。
-    return AppIconButton("···", "更多操作", std::move(onOpenMenu), AppIconButtonShape::Bare,
+    return AppIconButton(app::images::more, "更多操作", std::move(onOpenMenu), AppIconButtonShape::Bare,
                          28.0F, false, enabled)
         .With(huxerui::Opacity(enabled ? 1.0F : 0.4F),
               huxerui::Foreground(theme.colors.on_surface_variant));
@@ -519,7 +521,7 @@ std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> SweetLineProvider
 // ScrollBar）；separator_before 的条目在行上方叠一条 1pt outline 分隔线
 // （空 Row + 固定高，外层 Column 交叉轴 Stretch 自动拉满菜单宽度），用于
 // 分组条目（如"＋ 新建"菜单）；不设该字段的现有菜单渲染零变化。
-// **级联子菜单**：item.children 非空 = 父项（行尾 ›），hover/点击以本行为锚
+// **级联子菜单**：item.children 非空 = 父项（行尾右箭头图标），hover/点击以本行为锚
 // 向右弹出子层。子层 dismiss_on_outside_press=false → Content 指针策略，不
 // 吞父层条目的点击、也不因外部按压自关（同框架 Menu submenu 配方）；同层父
 // 项互斥，切换/落到叶子行即关旧子层及其整个子树；根层 outside-press/Esc 经
@@ -609,8 +611,14 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
 
     huxerui::View row =
         huxerui::Row {
-            huxerui::Text(hasChildren ? item.label + "  ›" : item.label, huxerui::TextRole::Body)
-                .With(huxerui::Foreground(labelColor)),
+            huxerui::Text(item.label, huxerui::TextRole::Body)
+                .With(huxerui::Grow(1.0F), huxerui::Foreground(labelColor)),
+            hasChildren
+                ? huxerui::View{huxerui::Image(app::images::chevron_right)
+                                     .Fit(huxerui::ImageFit::Contain)
+                                     .Tint(labelColor)
+                                     .With(huxerui::Frame{.width = 16.0F, .height = 16.0F})}
+                : huxerui::View{huxerui::Row{}.With(huxerui::Frame{.width = 16.0F})},
         }
             .With(// 选中项：深于 hover 的填充底色（无对钩）。Background 在
                   // Padding 外层，整行铺满。

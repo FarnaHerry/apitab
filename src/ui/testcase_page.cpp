@@ -18,6 +18,7 @@
 #include "ui.h"
 #include "draft.h"
 #include "task_bridge.h"
+#include "app_resources.h"
 
 import apitab.api_engine;
 import apitab.store.requests;
@@ -136,7 +137,7 @@ std::string JsonValueText(const nlohmann::json& value) {
 
 struct CaseCheck {
     std::string text;    // 校验项描述（含期望值，失败时附实际值）
-    bool passed = false; // 通过状态（渲染时加 ✓/✗ 后缀）
+    bool passed = false; // 通过状态（渲染时附加主题化状态图标）
 
     bool operator==(const CaseCheck&) const = default; // State 变更检测需要相等性
 };
@@ -332,7 +333,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
         caseItems.PushBack(TestCaseDraft{});
         MutateDraft(drafts, index, [](RequestDraft& d) { d.cases.emplace_back(); });
     };
-    const huxerui::View addButton = huxerui::Button("+ 添加用例").OnClick(addCase);
+    const huxerui::View addButton = huxerui::Chip(app::images::add, "添加用例").OnClick(addCase);
 
     std::vector<huxerui::View> pageChildren;
 
@@ -397,7 +398,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                     })
                     .With(huxerui::Grow(1.0F)),
                 badge,
-                AppIconButton("✕", "删除测试用例", [tasks, caseItems, drafts, index, ci,
+                AppIconButton(app::images::close, "删除测试用例", [tasks, caseItems, drafts, index, ci,
                                                         results, runGen] {
                     // 删除会卸载本按钮所在卡片：写回推迟出指针事件路径（约定 6）；
                     // 结果向量与用例按下标对齐，删一行会整体错位 → 清空结果并升代际
@@ -448,7 +449,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                     .With(huxerui::Foreground(theme.colors.on_surface_variant)),
             };
 
-            // 断言子表：虚拟空行物化 + ✕ 仅真实行（照抄 KvTable 语义）。
+            // 断言子表：虚拟空行物化 + 删除图标仅真实行（照抄 KvTable 语义）。
             card.push_back(huxerui::Row {
                 huxerui::Text("", huxerui::TextRole::Label).With(huxerui::Frame{.width = 24.0F}),
                 huxerui::Text("JSON 路径", huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
@@ -502,7 +503,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                         phantom
                             ? huxerui::View{huxerui::Row{}.With(
                                   huxerui::Frame{.width = 28.0F, .height = 28.0F})}
-                            : AppIconButton("✕", "删除断言",
+                            : AppIconButton(app::images::close, "删除断言",
                                   [tasks, rows = c.asserts, i, ci, setCaseAsserts] {
                                       // 删除会移除本按钮所在行：推迟出指针事件路径。
                                       tasks.Launch([=]() -> huxerui::Task<void> {
@@ -519,14 +520,19 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
             }
 
-            // 运行结果：逐条校验行（✓ 绿 / ✗ 红），列在断言子表下方。
+            // 运行结果：逐条校验行（统一 check/close 图标），列在断言子表下方。
             if (evaluated) {
                 for (const CaseCheck& chk : res[ci].checks) {
-                    card.push_back(huxerui::Text(
-                                       chk.text + (chk.passed ? " ✓" : " ✗"),
-                                       huxerui::TextRole::Label)
-                                       .With(huxerui::Foreground(
-                                           chk.passed ? passColor : failColor)));
+                    card.push_back(
+                        huxerui::Row{
+                            huxerui::Text(chk.text, huxerui::TextRole::Label),
+                            huxerui::Image(chk.passed ? app::images::check : app::images::close)
+                                .Fit(huxerui::ImageFit::Contain)
+                                .Tint(chk.passed ? passColor : failColor)
+                                .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
+                        }
+                            .With(huxerui::Spacing(theme.spacing.small),
+                                  huxerui::Foreground(chk.passed ? passColor : failColor)));
                 }
             }
 

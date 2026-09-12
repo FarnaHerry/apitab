@@ -10,6 +10,7 @@
 
 #include "ui.h"
 #include "draft.h"
+#include "app_resources.h"
 
 import apitab.api_engine;
 import apitab.db;
@@ -102,7 +103,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
               huxerui::Grow(1.0F));
 }
 
-// 环境配置弹窗（☰ 打开）：左侧环境列表（点击选中 / ＋ 新建 / ✎ 重命名 / ✕ 删除），
+// 环境配置弹窗（菜单图标打开）：左侧环境列表（点击选中 / 新建 / 重命名 / 删除），
 // 右侧选中环境的配置表单。envVersion 由 RequestPage 持有：环境增删改与保存后 bump，
 // 弹窗与标签栏的环境下拉都按它重读 store。重命名输入框与删除确认框叠在本弹窗层之上
 // （层内容捕获页面环境，UseDialog 照常可用）。
@@ -114,7 +115,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
     auto selectedId = huxerui::UseState<std::int64_t>(g_requests.currentEnvId());
-    // 悬停行 id（0 = 无）：Hover 事件非独占，悬停 ✎/✕ 时整行底色照样亮；
+    // 悬停行 id（0 = 无）：Hover 事件非独占，悬停动作图标时整行底色照样亮；
     // Leave 仅当仍是本行才清，防跨行误清。
     auto hoveredEnv = huxerui::UseState<std::int64_t>(0);
     auto renameValue = huxerui::UseState(huxerui::TextEditingValue{});
@@ -132,13 +133,13 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
         const bool selected = id == effective;
         return huxerui::Row {
                 // 选中区：名称占满行宽；点击挂在整行 Row 上（见下方 .OnClick），
-                // ✎/✕ 是最深命中节点、点击不冒泡，各触发各的。
+                // 动作图标是最深命中节点、点击不冒泡，各触发各的。
                 huxerui::Text(e.name.empty() ? "（未命名）" : e.name, huxerui::TextRole::Body)
                     .With(huxerui::Grow(1.0F), huxerui::ClipChildren(),
                           huxerui::Foreground(selected ? theme.colors.on_surface
                                                        : theme.colors.on_surface_variant)),
-                // ✎ 重命名：弹输入框小弹窗（renameValue 寄宿本弹窗作用域）。
-                AppIconButton("✎", "重命名环境", [dialog, tasks, toast, renameValue, envVersion, id,
+                // 重命名图标：弹输入框小弹窗（renameValue 寄宿本弹窗作用域）。
+                AppIconButton(app::images::edit, "重命名环境", [dialog, tasks, toast, renameValue, envVersion, id,
                               name = e.name] {
                         renameValue = huxerui::TextEditingValue{name};
                         dialog.Show(
@@ -190,8 +191,8 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                             },
                             huxerui::DialogOptions{});
                     }, AppIconButtonShape::Bare),
-                // ✕ 删除：危险确认框（共享 helper，确认按钮染红）；删除重组本弹窗 → 推迟。
-                AppIconButton("✕", "删除环境", [dialog, tasks, selectedId, envVersion, id,
+                // 删除图标：危险确认框（共享 helper，确认按钮染红）；删除重组本弹窗 → 推迟。
+                AppIconButton(app::images::close, "删除环境", [dialog, tasks, selectedId, envVersion, id,
                                                       name = e.name] {
                         ShowDangerConfirm(dialog, "删除环境",
                                           "确定删除环境「" + name + "」吗？此操作不可恢复。",
@@ -245,7 +246,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
 
     huxerui::View environmentListView;
     if (environmentList.Empty()) {
-        environmentListView = huxerui::Text("暂无环境，点击上方 + 新建。",
+        environmentListView = huxerui::Text("暂无环境，点击上方新建按钮。",
                                              huxerui::TextRole::Body)
                                   .With(huxerui::Foreground(theme.colors.on_surface_variant));
     } else {
@@ -264,9 +265,9 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                 huxerui::Row {
                     huxerui::Text("环境", huxerui::TextRole::Label)
                         .With(huxerui::Grow(1.0F)),
-                    // ＋ 新建：store 建默认名的环境并选中，随后可在右侧表单改名。
-                    // 独立浮动 "+"：保持 Circular + compact 档（28pt），视觉不变。
-                    AppIconButton("+", "新建环境", [tasks, toast, selectedId, envVersion] {
+                    // 新建图标：store 建默认名的环境并选中，随后可在右侧表单改名。
+                    // 独立浮动动作：保持 Circular + compact 档（28pt），视觉不变。
+                    AppIconButton(app::images::add, "新建环境", [tasks, toast, selectedId, envVersion] {
                         tasks.Launch([=]() -> huxerui::Task<void> {
                             co_await huxerui::Delay(std::chrono::duration<double>{0});
                             if (const std::string err =

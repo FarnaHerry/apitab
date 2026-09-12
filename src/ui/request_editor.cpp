@@ -1,5 +1,5 @@
 // request_editor.cpp — 请求编辑器（右上岛）：调试/文档/测试用例/Mock 顶部切换、
-// 方法/URL/发送/保存/⋮ 操作栏、Params/Headers/Cookies/Body 分区（KV 表或 Body 编辑器）
+// 方法/URL/发送/保存/更多操作栏、Params/Headers/Cookies/Body 分区（KV 表或 Body 编辑器）
 // 与保存/发送/Mock 完整路径。自 request_page.cpp 拆出（P1-C1，功能域 = 编辑器），
 // 纯搬移；KV 原语（KvTable 等）为单一 owner，供环境表单经 ui.h 声明复用。
 #include <huxerui/huxerui.h>
@@ -284,7 +284,7 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
                                  .OnChanged(std::move(onChanged))});
 }
 
-// KV 行的类型选择：行内扁平文本触发器（当前值 + ▾），点击弹自绘下拉选固定类型
+// KV 行的类型选择：行内扁平文本触发器（当前值 + 下箭头图标），点击弹自绘下拉选固定类型
 // （做法同 MethodUrlBar 的方法触发器；菜单项回调在菜单层关闭后执行，脱离指针
 // 事件路径，同步回写即可。选中项用深色填充底色，无对钩）。
 [[huxerui::composable]] huxerui::View KvTypeSelect(
@@ -293,10 +293,15 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
     auto popup = huxerui::UsePopup();
     const std::string shown = current.empty() ? "string" : current;
     huxerui::View trigger = huxerui::Row {
-        huxerui::Text(shown + " ▾", huxerui::TextRole::Label)
+        huxerui::Text(shown, huxerui::TextRole::Label)
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+        huxerui::Image(app::images::chevron_down)
+            .Fit(huxerui::ImageFit::Contain)
+            .Tint(theme.colors.on_surface_variant)
+            .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}),
     }
-        .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
+        .With(huxerui::Spacing(2.0F),
+              huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
               huxerui::ClipChildren())
         .OnClick([popup, shown, onChanged = std::move(onChanged)] {
             std::vector<PopupMenuItem> items;
@@ -421,7 +426,7 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
         rowViews.push_back(phantom
                     ? huxerui::View{huxerui::Row{}.With(
                           huxerui::Frame{.width = 88.0F, .height = 28.0F})}
-                    : AppIconButton("✕", "删除此行", [tasks, stateRows, i, commitRows] {
+                    : AppIconButton(app::images::close, "删除此行", [tasks, stateRows, i, commitRows] {
                         // 删除会移除本按钮所在行：推迟出指针事件路径
                         tasks.Launch([=]() -> huxerui::Task<void> {
                             co_await huxerui::Delay(std::chrono::duration<double>{0});
@@ -597,7 +602,7 @@ huxerui::View SplitActionButton(
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
-    auto overflow = huxerui::UsePopup(); // ⋮ 溢出菜单（删除当前请求；自绘 PopupMenu）
+    auto overflow = huxerui::UsePopup(); // 更多溢出菜单（删除当前请求；自绘 PopupMenu）
     auto dialog = huxerui::UseDialog(); // 删除确认弹窗（危险确认，确认按钮染红）
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     std::shared_ptr<huxerui::FilePicker> filePicker;
@@ -940,7 +945,7 @@ huxerui::View SplitActionButton(
         listVersion = listVersion.Get() + 1;
     };
 
-    // 操作栏：方法+URL 合并控件（占满）+ 发送/取消 + 保存⌄ + ⋮（删除）。
+    // 操作栏：方法+URL 合并控件（占满）+ 发送/取消 + 保存下拉 + 更多（删除）。
     // Compact 窄宽度契约：Row 布局里非 Grow 子元素按自然宽度保留（HuxerUI
     // 只把剩余宽度以紧约束分给 Grow 子元素，不足时钳到 0），故发送/取消/保存
     // 永远完整可见；MethodUrlBar 是唯一 Grow 子元素且自带 ClipChildren，宽度
@@ -1155,10 +1160,10 @@ huxerui::View SplitActionButton(
                 });
             }, "发送并下载", !inFlight.Get()),
             SplitActionButton("保存", saveDraft, "保存当前状态为用例", true),
-            // ⋮ 溢出菜单：删除当前请求条（自绘 PopupMenu，删除项 hover 才显红；
+            // 更多溢出菜单：删除当前请求条（自绘 PopupMenu，删除项 hover 才显红；
             // 点击先弹危险确认框；已保存的连集合一起删，并关掉本标签）。
             // 删除会卸载本编辑器 → 确认回调里推迟出指针事件路径。
-            // OverflowButton = "⋮"/"更多操作" 语义（Bare 28pt，工具栏溢出动作），
+            // OverflowButton = "更多操作" 语义（Bare 28pt，工具栏溢出动作），
             // 回调体与菜单内容保持原样。
             OverflowButton([overflow, dialog, tasks, drafts, activeTab, listVersion, index] {
                     std::vector<RequestDraft> snapshot = drafts.Get();

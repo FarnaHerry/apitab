@@ -1,8 +1,8 @@
 // title_bar.cpp — 标题栏（Logo + 顶级标签条 TopTabStrip + 拖拽换位，P1-C2 自 app.cpp 纯搬移）：
-//   LogoBadge（水母旋涡徽标 + apitab 字标）+ TopTab（单个项目/主页/设置标签，激活态/悬停/关闭 ✕）+
+//   LogoBadge（水母旋涡徽标 + apitab 字标）+ TopTab（单个项目/主页/设置标签，激活态/悬停/关闭动作）+
 //   TopTabStrip（主页钉最左、项目标签横向滚动、设置单例标签固定队尾、分隔竖线、拖拽换位与
 //   让位滑动、覆盖层克隆）。命中区规则见 island-structure-theme.md §15：Logo 区与标签条
-//   空白为拖动区、标签本体/✕/齿轮为交互区、弹性 Grow(1) 空白为 WindowDragRegion。
+//   空白为拖动区、标签本体/关闭动作/齿轮为交互区、弹性 Grow(1) 空白为 WindowDragRegion。
 //   本文件仅承载标题栏职责，不含侧栏/内容区/状态条/对话框（见 app.cpp / global_status_bar.cpp / app_dialogs.cpp）。
 #include <huxerui/huxerui.h>
 
@@ -69,8 +69,8 @@ struct ProjectTabDragPayload {
     auto tasks = huxerui::UseTaskScope();
     // 条内显示 key（TopTabDisplayKey，见上）：悬停/hoveredTab 与分隔竖线显隐用。
     const std::int64_t key = TopTabDisplayKey(tab);
-    // 悬停才显示 ✕ 与背景。官方 view 级 Hover 事件（containment 生命周期）：
-    // 指针进入标签呈现边界 Enter、真正离开才 Leave，在子组件（切换区/✕）之间
+    // 悬停才显示关闭动作与背景。官方 view 级 Hover 事件（containment 生命周期）：
+    // 指针进入标签呈现边界 Enter、真正离开才 Leave，在子组件（切换区/关闭动作）之间
     // 移动不触发 Leave，天然等价于原来三个 HoverTrack 共享 cell 的聚合语义。
     // 同步写 strip 级 hoveredTab（分隔竖线显隐要用；-1 = 无）。
     auto hovered = huxerui::UseState(false);
@@ -100,9 +100,9 @@ struct ProjectTabDragPayload {
     const auto badgeFont =
         huxerui::Font::System(font_size::kChip).WithWeight(huxerui::FontWeight::SemiBold);
     // 主页标签只放图标：省略文字、收窄边距并固定窄宽，避免挤占项目标签空间；
-    // 限宽与裁剪只压内部「切换区」（图标+文字），长项目名截断而行尾 ✕ 永远完整显示。
+    // 限宽与裁剪只压内部「切换区」（图标+文字），长项目名截断而行尾关闭动作永远完整显示。
     // 所有标签统一 kTitleBarContentHeight 高；内外两层 Row 都交叉轴居中，
-    // 图标/文字/✕ 不会在 24pt 条里各自顶格漂移。
+    // 图标/文字/关闭动作不会在 24pt 条里各自顶格漂移。
     const bool iconOnly = name.empty();
     // 键盘/语义（P1-B0.4，§13.6 键盘要求）：切换区可聚焦 + Button 语义，Tab 到
     // 标签后 Enter/Space 激活 = 切换顶级标签（普通 Row 默认不可聚焦，仅内置
@@ -110,8 +110,8 @@ struct ProjectTabDragPayload {
     // 无文字，语义名固定"主页"；项目/设置标签用条内文字。
     const std::string switchLabel = iconOnly ? std::string{"主页"} : name;
     huxerui::View tabView = huxerui::Row {
-        // 切换区：点击 = 激活本标签。max_width 给行尾 ✕ 留出位置
-        // （固定宽 140 内：切换区 ≤100 + 28pt ✕ 命中区 + 间隙）。
+        // 切换区：点击 = 激活本标签。max_width 给行尾关闭动作留出位置
+        // （固定宽 140 内：切换区 ≤100 + 28pt 命中区 + 间隙）。
         huxerui::Row {std::move(leading),
                       iconOnly
                           ? huxerui::View{huxerui::Row{}}
@@ -131,22 +131,22 @@ struct ProjectTabDragPayload {
                   huxerui::Semantics{.role = huxerui::SemanticRole::Button,
                                      .label = switchLabel})
             .OnClick(activate),
-        // 弹性占位把 ✕ 顶到固定宽标签的右缘（Spacer 自带 Grow(1)）。
+        // 弹性占位把关闭图标顶到固定宽标签的右缘（Spacer 自带 Grow(1)）。
         closable ? huxerui::View{huxerui::Spacer{}} : huxerui::View{huxerui::Row{}},
         // 关闭区（可关标签）：常驻、透明占位，悬停（本标签任一部分）才显示。
-        // ✕ 已从 Text+OnClick 迁为 Bare AppIconButton（§13.4 B0.3 中归 B0.1 shell
+        // 关闭动作已从 Text+OnClick 迁为 Bare AppIconButton（§13.4 B0.3 中归 B0.1 shell
         // agent 的部分）：固定 28pt 命中区在 24pt 标题栏里上下各溢出 2pt——允许
         // （Bare hover 底轻微出血可接受），不回退成文本按钮。Opacity 只改绘制不动
         // 结构，避免悬停重组换子节点类型引起抖动；enabled=hovered 门控透明占位的
         // 点击（关闭会卸载本标签，AppRoot 侧再经推迟任务执行，约定 6）。
-        // 键盘缺口（P1-B0.4 如实记录）：enabled=hovered 使未悬停的 ✕ 为 disabled，
+        // 键盘缺口（P1-B0.4 如实记录）：enabled=hovered 使未悬停的关闭动作为 disabled，
         // disabled 节点不参与 Tab 遍历（runtime.cpp CollectFocusableNodes 要求
-        // enabled && focusable）→ 键盘无法到达 ✕，关设置/项目标签暂只能鼠标完成
+        // enabled && focusable）→ 键盘无法到达关闭动作，关设置/项目标签暂只能鼠标完成
         //（§13.6 键盘要求中唯一缺口；改门控会变更指针行为，留 P1-B1 顶部导航岛
         // 收束时统一决策，如 hover∪focus 门控或键盘快捷键）。
         closable
             ? huxerui::View{AppIconButton(
-                                  "✕",
+                                  app::images::close,
                                   tab.kind == TopTabKind::GlobalSettings ? "关闭设置标签"
                                                                          : "关闭项目标签",
                                   [actions, tab] { actions.close(tab); },
@@ -172,7 +172,7 @@ struct ProjectTabDragPayload {
               huxerui::Offset(huxerui::Point{SlideOffsetOf(slideCell.Get(), key), 0.0F}),
               // 外层压掉默认 Indication：热区兜底点击（见下）不再叠一层按压高亮。
               huxerui::Indication{})
-        // 整标签热区兜底：点击不冒泡（最深绑定生效），切换区（图标+文字）与 ✕
+        // 整标签热区兜底：点击不冒泡（最深绑定生效），切换区（图标+文字）与关闭动作
         // 之间的 Spacer/边距没有任何子绑定，点这里原本无响应——外层挂
         // activate，只会在无更深绑定的空白处命中。
         .OnClick(activate)
@@ -379,7 +379,7 @@ struct ProjectTabDragPayload {
     }
     // 设置单例标签：打开时渲染在项目标签条末尾（追加在所有项目标签之后，见函数
     // 头部布局决定）。外观与项目标签一致：齿轮图标 leading（Image::Tint 着色同
-    // 主页图标）+ 文字「设置」+ 悬停显隐 ✕；可关闭；不持久化、不参与拖拽。
+    // 主页图标）+ 文字「设置」+ 悬停显隐关闭动作；可关闭；不持久化、不参与拖拽。
     const TopTabId settingsTab{TopTabKind::GlobalSettings, 0};
     if (settingsOpen.Get()) {
         entries.push_back(Entry{settingsTab, kSettingsTabDisplayKey, "设置",
@@ -414,7 +414,7 @@ struct ProjectTabDragPayload {
 
     // 拖拽覆盖层：被拖标签的视觉克隆（纯展示，无 handler），X = 拖拽起点
     // 槽位 + 钳制后的累计位移，Y 恒 0。仅项目标签可拖（dragId 只含项目 id），
-    // 覆盖层 ✕ 保持纯展示 Text（业务特例，与本体 AppIconButton 不同）。
+    // 覆盖层关闭动作与本体保持同一图标资源（业务特例，仅展示不接收点击）。
     huxerui::View overlayTab = huxerui::Row{};
     if (dragId.Get() != 0 && !visibleTabs.empty()) {
         std::string dragName;
@@ -430,8 +430,6 @@ struct ProjectTabDragPayload {
             dragActive ? theme.colors.on_surface : theme.colors.on_surface_variant;
         const auto overlayFont =
             huxerui::Font::System(font_size::kChip).WithWeight(huxerui::FontWeight::SemiBold);
-        // ✕ 与本体一致用常规字重（名称保持 SemiBold）。
-        const auto overlayCloseFont = huxerui::Font::System(font_size::kChip);
         overlayTab =
             huxerui::Row {
                 huxerui::Text(dragName, huxerui::TextRole::Label)
@@ -440,12 +438,12 @@ struct ProjectTabDragPayload {
                     .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
                           huxerui::Frame{.max_width = kProjectTabWidth - 32.0F},
                           huxerui::ClipChildren()),
-                // 与本体一致：✕ 顶到右缘。
+                // 与本体一致：关闭图标顶到右缘。
                 huxerui::Spacer{},
-                huxerui::Text("✕", huxerui::TextRole::Label)
-                    .Style(huxerui::TextStyle{.font = overlayCloseFont,
-                                              .foreground = overlayForeground})
-                    .With(huxerui::Padding(4.0F)),
+                huxerui::Image(app::images::close)
+                    .Fit(huxerui::ImageFit::Contain)
+                    .Tint(overlayForeground)
+                    .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
             }
                 .With(huxerui::Spacing(0.0F), huxerui::Background(overlayFill),
                       huxerui::CornerRadius(theme.shapes.small),

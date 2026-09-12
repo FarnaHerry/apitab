@@ -63,9 +63,9 @@ namespace {
 // 组织列表行（P1-A2 布局契约：[前置区] [主内容 Grow] [尾部信息] [固定动作区]）：
 // 组织行无前置图标与尾部元信息——主内容 = 组织名（左对齐、Grow 撑开），尾部 =
 // TrailingActionGroup 固定动作区（32pt 槽位整列等宽，窗口宽度变化时右缘不抖动）。
-// OnClick 挂在整行 Row 上（框架点击不冒泡，最深绑定生效，动作区内 ✕ 的点击
-// 仍只触发 ✕，行选择与删除是独立事件目标）。悬停反馈走 Hover 事件通道（非独占，
-// 悬停 ✕ 也触发）驱动整行底色；行自身压掉默认 Indication 避免双层叠加，✕ 保留
+// OnClick 挂在整行 Row 上（框架点击不冒泡，最深绑定生效，动作区内删除图标的点击
+// 仍只触发删除动作，行选择与删除是独立事件目标）。悬停反馈走 Hover 事件通道（非独占，
+// 悬停动作图标也触发）驱动整行底色；行自身压掉默认 Indication 避免双层叠加，删除动作保留
 // 自己的高亮。子节点按声明顺序即焦点序（文本 → 动作区），无打乱顺序的包装。
 // 删除/切换都会重组卸载本行，故均推迟执行。
 [[huxerui::composable]] huxerui::View OrgRow(const db::Org& org, bool selected,
@@ -80,8 +80,8 @@ namespace {
             .With(huxerui::Grow(1.0F), huxerui::Padding(4.0F),
                   huxerui::Foreground(selected ? theme.colors.on_surface
                                                : theme.colors.on_surface_variant)),
-        // 固定动作区：删除组织 ✕（Bare 28pt，保留自身 hover/press 高亮）。
-        TrailingActionGroup({AppIconButton("✕", "删除组织", [tasks, toast, refresh, id = org.id] {
+        // 固定动作区：删除组织（Bare 28pt，保留自身 hover/press 高亮）。
+        TrailingActionGroup({AppIconButton(app::images::close, "删除组织", [tasks, toast, refresh, id = org.id] {
                 // 删除组织级联删项目与请求，并卸载本行：推迟出指针事件路径
                 tasks.Launch([=]() -> huxerui::Task<void> {
                     co_await huxerui::Delay(std::chrono::duration<double>{0});
@@ -194,7 +194,7 @@ namespace {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const auto projects = huxerui::UseStateList(std::move(initial));
     if (projects.Empty()) {
-        return huxerui::Text("该组织暂无项目，点击右上角 + 新建一个。",
+        return huxerui::Text("该组织暂无项目，点击右上角新建按钮。",
                              huxerui::TextRole::Body)
             .With(huxerui::Foreground(theme.colors.on_surface_variant));
     }
@@ -241,8 +241,8 @@ namespace {
         huxerui::Column {
             huxerui::Row {
                 huxerui::Text("组织", huxerui::TextRole::Title).With(huxerui::Grow(1.0F)),
-                // 独立浮动 + 动作：圆形 + 主色底（28pt 命中区），语义标签"新建组织"。
-                AppIconButton("+", "新建组织", [dialog, tasks, toast, refresh, newOrgName] {
+                // 独立浮动新建动作：圆形 + 主色底（28pt 命中区），语义标签"新建组织"。
+                AppIconButton(app::images::add, "新建组织", [dialog, tasks, toast, refresh, newOrgName] {
                 dialog.Show(
                     [tasks, toast, refresh, newOrgName](huxerui::DialogContext ctx)
                         -> huxerui::View {
@@ -310,8 +310,8 @@ namespace {
                 PageHeader("项目",
                            orgName.empty() ? "当前组织的项目" : "当前组织：" + orgName)
                     .With(huxerui::Grow(1.0F)),
-                // 独立浮动 + 动作：圆形 + 主色底（28pt 命中区），语义标签"新建项目"。
-                AppIconButton("+", "新建项目", [dialog, tasks, toast, refresh, newProjectName] {
+                // 独立浮动新建动作：圆形 + 主色底（28pt 命中区），语义标签"新建项目"。
+                AppIconButton(app::images::add, "新建项目", [dialog, tasks, toast, refresh, newProjectName] {
                     dialog.Show(
                         [tasks, toast, refresh, newProjectName](huxerui::DialogContext ctx)
                             -> huxerui::View {

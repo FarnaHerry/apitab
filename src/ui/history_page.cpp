@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "app_resources.h"
 #include "ui.h"
 
 import apitab.db;
@@ -143,14 +144,14 @@ constexpr float kPageSizeSelectWidth = 80.0F;
         HistoryRows(entries)
             .Key(std::format("{}-{}-{}", reloadKey.Get(), page, pageSizeValue))
             .With(huxerui::Grow(1.0F)),
-        // 底部分页栏：< 页码输入(回车跳转) > + 每页条数官方 Select（弹出方向自管理）。
+        // 底部分页栏：上一页/页码输入(回车跳转)/下一页 + 每页条数官方 Select。
         huxerui::Row {
-            huxerui::Button("<").OnClick([page, pageIndex, pageInput] {
+            AppIconButton(app::images::chevron_left, "上一页", [page, pageIndex, pageInput] {
                 if (page > 0) {
                     pageIndex = page - 1;
                     pageInput = huxerui::TextEditingValue::FromText(std::to_string(page));
                 }
-            }),
+            }, AppIconButtonShape::RoundedSquare, 32.0F, false, page > 0),
             huxerui::TextField(pageInput)
                 .Variant(huxerui::TextFieldVariant::Outlined)
                 .OnChanged([pageInput](const huxerui::TextEditingValue& value) { pageInput = value; })
@@ -166,10 +167,10 @@ constexpr float kPageSizeSelectWidth = 80.0F;
                     pageInput = huxerui::TextEditingValue::FromText(std::to_string(target));
                 })
                 .With(huxerui::Frame{.width = 72.0F}),
-            huxerui::Button(">").OnClick([page, pageIndex, pageInput] {
+            AppIconButton(app::images::chevron_right, "下一页", [page, pageIndex, pageInput] {
                 pageIndex = page + 1;
                 pageInput = huxerui::TextEditingValue::FromText(std::to_string(page + 2));
-            }),
+            }, AppIconButtonShape::RoundedSquare, 32.0F),
             huxerui::Text("每页", huxerui::TextRole::Body)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant)),
             std::move(pageSizeSelect),

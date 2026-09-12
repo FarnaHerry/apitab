@@ -1,3 +1,6 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path d="M3 11 L12 4 L21 11 M5 10 V20 H10 V15 H14 V20 H19 V10" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 首页：圆角屋顶与门洞，使用单色 currentColor 适配明暗主题。 -->
+  <path d="m3.5 10.8 8.5-7 8.5 7M5.5 9.7v10h5v-5h3v5h5v-10"
+        fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+        stroke-linejoin="round"/>
 </svg>

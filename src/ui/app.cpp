@@ -199,6 +199,19 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     };
     definition.Set(buttons);
 
+    huxerui::IconButtonStyle icons = huxerui::IconButtonStyle::Default();
+    icons.foreground = spec.colors.on_surface_variant;
+    icons.disabled_foreground = withAlpha(spec.colors.on_surface, 0.38F);
+    icons.icon_size = 16.0F;
+    icons.minimum_interactive_size = 40.0F;
+    icons.state_layer_size = 32.0F;
+    icons.corner_radius = spec.shapes.small;
+    icons.indication = huxerui::Indication{
+        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.06F)},
+        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
+    };
+    definition.Set(icons);
+
     huxerui::SegmentedButtonStyle segments = huxerui::SegmentedButtonStyle::Default();
     segments.background = spec.colors.surface;
     segments.selected_background = spec.colors.primary;

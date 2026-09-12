@@ -1,3 +1,5 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path d="M22 2 L11 13 M22 2 L15 22 L11 13 L2 9 Z" fill="#000000" stroke="#000000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 选中态：纸飞机以更强线宽表达当前请求工作区。 -->
+  <path d="m22 2-11 11m11-11-7 20-4-9-9-4L22 2Z" fill="none" stroke="currentColor"
+        stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

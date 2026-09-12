@@ -1,5 +1,5 @@
 // request_list.cpp — 请求工作区左岛：当前项目请求树（分组按 parentId 折叠/叶子、
-// 行尾 ⋮ / 右键统一菜单、拖拽移入分组或根目录）+ 头部“+”新建与导入菜单入口。
+// 行尾更多按钮/右键统一菜单、拖拽移入分组或根目录）+ 头部新建与导入菜单入口。
 // 自 request_page.cpp 拆出（P1-C1，功能域 = 请求集合树），行为保持、UI 无改动。
 #include <huxerui/huxerui.h>
 
@@ -13,6 +13,7 @@
 
 #include "draft.h"
 #include "ui.h"
+#include "app_resources.h"
 
 import apitab.api_engine;
 import apitab.db;
@@ -129,17 +130,17 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
     return nodes;
 }
 
-// 行尾 ⋮ 菜单按钮：常驻、默认透明（Opacity 是 paint 修饰符，悬停显隐只改绘制、
+// 行尾更多菜单按钮：常驻、默认透明（Opacity 是 paint 修饰符，悬停显隐只改绘制、
 // 不换子节点类型/数量——避免悬停重组时子树卸载重建引发 hover 振荡抖动）；
 // 透明时点击空转。行悬停态由行最外层容器的 Hover 事件维护（按钮在行边界内，
-// 悬停 ⋮ 不退出行的悬停态），本按钮不再单独跟踪。必须是独立 composable：
+// 悬停更多按钮不退出行的悬停态），本按钮不再单独跟踪。必须是独立 composable：
 // 菜单锚点（LayerAnchor）只能挂载在一个 View 上（"presentation anchor must be
 // mounted on only one View"），每个按钮实例需要在自己的作用域里 UsePopup 拿独立锚点。
 // 菜单用自绘 PopupMenu（危险项 hover 才显红）。
 [[huxerui::composable]] huxerui::View RowMenuButton(bool visible,
                                                     std::vector<AppMenuItem> items) {
     auto popup = huxerui::UsePopup();
-    // OverflowButton：AppIconButton("⋮", "更多操作", Bare, 28) 的语义封装，第 2 参
+    // OverflowButton：AppIconButton(more, "更多操作", Bare, 28) 的语义封装，第 2 参
     // = enabled（原第 7 参同义）——不可见时点击空转；菜单内容/弹出行为零变化。
     return OverflowButton([popup, items = std::move(items)] {
               ShowAppMenu(popup, std::move(items),
@@ -152,7 +153,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
 } // namespace
 
 // 左岛：当前项目的请求树（分组按 parentId 层级渲染为可折叠节点，请求为叶子，
-// 点击开标签，行尾 ⋮ / 右键菜单做重命名与删除）+ 头部圆形 "+" 新建类型菜单
+// 点击开标签，行尾更多按钮 / 右键菜单做重命名与删除）+ 头部圆形新建按钮
 // （自绘 PopupMenu，条目分隔线分组）。
 // vertical=true 用于 Compact 视口：列表改为顶部横岛（限高、宽度撑满）。
 [[huxerui::composable]] huxerui::View RequestListIsland(
@@ -161,19 +162,19 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
 
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
-    auto addPopup = huxerui::UsePopup(); // "+" 新建菜单（自绘 PopupMenu，卡片观感统一）
+    auto addPopup = huxerui::UsePopup(); // 新建菜单（自绘 PopupMenu，卡片观感统一）
     auto ctxMenu = huxerui::UsePopup(); // 行右键菜单（自绘 PopupMenu）：ShowAt 无需锚点，所有行共享
     auto dialog = huxerui::UseDialog();
     auto toast = huxerui::UseToast();
     (void)listVersion.Get(); // 订阅列表版本：保存/删除后触发本岛重组
 
-    // 新建接口目录弹窗的受控状态（"+" 菜单 → 新建接口目录… 时重置）。
+    // 新建接口目录弹窗的受控状态（新建菜单 → 新建接口目录… 时重置）。
     auto newGroupName = huxerui::UseState(huxerui::TextEditingValue{});
     auto newGroupPath = huxerui::UseState(huxerui::TextEditingValue{});
 
     // 悬停行：请求行 = 请求 id，分组行 = -分组 id（两表 id 空间会撞，用符号区分），
     // 0 = 无。Hover 事件是包含生命周期：进入行呈现边界发 Enter、离开才发 Leave，
-    // 行内子组件（打开区/⋮ 按钮）之间移动不重触发——挂在行最外层即覆盖整行。
+    // 行内子组件（打开区/更多按钮）之间移动不重触发——挂在行最外层即覆盖整行。
     auto hoveredRow = huxerui::UseState<std::int64_t>(0);
     // 重命名弹窗的输入值（打开前预填当前名称）。
     auto renameValue = huxerui::UseState(huxerui::TextEditingValue{});
@@ -303,7 +304,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                 huxerui::DialogOptions{});
         };
 
-    // 请求行的菜单条目（重命名/删除）：行尾 ⋮ 按钮与右键菜单共用，
+    // 请求行的菜单条目（重命名/删除）：行尾更多按钮与右键菜单共用，
     // 按行现场构造，避免两处逻辑分叉。自绘 PopupMenu：删除项 hover 才显红。
     auto requestEntries = [showRenameDialog, dialog, tasks, drafts, activeTab,
                            listVersion](const db::SavedRequest& r) {
@@ -358,7 +359,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                 .tone = AppMenuTone::DangerHover}};
     };
 
-    // 接口目录菜单：行尾 ⋮ 与右键共用同一条目模型和双字段编辑流程。
+            // 接口目录菜单：行尾更多按钮与右键共用同一条目模型和双字段编辑流程。
     auto groupEntries = [showGroupEditDialog, tasks, toast, listVersion](const db::Group& g) {
         const std::int64_t gid = g.id;
         return std::vector<AppMenuItem>{
@@ -391,7 +392,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                                                         : r.method;
         return huxerui::Row {
             // 打开区：徽标 + 名称占满行宽；点击挂在整行 Row 上（见下方 .OnClick），
-            // ⋮ 是最深命中节点、点击不冒泡，仍只触发它自己。
+            // 更多按钮是最深命中节点、点击不冒泡，仍只触发它自己。
             huxerui::Row {
                 huxerui::Text(badge, huxerui::TextRole::Label)
                     .Style(huxerui::TextStyle{
@@ -404,7 +405,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
             }
                 .With(huxerui::Spacing(theme.spacing.extra_small),
                       huxerui::Grow(1.0F), huxerui::ClipChildren()),
-            // 行尾 ⋮ 菜单（悬停显隐；重命名/删除）。锚点在按钮自己的 composable
+            // 行尾更多菜单（悬停显隐；重命名/删除）。锚点在按钮自己的 composable
             // 作用域里（一个 LayerAnchor 只能挂一个 View，见 RowMenuButton）。
             RowMenuButton(hoveredRow.Get() == id, requestEntries(r)),
         }
@@ -412,7 +413,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                   huxerui::Padding(huxerui::EdgeInsets{
                       .top = 4.0F, .right = 6.0F, .bottom = 4.0F,
                       .left = 6.0F}),
-                  // 默认无底色，被选中（活跃标签对应行）或悬停（含悬停 ⋮，
+                  // 默认无底色，被选中（活跃标签对应行）或悬停（含悬停更多按钮，
                   // Hover 事件通道非独占）才显示容器底。
                   huxerui::Background(id == activeSavedId || hoveredRow.Get() == id
                                           ? theme.colors.surface_container
@@ -459,7 +460,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                               huxerui::Background(bg), huxerui::Foreground(fg),
                               huxerui::CornerRadius(6.0F));
                 }))
-            // 悬停显隐 ⋮：Enter 记行 key，Leave 时仅当仍是本行才清空（防跨行
+            // 悬停显隐更多按钮：Enter 记行 key，Leave 时仅当仍是本行才清空（防跨行
             // 误清）。只写 hoveredRow；悬停重组靠稳定 Key 保留挂载节点（见下）。
             .On<huxerui::ViewEvents::Hover>([hoveredRow, id](const huxerui::HoverEvent& e) {
                 if (e.type == huxerui::HoverEventType::Enter)
@@ -467,7 +468,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                 else if (e.type == huxerui::HoverEventType::Leave && hoveredRow.Get() == id)
                     hoveredRow = 0;
             })
-            // 右键菜单：条目同 ⋮ 按钮，跟随点击位置弹出；挂在行最外层容器上，
+            // 右键菜单：条目同更多按钮，跟随点击位置弹出；挂在行最外层容器上，
             // 命中链最深绑定生效，分组内嵌套的请求行仍弹本菜单。
             .On<huxerui::ViewEvents::ContextMenuRequested>(
                 [ctxMenu, requestEntries, r](huxerui::Point pos) {
@@ -483,7 +484,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
         return huxerui::Row {
                    huxerui::Text(g.name, huxerui::TextRole::Body)
                        .With(huxerui::ClipChildren(), huxerui::Grow(1.0F)),
-                   // 行尾 ⋮ 菜单（悬停显隐；编辑/删除接口目录）。锚点在按钮自己的
+                   // 行尾更多菜单（悬停显隐；编辑/删除接口目录）。锚点在按钮自己的
                    // composable 作用域里（一个 LayerAnchor 只能挂一个 View）。
                    RowMenuButton(hoveredRow.Get() == -g.id, groupEntries(g)),
                }
@@ -491,7 +492,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                          huxerui::Padding(huxerui::EdgeInsets{
                              .top = 4.0F, .right = 6.0F, .bottom = 4.0F,
                              .left = 6.0F}),
-                         // 悬停（含悬停 ⋮，同请求行）显示容器底。
+                         // 悬停（含悬停更多按钮，同请求行）显示容器底。
                          huxerui::Background(hoveredRow.Get() == -g.id
                                                  ? theme.colors.surface_container
                                                  : huxerui::Color::Transparent()),
@@ -508,11 +509,16 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                              [name = g.name, bg = theme.colors.surface_container_high,
                               fg = theme.colors.on_surface] {
                                  return huxerui::Row {
-                                     huxerui::Text("▾ " + (name.empty() ? "（未命名）" : name),
+                                     huxerui::Image(app::images::chevron_down)
+                                         .Fit(huxerui::ImageFit::Contain)
+                                         .Tint(fg)
+                                         .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
+                                     huxerui::Text(name.empty() ? "（未命名）" : name,
                                                    huxerui::TextRole::Body),
                                  }
-                                     .With(huxerui::Padding(6.0F), huxerui::Background(bg),
-                                           huxerui::Foreground(fg), huxerui::CornerRadius(6.0F));
+                                     .With(huxerui::Spacing(4.0F), huxerui::Padding(6.0F),
+                                           huxerui::Background(bg), huxerui::Foreground(fg),
+                                           huxerui::CornerRadius(6.0F));
                              }),
                          huxerui::DropTarget::Accepts<RequestDragPayload>(),
                          huxerui::DropTarget::Accepts<GroupDragPayload>(
@@ -544,7 +550,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                listVersion = listVersion.Get() + 1;
                            });
                        })
-                   // 悬停显隐 ⋮：理由同请求行（Enter 记 -g.id，Leave 条件清空）。
+                   // 悬停显隐更多按钮：理由同请求行（Enter 记 -g.id，Leave 条件清空）。
                    .On<huxerui::ViewEvents::Hover>(
                        [hoveredRow, key = -g.id](const huxerui::HoverEvent& e) {
                            if (e.type == huxerui::HoverEventType::Enter)
@@ -553,7 +559,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                     hoveredRow.Get() == key)
                                hoveredRow = 0;
                        })
-                   // 右键菜单：条目同 ⋮ 按钮，跟随点击位置弹出（理由同请求行）。
+                   // 右键菜单：条目同更多按钮，跟随点击位置弹出（理由同请求行）。
                    .On<huxerui::ViewEvents::ContextMenuRequested>(
                        [ctxMenu, groupEntries, g](huxerui::Point pos) {
                            ShowAppMenuAt(ctxMenu, pos, groupEntries(g));
@@ -685,7 +691,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                huxerui::Row {
                                    huxerui::Text("请求", huxerui::TextRole::Title)
                                        .With(huxerui::Grow(1.0F)),
-                                   AppIconButton("+", "新建请求",
+                                   AppIconButton(app::images::add, "新建请求",
                                                  [addPopup, dialog, tasks, toast, drafts,
                                                   activeTab, listVersion, newGroupName,
                                                   newGroupPath] {

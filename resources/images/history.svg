@@ -1,3 +1,6 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path d="M12 21 A9 9 0 1 0 3 12 M12 7 V12 L15.5 14 M3 12 H5 M12 21 H5" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 历史：开口回转箭头与时间指针，线宽与其他系统图标一致。 -->
+  <path d="M12 21a9 9 0 1 0-9-9M3 12h3M3 12l2.2-2.2M12 7v5l3.5 2"
+        fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+        stroke-linejoin="round"/>
 </svg>

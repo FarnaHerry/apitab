@@ -1,3 +1,6 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path d="M14.5 6.5 A4.2 4.2 0 0 0 9 12.5 L4 17.5 L6.5 20 L11.5 15 A4.2 4.2 0 0 0 17.5 9.5" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 项目设置：扳手与圆头连接，线宽和圆角遵循统一系统图标族。 -->
+  <path d="M14.5 6.5A4.2 4.2 0 0 0 9 12.5L4 17.5 6.5 20l5-5a4.2 4.2 0 0 0 6-5.5"
+        fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+        stroke-linejoin="round"/>
 </svg>

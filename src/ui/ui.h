@@ -70,14 +70,11 @@ inline void StartSlide(huxerui::TaskScope tasks,
 // 全项目统一字号阶梯（pt）：控件/正文跟随 SDK 默认 14，不再散落硬编码字面量；
 // 调整字号只改这一处。等宽字号用于响应内容与 HTTP 方法/类型徽标。
 namespace font_size {
-inline constexpr float kCaption = 11.0F;  // 行内操作符（✎/✕）、徽标等小字
+inline constexpr float kCaption = 11.0F;  // 行内动作标签、徽标等小字
 inline constexpr float kChip = 12.0F;     // 标签条等紧凑部件文字
 inline constexpr float kBody = 14.0F;     // 正文/按钮/输入框（SDK 默认）
 inline constexpr float kMonoBody = 13.0F; // 等宽正文（响应 Body/Headers/Cookies）
 inline constexpr float kTitle = 20.0F;    // 标题（弹窗标题等）
-// 图标按钮字形固定字号（官方建议 14–16pt，取 15）：glyph 只负责绘制，字号不再
-// 反向决定按钮命中区（见 AppIconButton / 几何令牌）。
-inline constexpr float kIconGlyph = 15.0F;
 } // namespace font_size
 
 namespace editor_metrics {
@@ -380,24 +377,24 @@ enum class AppIconButtonShape {
     Bare,
 };
 
-// 统一图标动作：glyph 只负责绘制（固定字号 font_size::kIconGlyph），命中区固定为
+// 统一图标动作：ImageResource 只负责绘制（固定 16pt 视觉槽），命中区固定为
 // icon_button_compact(28) / icon_button_regular(32) 两档——size 参数只认这两档，
 // 其他值按就近档位收敛（>=30 归 regular），形状不再由文本尺寸推导。
 // semanticLabel 是 icon-only 动作的可访问名称，同时作为 Tooltip 文本（官方 Tooltip
 // modifier，§5.4"图标按钮必须提供 Tooltip 和可访问名称"）；所有形状（含 Bare）的
 // hover/press indication 覆盖整个命中区。Bare 常态透明（配合外部悬停显隐或常驻
 // 入口），hover 时显示整块圆角方形底。
-huxerui::View AppIconButton(std::string glyph, std::string semanticLabel,
+huxerui::View AppIconButton(huxerui::ImageResource icon, std::string semanticLabel,
                             std::function<void()> onClick,
                             AppIconButtonShape shape = AppIconButtonShape::RoundedSquare,
                             float size = 28.0F, bool accent = false, bool enabled = true);
 // 列表行尾部固定动作区（P1-A1 最小实现）：槽位按 icon_button_regular 档固定
-// （每槽 32×32pt、间距 4pt），动作整体右对齐，槽宽不随 glyph/标签内容抖动。
+// （每槽 32×32pt、间距 4pt），动作整体右对齐，槽宽不随图标/标签内容抖动。
 // 契约：同一列表所有行的动作列必须等宽（行高对齐、文字不左右跳动）；传入的
 // actions 应为 AppIconButton 等正方形命中区组件，本组件只负责占位与排布，
 // 不接管点击语义（行选择与动作点击仍是独立事件目标）。
 huxerui::View TrailingActionGroup(std::vector<huxerui::View> actions);
-// "⋮" 语义图标按钮（AppIconButton Bare + compact 档，语义标签"更多操作"）：
+// "更多" 语义图标按钮（AppIconButton Bare + compact 档，语义标签"更多操作"）：
 // 只封装已有的菜单触发回调，由调用方在 onClick 里自己 UsePopup/ShowPopupMenu，
 // 本组件不引入新菜单数据模型。enabled=false 时点击空转、外观降透明。
 huxerui::View OverflowButton(std::function<void()> onOpenMenu, bool enabled = true);
@@ -477,7 +474,7 @@ struct PopupMenuItem {
     // 自定义文字色（如方法下拉按 MethodColor 逐方法着色）；设置后优先于
     // danger 取色。
     std::optional<huxerui::Color> label_color;
-    // 子菜单（级联飞出，行尾带 ›）：hover/点击在右侧弹子层。父项若设
+// 子菜单（级联飞出，行尾带右箭头图标）：hover/点击在右侧弹子层。父项若设
     // on_click，点击 = 执行回调并关闭整链（直达该层级的动作，如"移动到
     // 分组 A"本身也是一个目的地）；不设则点击仅展开。
     std::vector<PopupMenuItem> children;
@@ -603,8 +600,8 @@ huxerui::View RequestEditor(
 huxerui::View EnvironmentDialog(huxerui::DialogContext ctx, huxerui::State<int> envVersion);
 
 // request_tab_strip.cpp — 右岛顶部内部标签条（P1-C1 自 request_page.cpp 拆出）：
-// 已打开草稿的 chip（固定宽、悬停显 ✕、Chrome 式拖拽换位与让位滑动）+ 末尾“＋”
-// 新建 + 右侧环境 ComboBox/☰ 环境配置弹窗入口（envVersion 驱动重读 store）。
+// 已打开草稿的 chip（固定宽、悬停显关闭图标、Chrome 式拖拽换位与让位滑动）+ 末尾加号图标
+// 新建 + 右侧环境 ComboBox/菜单图标环境配置弹窗入口（envVersion 驱动重读 store）。
 huxerui::View RequestTabStrip(huxerui::State<std::vector<RequestDraft>> drafts,
                               huxerui::State<std::size_t> activeTab,
                               huxerui::State<int> envVersion,
@@ -624,7 +621,7 @@ huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
                            const huxerui::ThemeSpec& theme);
 
 // request_list.cpp — 请求工作区左岛（P1-C1 自 request_page.cpp 拆出）：当前项目
-// 请求集合树（分组折叠 / 请求叶子，行尾 ⋮ / 右键统一菜单、拖拽移入分组或根）。
+// 请求集合树（分组折叠 / 请求叶子，行尾更多按钮 / 右键统一菜单、拖拽移入分组或根）。
 // vertical=true 用于 Compact 视口（列表改顶部横岛，限高撑宽）。
 huxerui::View RequestListIsland(huxerui::State<std::vector<RequestDraft>> drafts,
                                 huxerui::State<std::size_t> activeTab,

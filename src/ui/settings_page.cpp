@@ -320,7 +320,7 @@ huxerui::Rect TransformedBounds(const huxerui::Transform2D& transform,
                                                         std::to_string(closeBehavior.Get()));
                               }),
                       },
-                      "点标题栏 ✕ 时生效；“每次询问”在关闭时弹窗确认。"),
+                      "点标题栏关闭按钮时生效；“每次询问”在关闭时弹窗确认。"),
         // 默认请求超时：数字文本承载（受控 TextEditingValue 全量保留），初始读
         // session.request_timeout_sec，空/非法在发送侧按 30 秒兜底。OnChanged 即
         // 写回 ini（写文件很轻，不必防抖）。

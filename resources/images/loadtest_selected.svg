@@ -1,3 +1,6 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path d="M12 4 A9 9 0 0 1 21 13 H16.5 A4.5 4.5 0 0 0 12 8.5 Z M12 17.5 A1.2 1.2 0 1 0 12 15.4 M4 17 A9 9 0 0 1 7 10.6 L9.4 13 A5 5 0 0 1 11 17 Z" fill="#000000" stroke="#000000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 选中态：仪表盘弧线加粗并保留同一指针几何。 -->
+  <path d="M4 17a8 8 0 0 1 16 0M12 17l4-8M12 17.6v-.2"
+        fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+        stroke-linejoin="round"/>
 </svg>

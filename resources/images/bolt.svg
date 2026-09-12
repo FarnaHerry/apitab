@@ -1,4 +1,5 @@
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- Material flash_on 闪电（fill 版本，画布 24x24）：框架 HTTP 协程压测页入口 -->
-  <path d="M7 2v11h3v9l7-12h-4l4-8z" fill="#000000" stroke="none"/>
+  <!-- 压测入口：保留锐利闪电轮廓，在统一线性族中承担强调动作。 -->
+  <path d="m13.8 2.8-7 10.1h5l-1.6 8.3 7-10.1h-5l1.6-8.3Z" fill="currentColor"
+        stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
 </svg>
