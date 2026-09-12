@@ -52,3 +52,13 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
 
 - HuxerUI 源码跟随官方 `v0.3.0`（`d1d2daa`），本地兼容补丁继续单独维护。
 - Linux x86_64 使用官方 `huxerui-sdk-0.3.0-linux-x86_64.tar.gz` 作为仓库离线 SDK 兜底包；默认构建仍优先使用源码。
+
+### 2026-09-13 上游同步
+
+- HuxerUI 源码 `d1d2daa` → `445488a`（Windows GUI 启动去控制台修复，仅
+  `cmake/HuxerUIApp.cmake`、模板与文档；Linux 侧接口与库源码无变化）。三份本地补丁
+  （resize-hitarea、window-p0960、hosttools-dynamic）经反向校验后重置重放，全部干净
+  套用且不被上游覆盖，继续保留。
+- SweetEdit 与嵌套 SweetEditor（`bd4330e`）、SweetLine（`64665d9`）上游均无新提交。
+- 按流程重建 hcg/hrc 到 `third_party/huxerui-tools/linux/x86_64/`，并清理
+  `build/hcg`、`build/huxerui-resources` 旧产物；`apitab` 全量构建链接通过。
