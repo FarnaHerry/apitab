@@ -363,6 +363,11 @@ inline TopTabState RestoreTopTabs(const std::string& openCsv, const std::string&
 
 // common.cpp
 huxerui::View PageHeader(std::string title, std::string subtitle);
+// 品牌资源：水母旋涡徽标、彩色 apitab 字标，以及两者的组合。静态图案来自
+// resources/images/apitab_mark.svg，颜色由当前主题控制，避免页面各自拼出一套 logo。
+huxerui::View BrandMark(float size = 24.0F);
+huxerui::View BrandWordmark(float textSize = 16.0F);
+huxerui::View BrandLogo(float markSize = 24.0F, float textSize = 16.0F);
 huxerui::View DialogCard(huxerui::View content);
 huxerui::View MigrationPlaceholder(std::string pageName);
 // 头像共用蓝紫渐变外圈，size 包含光圈与内侧留白。

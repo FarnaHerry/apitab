@@ -590,7 +590,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
                 menuEntries.push_back(huxerui::MenuSection{});
                 menuEntries.push_back(
                     huxerui::MenuItem("退出", [application] { application.Quit(); }));
-                tray.Show(app::images::tray,
+                tray.Show(app::images::apitab_tray,
                           huxerui::SystemTrayOptions{
                               .tooltip = "apitab — API 测试与压测",
                               .menu = std::move(menuEntries)});

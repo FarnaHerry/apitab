@@ -29,12 +29,8 @@ namespace {
 // 两个业务岛屿之前的轻量欢迎卡。卡片只使用主题 token，深浅模式共享同一结构。
 [[huxerui::composable]] huxerui::View BrandIntro() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    huxerui::View mark = huxerui::Image(app::images::apitab_mark)
-                             .Fit(huxerui::ImageFit::Contain)
-                             .Tint(theme.colors.primary)
-                             .With(huxerui::Frame{.width = 36.0F, .height = 36.0F});
     return huxerui::Row {
-        huxerui::Row{std::move(mark)}
+        huxerui::Row{BrandMark(36.0F)}
             .With(huxerui::Frame{.width = 52.0F, .height = 52.0F},
                   huxerui::Background(theme.colors.surface),
                   huxerui::Border(theme.colors.primary, 1.0F),
@@ -42,8 +38,7 @@ namespace {
                   huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Column {
-            huxerui::Text("apitab", huxerui::TextRole::Title)
-                .With(huxerui::Foreground(theme.colors.on_primary_container)),
+            BrandWordmark(20.0F),
             huxerui::Text("让每一次请求都清澈可见", huxerui::TextRole::Body)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant)),
         }

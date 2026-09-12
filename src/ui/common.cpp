@@ -17,6 +17,41 @@ import apitab.utils;
 
 namespace apitab::ui {
 
+[[huxerui::composable]] huxerui::View BrandMark(float size) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    return huxerui::Image(app::images::apitab_mark)
+        .Fit(huxerui::ImageFit::Contain)
+        .Align(huxerui::HorizontalAlignment::Center,
+               huxerui::VerticalAlignment::Center)
+        .Tint(theme.colors.primary)
+        .With(huxerui::Frame{.width = size, .height = size});
+}
+
+[[huxerui::composable]] huxerui::View BrandWordmark(float textSize) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const huxerui::TextStyle apiStyle{
+        .font = huxerui::Font::System(textSize).WithWeight(huxerui::FontWeight::SemiBold),
+        .foreground = theme.colors.on_surface};
+    const huxerui::TextStyle tabStyle{
+        .font = huxerui::Font::System(textSize).WithWeight(huxerui::FontWeight::SemiBold),
+        .foreground = theme.colors.primary};
+    return huxerui::Row {
+        huxerui::Text("api", huxerui::TextRole::Label).Style(apiStyle),
+        huxerui::Text("tab", huxerui::TextRole::Label).Style(tabStyle),
+    }
+        .With(huxerui::Spacing(0.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+}
+
+[[huxerui::composable]] huxerui::View BrandLogo(float markSize, float textSize) {
+    return huxerui::Row {
+        BrandMark(markSize),
+        BrandWordmark(textSize),
+    }
+        .With(huxerui::Spacing(4.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+}
+
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     return IslandTheme{
         .page_gap = theme.spacing.medium,
