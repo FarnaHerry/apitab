@@ -22,15 +22,15 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .page_gap = theme.spacing.medium,
         // 一级岛与请求页/主页一致使用 medium 内边距；设置页不能另起一套更厚卡片。
         .island_padding = theme.spacing.medium,
-        .island_radius = 16.0F,
-        .nested_radius = 8.0F,
+        .island_radius = theme.shapes.large,
+        .nested_radius = theme.shapes.medium,
         .island_min_width = 160.0F,
         .island_min_height = 120.0F,
         // 几何令牌（ui.h IslandTheme 中段字段）：全项目唯一圆角/图标按钮尺寸
         // 来源，页面不得再散落魔法数字。control/large_control 从主题 ShapeScheme
-        // 派生（small=8 / medium=12），命中区两档与控件高为固定常量。
-        .control_radius = theme.shapes.small,           // 8pt：普通按钮/选择器/局部控件
-        .large_control_radius = theme.shapes.medium,    // 12pt：大输入行/请求组合栏
+        // 派生（small=10 / medium=14），命中区两档与控件高为固定常量。
+        .control_radius = theme.shapes.small,           // 10pt：普通按钮/选择器/局部控件
+        .large_control_radius = theme.shapes.medium,    // 14pt：大输入行/请求组合栏
         .icon_button_compact = 28.0F,                   // 图标按钮紧凑命中区（正方形）
         .icon_button_regular = 32.0F,                   // 图标按钮舒适命中区（正方形）
         .control_height = 32.0F,                        // 普通控件统一高度
@@ -73,6 +73,7 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
     huxerui::View surface = content;
     return std::move(surface).With(huxerui::Background(IslandColor(islands, theme, level)),
                                    huxerui::CornerRadius(islands.island_radius),
+                                   huxerui::Border(islands.outline_soft, 1.0F),
                                    huxerui::Padding(islands.island_padding),
                                    huxerui::Frame{.min_width = islands.island_min_width,
                                                   .min_height = islands.island_min_height});
@@ -155,9 +156,9 @@ public:
         const float dy = 0.35F * (sine - cosine);
         paint.StrokePath(circle, huxerui::LinearGradient{
             .start = {0.5F - dx, 0.5F - dy}, .end = {0.5F + dx, 0.5F + dy},
-            .stops = {{0.0F, huxerui::Color::Rgb(48, 128, 255)},
-                      {0.6F, huxerui::Color::Rgb(48, 128, 255)},
-                      {1.0F, huxerui::Color::Rgb(177, 159, 255)}},
+            .stops = {{0.0F, huxerui::Color::Rgb(72, 214, 232)},
+                      {0.6F, huxerui::Color::Rgb(72, 214, 232)},
+                      {1.0F, huxerui::Color::Rgb(159, 147, 232)}},
         }, huxerui::StrokeStyle{.width = value_.width});
     }
 

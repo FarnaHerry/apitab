@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "app_resources.h"
 #include "ui.h"
 
 import apitab.db;
@@ -23,6 +24,39 @@ import apitab.store.requests;
 namespace apitab::ui {
 
 namespace {
+
+// 首页品牌入口：把设计稿里的 apitab 标记落到真实工作台中，作为组织/项目
+// 两个业务岛屿之前的轻量欢迎卡。卡片只使用主题 token，深浅模式共享同一结构。
+[[huxerui::composable]] huxerui::View BrandIntro() {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    huxerui::View mark = huxerui::Image(app::images::apitab_mark)
+                             .Fit(huxerui::ImageFit::Contain)
+                             .Tint(theme.colors.primary)
+                             .With(huxerui::Frame{.width = 36.0F, .height = 36.0F});
+    return huxerui::Row {
+        huxerui::Row{std::move(mark)}
+            .With(huxerui::Frame{.width = 52.0F, .height = 52.0F},
+                  huxerui::Background(theme.colors.surface),
+                  huxerui::Border(theme.colors.primary, 1.0F),
+                  huxerui::CornerRadius(theme.shapes.medium),
+                  huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+        huxerui::Column {
+            huxerui::Text("apitab", huxerui::TextRole::Title)
+                .With(huxerui::Foreground(theme.colors.on_primary_container)),
+            huxerui::Text("让每一次请求都清澈可见", huxerui::TextRole::Body)
+                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+        }
+            .With(huxerui::Spacing(4.0F), huxerui::Grow(1.0F)),
+        huxerui::Text("API 工作台", huxerui::TextRole::Label)
+            .With(huxerui::Foreground(theme.colors.primary)),
+    }
+        .With(huxerui::Padding(theme.spacing.medium), huxerui::Spacing(theme.spacing.medium),
+              huxerui::Background(theme.colors.primary_container),
+              huxerui::Border(theme.colors.primary, 1.0F),
+              huxerui::CornerRadius(theme.shapes.large), huxerui::Frame{.min_height = 76.0F},
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+}
 
 // 组织列表行（P1-A2 布局契约：[前置区] [主内容 Grow] [尾部信息] [固定动作区]）：
 // 组织行无前置图标与尾部元信息——主内容 = 组织名（左对齐、Grow 撑开），尾部 =
@@ -102,6 +136,7 @@ namespace {
         .With(huxerui::Frame{.width = 200.0F, .height = 96.0F},
               huxerui::Padding(theme.spacing.medium), huxerui::Spacing(4.0F),
               huxerui::Background(theme.colors.surface_container),
+              huxerui::Border(theme.colors.outline, 1.0F),
               huxerui::CornerRadius(theme.shapes.medium),
               // 键盘/语义（P1-B0.4，§13.6 键盘要求）：卡片可聚焦 + Button 语义，
               // 键盘 Tab 后 Enter/Space 打开项目（模式同 settings_page 左分类行）。
@@ -261,6 +296,7 @@ namespace {
             .With(huxerui::Padding(theme.spacing.medium),
                   huxerui::Spacing(theme.spacing.small),
                   huxerui::Background(theme.colors.surface_container_low),
+                  huxerui::Border(theme.colors.outline, 1.0F),
                   huxerui::CornerRadius(theme.shapes.large), huxerui::Frame{.width = 240.0F},
                   huxerui::Frame{.min_width = 200.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -333,6 +369,7 @@ namespace {
             .With(huxerui::Padding(theme.spacing.large),
                   huxerui::Spacing(theme.spacing.medium),
                   huxerui::Background(theme.colors.surface_container_low),
+                  huxerui::Border(theme.colors.outline, 1.0F),
                   huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
                   huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -341,15 +378,18 @@ namespace {
     // 维持左右双岛。不用外层 ScrollView（其内容宽度无界会让 Row 收缩漂移）。
     if (compact) {
         return huxerui::Column {
+                   BrandIntro(),
                    std::move(orgIsland).With(huxerui::Frame{.max_height = 220.0F}),
                    std::move(projectIsland),
                }
             .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
-    return huxerui::Row {
-        std::move(orgIsland),
-        std::move(projectIsland),
+    return huxerui::Column {
+        BrandIntro(),
+        huxerui::Row {std::move(orgIsland), std::move(projectIsland)}
+            .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
     }
         .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));

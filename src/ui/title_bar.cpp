@@ -83,15 +83,15 @@ struct ProjectTabDragPayload {
     // 可关闭：主页标签固定不可关；项目标签与设置单例标签可关。
     const bool closable = tab.kind != TopTabKind::Home;
 
-    // 标题栏已无底色（融入窗口背景）；标签背景默认也不显示（透明）——
-    // 激活 = surface_container_highest 提亮，悬停 = surface_container 浮起，
-    // 常态下只靠标签间的竖线分隔。
+// 标题栏融入海洋背景；标签背景默认也不显示（透明）——
+// 激活 = primary_container 品牌底，悬停 = surface_container 浮起，
+// 常态下只靠标签间的竖线分隔。
     const huxerui::Color tabFill =
-        active ? theme.colors.surface_container_highest
+        active ? theme.colors.primary_container
                : (hovered.Get() ? theme.colors.surface_container
                                 : huxerui::Color::Transparent());
     const huxerui::Color tabForeground =
-        active ? theme.colors.on_surface : theme.colors.on_surface_variant;
+        active ? theme.colors.on_primary_container : theme.colors.on_surface_variant;
 
     // 激活/关闭统一走 AppRoot 注入的 actions（推迟任务里完成顶级标签状态写回与
     // 领域同步）；本项目不再直接持有任何顶级状态写入。
@@ -159,7 +159,7 @@ struct ProjectTabDragPayload {
     }
         .With(huxerui::Spacing(0.0F), huxerui::Background(tabFill),
               huxerui::Foreground(tabForeground),
-              huxerui::CornerRadius(theme.shapes.small),
+              huxerui::CornerRadius(theme.shapes.medium),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
               huxerui::Padding(iconOnly ? huxerui::EdgeInsets::Symmetric(4.0F, 1.0F)
                                         : huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
@@ -283,19 +283,20 @@ struct ProjectTabDragPayload {
 } // namespace
 
 // 软件徽标：两个圆角岛由请求路径连接的 apitab 标记，不再使用字母 AT。
-// SVG 保持单色并由 Tint(on_primary) 适配主题；外层色块沿用主题 primary，保证
-// 24pt 标题栏和深浅主题下都有稳定对比度。
+// 外层使用 primary_container，图案使用 primary，形成设计稿里的冰川青/深海蓝
+// 正反版本，同时保留标题栏的轻量高度。
 [[huxerui::composable]] huxerui::View LogoBadge() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Image(app::images::apitab_mark)
         .Fit(huxerui::ImageFit::Contain)
         .Align(huxerui::HorizontalAlignment::Center,
                huxerui::VerticalAlignment::Center)
-        .Tint(theme.colors.on_primary)
+        .Tint(theme.colors.primary)
         .With(huxerui::Frame{.width = 32.0F, .height = kTitleBarContentHeight},
-              huxerui::Background(theme.colors.primary),
-              huxerui::CornerRadius(theme.shapes.small),
-              huxerui::Padding(4.0F));
+              huxerui::Background(theme.colors.primary_container),
+              huxerui::Border(theme.colors.primary, 1.0F),
+              huxerui::CornerRadius(theme.shapes.medium),
+              huxerui::Padding(3.0F));
 }
 
 // 顶级标签条（P1-B0.1，由 ProjectTabStrip 泛化为通用顶级标签条）：主页标签

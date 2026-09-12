@@ -2,7 +2,7 @@
 //   TruncateSummary / CookieRow / CookieRowsFromStore / StatusActionText /
 //   RequestProxyDialogContent / GlobalCookieDialogContent / GlobalStatusBar。
 //   右缘两个文字热区（应用代理 / 项目 Cookie）点击开弹窗；弹窗层捕获调用处环境
-//   （AppRoot 在 MinimalThemed 之上，UseTheme 须在 provider 之下，故 GlobalStatusBar
+//   （AppRoot 在 OceanThemed 之上，UseTheme 须在 provider 之下，故 GlobalStatusBar
 //   独立成 composable）。P1-B1 前保持现状，不拆为项目/状态两栏。
 #include <huxerui/huxerui.h>
 
@@ -248,7 +248,7 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
 // 底部项目状态条：仅项目工作区挂载，与侧边栏一样无岛屿包裹——无背景、无顶部分隔线；
 // 主页和通用设置由其大岛直接覆盖剩余高度。右缘热区管理应用代理 / 项目 Cookie。
 // 独立成 provider 之下的 composable：弹窗层捕获调用处环境（CLAUDE.md），AppRoot
-// 自身在 MinimalThemed provider 之上、UseTheme/UseDialog 只能拿默认浅色——热区
+// 自身在 OceanThemed provider 之上、UseTheme/UseDialog 只能拿默认浅色——热区
 // 弹窗必须从这里 Show 才带正确主题（同 CloseGuard 的根因与做法）。
 } // namespace
 

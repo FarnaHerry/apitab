@@ -159,6 +159,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                                                              .min_height = 140.0F}) {
     return std::move(content).With(huxerui::Background(theme.colors.surface_container_low),
                                    huxerui::CornerRadius(theme.shapes.large),
+                                   huxerui::Border(theme.colors.outline, 1.0F),
                                    // 各调用方可按内容指定最低可用工作区；拖条与 Grow
                                    // 只能在该下限之上分配，避免内容被挤没。
                                    minimum);
