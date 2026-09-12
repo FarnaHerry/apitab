@@ -97,7 +97,9 @@ huxerui::View StatusActionText(std::string icon, std::string label, std::string 
         .With(huxerui::Spacing(4.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
               huxerui::Padding(huxerui::EdgeInsets::Symmetric(theme.spacing.small, 2.0F)),
-              huxerui::Tooltip(std::move(tooltip)))
+              huxerui::Tooltip(tooltip),
+              huxerui::Focusable(true),
+              huxerui::Semantics{.role = huxerui::SemanticRole::Button, .label = tooltip})
         .OnClick(std::move(onClick));
 }
 
@@ -121,7 +123,9 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
         .With(huxerui::Spacing(4.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
               huxerui::Padding(huxerui::EdgeInsets::Symmetric(theme.spacing.small, 2.0F)),
-              huxerui::Tooltip(std::move(tooltip)))
+              huxerui::Tooltip(tooltip),
+              huxerui::Focusable(true),
+              huxerui::Semantics{.role = huxerui::SemanticRole::Button, .label = tooltip})
         .OnClick(std::move(onClick));
 }
 

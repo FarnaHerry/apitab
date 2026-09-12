@@ -62,10 +62,10 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .island_min_width = 160.0F,
         .island_min_height = 120.0F,
         // 几何令牌（ui.h IslandTheme 中段字段）：全项目唯一圆角/图标按钮尺寸
-        // 来源，页面不得再散落魔法数字。control/large_control 从主题 ShapeScheme
-        // 派生（small=10 / medium=14），命中区两档与控件高为固定常量。
-        .control_radius = theme.shapes.small,           // 10pt：普通按钮/选择器/局部控件
-        .large_control_radius = theme.shapes.medium,    // 14pt：大输入行/请求组合栏
+        // 来源，页面不得再散落魔法数字。普通控件 6pt、输入/分段控件 8pt，保持
+        // API 工作台的高密度节奏；只有卡片和对话框才使用更大的外轮廓。
+        .control_radius = theme.shapes.small,           // 6pt：普通按钮/选择器/局部控件
+        .large_control_radius = theme.shapes.medium,    // 8pt：大输入行/请求组合栏
         .icon_button_compact = 28.0F,                   // 图标按钮紧凑命中区（正方形）
         .icon_button_regular = 32.0F,                   // 图标按钮舒适命中区（正方形）
         .control_height = 32.0F,                        // 普通控件统一高度
@@ -108,7 +108,14 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
     huxerui::View surface = content;
     return std::move(surface).With(huxerui::Background(IslandColor(islands, theme, level)),
                                    huxerui::CornerRadius(islands.island_radius),
-                                   huxerui::Border(islands.outline_soft, 1.0F),
+                                   // 普通工作区靠表面层级分区；只有浮层/危险态需要描边。
+                                   huxerui::Border(
+                                       (level == IslandLevel::Overlay || level == IslandLevel::Danger)
+                                           ? islands.outline_soft
+                                           : huxerui::Color::Transparent(),
+                                       (level == IslandLevel::Overlay || level == IslandLevel::Danger)
+                                           ? 1.0F
+                                           : 0.0F),
                                    huxerui::Padding(islands.island_padding),
                                    huxerui::Frame{.min_width = islands.island_min_width,
                                                   .min_height = islands.island_min_height});
@@ -137,8 +144,10 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View card = content;
     return std::move(card).With(
-        huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.24F), {}, 24.0F, 0.0F},
-        huxerui::Background(islands.overlay), huxerui::CornerRadius(islands.island_radius),
+        huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.16F), {}, 20.0F, 0.0F},
+        huxerui::Background(islands.overlay),
+        huxerui::CornerRadius(ConcentricRadius(theme.shapes.extra_large,
+                                               theme.spacing.extra_small)),
         huxerui::Border(islands.outline_soft, 1.0F), huxerui::ClipChildren(),
         huxerui::Padding(islands.island_padding));
 }
@@ -191,9 +200,9 @@ public:
         const float dy = 0.35F * (sine - cosine);
         paint.StrokePath(circle, huxerui::LinearGradient{
             .start = {0.5F - dx, 0.5F - dy}, .end = {0.5F + dx, 0.5F + dy},
-            .stops = {{0.0F, huxerui::Color::Rgb(72, 214, 232)},
-                      {0.6F, huxerui::Color::Rgb(72, 214, 232)},
-                      {1.0F, huxerui::Color::Rgb(159, 147, 232)}},
+            .stops = {{0.0F, huxerui::Color::Rgb(67, 211, 220)},
+                      {0.6F, huxerui::Color::Rgb(67, 211, 220)},
+                      {1.0F, huxerui::Color::Rgb(125, 232, 237)}},
         }, huxerui::StrokeStyle{.width = value_.width});
     }
 
@@ -817,7 +826,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
 // 这个共用外框的组合栏），其后是当前环境 baseUrl 显示区（灰色只读、截断；
 // 输入框内容带 URI scheme 时以输入为准不拼接 → 该段半透明弱化），中间 1pt
 // 分隔线，右侧 URL 输入；整体共用一个描边圆角外框。外框圆角 = 几何令牌
-// large_control_radius（12pt）：请求 URL 行是高密度工具条，用 10–12pt 大圆角
+// large_control_radius（8pt）：请求 URL 行是高密度工具条，用紧凑的大圆角
 // 组合栏、不做 full capsule（§5.2）。方法触发器/baseUrl 段/分隔线/URL 输入共享
 // 同一外轮廓，内部不重复描边——URL 字段经 ProvideEnvironment 局部覆盖
 // TextFieldStyle：透明描边 + 零圆角，边框完全交给外框（TextField 无单实例样式
@@ -840,7 +849,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     urlStyle.outlined.focused_border = huxerui::Color::Transparent();
     urlStyle.outlined.corner_radii = huxerui::CornerRadii{0.0F};
     // 高度对齐旁边的"发送"按钮：ButtonStyle 默认 minimum_height=0，按钮高由内容
-    // 撑出 = 14pt 文字行高（约 16pt）+ padding Symmetric(14,8) 的 16pt ≈ 32pt；
+    // 撑出 = 14pt 文字行高（约 16pt）+ padding Symmetric(10,6) 的 12pt ≈ 28pt；
     // 而 Outlined 变体默认 minimum_height=36，整条控件比按钮高一截。这里把
     // minimum_height 收到 control_height(32)，内容高（14pt 文字 + 垂直 padding
     // 12pt ≈ 28pt）低于它，由 minimum_height 定高且文字垂直居中；padding 同步
@@ -924,6 +933,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
             huxerui::View{std::move(urlField).With(huxerui::Grow(1.0F))}),
     }
         .With(huxerui::Spacing(0.0F),
+              huxerui::Background(islands.raised),
               huxerui::Border(theme.colors.outline, 1.0F),
               huxerui::CornerRadius(islands.large_control_radius), huxerui::ClipChildren(),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
@@ -934,10 +944,12 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
 [[huxerui::composable]] huxerui::View PageHeader(std::string title, std::string subtitle) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Column {
-               huxerui::Text(std::move(title), huxerui::TextRole::Title),
-               huxerui::Text(std::move(subtitle), huxerui::TextRole::Body),
+               huxerui::Text(std::move(title), huxerui::TextRole::Title)
+                   .With(huxerui::Foreground(theme.colors.on_surface)),
+               huxerui::Text(std::move(subtitle), huxerui::TextRole::Body)
+                   .With(huxerui::Foreground(theme.colors.on_surface_variant)),
            }
-        .With(huxerui::Spacing(4.0F), huxerui::Foreground(theme.colors.on_surface_variant));
+        .With(huxerui::Spacing(theme.spacing.extra_small));
 }
 
 // 尚未迁移完成的页面占位。

@@ -72,8 +72,8 @@ namespace {
 // kTitleBarContentHeight / kProjectTabWidth / kSettingsTabDisplayKey 见 ui.h；
 // TopTabDisplayKey / ProjectTabDragPayload / TopTab / TopTabStrip / LogoBadge 见 title_bar.cpp。
 
-// apitab 海洋品牌主题：以设计稿中的深海蓝、冰川青、玻璃白为共同骨架。
-// 两套模式只反转表面明度，不反转品牌色，保证 logo、选中态和交互反馈始终统一。
+// apitab 水母品牌主题：颜色先落到语义 token，再由 typed style 统一消费。
+// 这组值对应参考图的浅色/深色设计板；页面不应再直接散落品牌色。
 huxerui::ThemeSpec OceanDarkThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
     spec.typography = huxerui::TypographyScheme{
@@ -84,39 +84,43 @@ huxerui::ThemeSpec OceanDarkThemeSpec() {
         .title_large = font_size::kTitle,
         .headline_small = 26.0F,
     };
-    spec.shapes = huxerui::ShapeScheme{.extra_small = 6.0F,
-                                       .small = 10.0F,
-                                       .medium = 14.0F,
-                                       .large = 20.0F,
-                                       .extra_large = 28.0F,
+    spec.shapes = huxerui::ShapeScheme{.extra_small = 4.0F,
+                                       .small = 6.0F,
+                                       .medium = 8.0F,
+                                       .large = 12.0F,
+                                       .extra_large = 18.0F,
                                        .full = 10000.0F};
     spec.spacing = huxerui::SpacingScheme{.extra_small = 4.0F,
-                                          .small = 10.0F,
-                                          .medium = 18.0F,
-                                          .large = 26.0F,
-                                          .extra_large = 34.0F};
-    spec.colors.primary = huxerui::Color::Rgb(138, 228, 242);
-    spec.colors.on_primary = huxerui::Color::Rgb(6, 39, 58);
-    spec.colors.primary_container = huxerui::Color::Rgb(18, 68, 90);
-    spec.colors.on_primary_container = huxerui::Color::Rgb(198, 245, 252);
-    spec.colors.secondary = huxerui::Color::Rgb(165, 214, 228);
-    spec.colors.on_secondary = huxerui::Color::Rgb(8, 39, 55);
-    spec.colors.secondary_container = huxerui::Color::Rgb(34, 75, 97);
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(213, 245, 250);
-    spec.colors.tertiary_container = huxerui::Color::Rgb(60, 65, 107);
-    spec.colors.on_tertiary_container = huxerui::Color::Rgb(240, 237, 255);
-    spec.colors.background = huxerui::Color::Rgb(6, 24, 39);
-    spec.colors.surface = huxerui::Color::Rgb(10, 34, 53);
-    spec.colors.surface_container_low = huxerui::Color::Rgb(12, 42, 63);
-    spec.colors.surface_container = huxerui::Color::Rgb(16, 51, 75);
-    spec.colors.surface_container_high = huxerui::Color::Rgb(22, 66, 90);
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(28, 82, 107);
-    spec.colors.on_surface = huxerui::Color::Rgb(233, 249, 252);
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(161, 197, 209);
-    spec.colors.outline = huxerui::Color::Rgb(60, 110, 128);
-    spec.colors.inverse_surface = huxerui::Color::Rgb(233, 249, 252);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(8, 35, 55);
-    spec.colors.error = huxerui::Color::Rgb(255, 155, 143);
+                                          .small = 8.0F,
+                                          .medium = 12.0F,
+                                          .large = 16.0F,
+                                          .extra_large = 24.0F};
+    spec.motion.fast = 0.16;
+    spec.motion.normal = 0.20;
+    spec.motion.slow = 0.30;
+    spec.colors.primary = huxerui::Color::Rgb(67, 211, 220);          // #43D3DC
+    spec.colors.on_primary = huxerui::Color::Rgb(7, 30, 35);
+    spec.colors.primary_container = huxerui::Color::Rgb(21, 52, 61);  // #15343D
+    spec.colors.on_primary_container = huxerui::Color::Rgb(234, 247, 248);
+    spec.colors.secondary = huxerui::Color::Rgb(157, 187, 192);       // #9DBBC0
+    spec.colors.on_secondary = huxerui::Color::Rgb(7, 21, 27);
+    spec.colors.secondary_container = huxerui::Color::Rgb(16, 42, 51); // #102A33
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(234, 247, 248);
+    spec.colors.tertiary_container = huxerui::Color::Rgb(26, 63, 74);
+    spec.colors.on_tertiary_container = huxerui::Color::Rgb(191, 239, 242);
+    spec.colors.background = huxerui::Color::Rgb(7, 21, 27);         // #07151B
+    spec.colors.surface = huxerui::Color::Rgb(12, 32, 40);            // #0C2028
+    spec.colors.surface_container_low = huxerui::Color::Rgb(16, 42, 51); // #102A33
+    spec.colors.surface_container = huxerui::Color::Rgb(21, 52, 61); // #15343D
+    spec.colors.surface_container_high = huxerui::Color::Rgb(26, 62, 72);
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(21, 52, 61); // elevated
+    spec.colors.on_surface = huxerui::Color::Rgb(234, 247, 248);     // #EAF7F8
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(157, 187, 192);
+    spec.colors.outline = huxerui::Color::Rgb(33, 67, 75);            // #21434B
+    spec.colors.inverse_surface = huxerui::Color::Rgb(234, 247, 248);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(7, 21, 27);
+    spec.colors.error = huxerui::Color::Rgb(255, 142, 134);
+    spec.interactions.focus_ring = huxerui::FocusRing{spec.colors.primary, 2.0F, 2.0F};
     return spec;
 }
 
@@ -130,39 +134,43 @@ huxerui::ThemeSpec OceanLightThemeSpec() {
         .title_large = font_size::kTitle,
         .headline_small = 26.0F,
     };
-    spec.shapes = huxerui::ShapeScheme{.extra_small = 6.0F,
-                                       .small = 10.0F,
-                                       .medium = 14.0F,
-                                       .large = 20.0F,
-                                       .extra_large = 28.0F,
+    spec.shapes = huxerui::ShapeScheme{.extra_small = 4.0F,
+                                       .small = 6.0F,
+                                       .medium = 8.0F,
+                                       .large = 12.0F,
+                                       .extra_large = 18.0F,
                                        .full = 10000.0F};
     spec.spacing = huxerui::SpacingScheme{.extra_small = 4.0F,
-                                          .small = 10.0F,
-                                          .medium = 18.0F,
-                                          .large = 26.0F,
-                                          .extra_large = 34.0F};
-    spec.colors.primary = huxerui::Color::Rgb(7, 142, 174);
-    spec.colors.on_primary = huxerui::Color::Rgb(244, 253, 255);
-    spec.colors.primary_container = huxerui::Color::Rgb(215, 243, 247);
-    spec.colors.on_primary_container = huxerui::Color::Rgb(7, 54, 76);
-    spec.colors.secondary = huxerui::Color::Rgb(71, 140, 162);
-    spec.colors.on_secondary = huxerui::Color::Rgb(246, 253, 255);
-    spec.colors.secondary_container = huxerui::Color::Rgb(220, 239, 243);
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(23, 60, 75);
-    spec.colors.tertiary_container = huxerui::Color::Rgb(232, 228, 250);
-    spec.colors.on_tertiary_container = huxerui::Color::Rgb(62, 59, 103);
-    spec.colors.background = huxerui::Color::Rgb(239, 248, 251);
-    spec.colors.surface = huxerui::Color::Rgb(250, 254, 255);
-    spec.colors.surface_container_low = huxerui::Color::Rgb(244, 251, 253);
-    spec.colors.surface_container = huxerui::Color::Rgb(231, 244, 247);
-    spec.colors.surface_container_high = huxerui::Color::Rgb(220, 239, 243);
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(255, 255, 255);
-    spec.colors.on_surface = huxerui::Color::Rgb(18, 49, 69);
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(85, 119, 135);
-    spec.colors.outline = huxerui::Color::Rgb(182, 209, 218);
-    spec.colors.inverse_surface = huxerui::Color::Rgb(18, 49, 69);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(239, 251, 253);
-    spec.colors.error = huxerui::Color::Rgb(217, 94, 99);
+                                          .small = 8.0F,
+                                          .medium = 12.0F,
+                                          .large = 16.0F,
+                                          .extra_large = 24.0F};
+    spec.motion.fast = 0.16;
+    spec.motion.normal = 0.20;
+    spec.motion.slow = 0.30;
+    spec.colors.primary = huxerui::Color::Rgb(40, 184, 199);          // #28B8C7
+    spec.colors.on_primary = huxerui::Color::Rgb(7, 52, 58);
+    spec.colors.primary_container = huxerui::Color::Rgb(205, 239, 242); // #CDEFF2
+    spec.colors.on_primary_container = huxerui::Color::Rgb(24, 52, 58);
+    spec.colors.secondary = huxerui::Color::Rgb(96, 122, 128);       // #607A80
+    spec.colors.on_secondary = huxerui::Color::White();
+    spec.colors.secondary_container = huxerui::Color::Rgb(239, 249, 250); // #EFF9FA
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(24, 52, 58);
+    spec.colors.tertiary_container = huxerui::Color::Rgb(224, 246, 247);
+    spec.colors.on_tertiary_container = huxerui::Color::Rgb(35, 82, 90);
+    spec.colors.background = huxerui::Color::Rgb(247, 252, 253);     // #F7FCFD
+    spec.colors.surface = huxerui::Color::White();                    // #FFFFFF
+    spec.colors.surface_container_low = huxerui::Color::Rgb(239, 249, 250); // #EFF9FA
+    spec.colors.surface_container = huxerui::Color::Rgb(244, 250, 251);
+    spec.colors.surface_container_high = huxerui::Color::Rgb(230, 246, 247);
+    spec.colors.surface_container_highest = huxerui::Color::White();
+    spec.colors.on_surface = huxerui::Color::Rgb(24, 52, 58);         // #18343A
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(96, 122, 128);
+    spec.colors.outline = huxerui::Color::Rgb(217, 234, 236);         // #D9EAEC
+    spec.colors.inverse_surface = huxerui::Color::Rgb(24, 52, 58);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(247, 252, 253);
+    spec.colors.error = huxerui::Color::Rgb(190, 65, 78);
+    spec.interactions.focus_ring = huxerui::FocusRing{spec.colors.primary, 2.0F, 2.0F};
     return spec;
 }
 
@@ -176,16 +184,22 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
         return c;
     };
 
-    huxerui::ButtonStyle buttons;
+    huxerui::ButtonStyle buttons = huxerui::ButtonStyle::Default();
     buttons.background = spec.colors.primary;
     buttons.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                              spec.colors.on_primary};
+    buttons.disabled_background = withAlpha(spec.colors.on_surface, 0.10F);
+    buttons.disabled_label = withAlpha(spec.colors.on_surface, 0.42F);
     buttons.padding = huxerui::EdgeInsets::Symmetric(16.0F, 9.0F);
     buttons.minimum_height = 36.0F;
     buttons.corner_radii = huxerui::CornerRadii{spec.shapes.medium};
+    buttons.indication = huxerui::Indication{
+        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_primary, 0.10F)},
+        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_primary, 0.18F)},
+    };
     definition.Set(buttons);
 
-    huxerui::SegmentedButtonStyle segments;
+    huxerui::SegmentedButtonStyle segments = huxerui::SegmentedButtonStyle::Default();
     segments.background = spec.colors.surface;
     segments.selected_background = spec.colors.primary;
     segments.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
@@ -193,8 +207,62 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     segments.selected_label = spec.colors.on_primary;
     segments.border = huxerui::Border{spec.colors.outline, 1.0F};
     segments.selected_border = huxerui::Border{spec.colors.primary, 1.0F};
+    segments.padding = huxerui::EdgeInsets::Symmetric(12.0F, 6.0F);
+    segments.minimum_height = 32.0F;
     segments.corner_radii = huxerui::CornerRadii{spec.shapes.medium};
     definition.Set(segments);
+
+    huxerui::ChipStyle chips = huxerui::ChipStyle::Default();
+    chips.background = spec.colors.surface_container_low;
+    chips.selected_background = spec.colors.primary_container;
+    chips.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kChip),
+                                           spec.colors.on_surface_variant};
+    chips.selected_label = spec.colors.on_primary_container;
+    chips.border = huxerui::Border{spec.colors.outline, 1.0F};
+    chips.selected_border = huxerui::Border{spec.colors.primary, 1.0F};
+    chips.padding = huxerui::EdgeInsets::Symmetric(10.0F, 4.0F);
+    chips.minimum_height = 24.0F;
+    chips.corner_radii = huxerui::CornerRadii{spec.shapes.full};
+    definition.Set(chips);
+
+    huxerui::TabsStyle tabs = huxerui::TabsStyle::Default();
+    tabs.background = huxerui::Color::Transparent();
+    tabs.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
+                                          spec.colors.on_surface_variant};
+    tabs.selected_label = spec.colors.on_surface;
+    tabs.indicator = spec.colors.primary;
+    tabs.indicator_height = 2.0F;
+    tabs.indicator_corner_radius = 1.0F;
+    tabs.divider_color = huxerui::Color::Transparent();
+    tabs.divider_height = 0.0F;
+    tabs.item_padding = huxerui::EdgeInsets::Symmetric(12.0F, 6.0F);
+    tabs.minimum_height = 32.0F;
+    tabs.indication = huxerui::Indication{
+        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.primary, 0.06F)},
+        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.primary, 0.12F)},
+    };
+    tabs.indicator_animation_duration = spec.motion.normal;
+    definition.Set(tabs);
+
+    huxerui::TreeViewStyle tree = huxerui::TreeViewStyle::Default();
+    tree.background = huxerui::Color::Transparent();
+    tree.foreground = spec.colors.on_surface;
+    tree.disabled_foreground = withAlpha(spec.colors.on_surface, 0.42F);
+    tree.selected_background = withAlpha(spec.colors.primary, 0.12F);
+    tree.active_background = withAlpha(spec.colors.primary, 0.06F);
+    tree.focus_indicator = spec.colors.primary;
+    tree.item_extent = 32.0F;
+    tree.item_padding = 6.0F;
+    tree.indication = huxerui::Indication{
+        .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.06F)},
+        .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.10F)},
+    };
+    definition.Set(tree);
+
+    huxerui::DividerStyle divider = huxerui::DividerStyle::Default();
+    divider.color = spec.colors.outline;
+    divider.thickness = 1.0F;
+    definition.Set(divider);
 
     huxerui::TextFieldStyle fields = huxerui::TextFieldStyle::Default();
     fields.text_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
@@ -211,11 +279,18 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     for (huxerui::TextFieldVariantStyle* variant : {&fields.standard, &fields.filled,
                                                     &fields.outlined}) {
         variant->background = spec.colors.surface_container_highest;
+        variant->disabled_background = withAlpha(spec.colors.on_surface, 0.06F);
         variant->border = spec.colors.outline;
         variant->hovered_border = spec.colors.secondary;
         variant->focused_border = spec.colors.primary;
+        variant->disabled_border = withAlpha(spec.colors.on_surface, 0.18F);
+        variant->minimum_height = 36.0F;
         variant->corner_radii = huxerui::CornerRadii{spec.shapes.medium};
     }
+    fields.standard.background = huxerui::Color::Transparent();
+    fields.filled.background = spec.colors.surface_container_low;
+    fields.outlined.background = spec.colors.surface;
+    fields.padding = huxerui::EdgeInsets::Symmetric(10.0F, 7.0F);
     definition.Set(fields);
 
     // 内置确认框（DialogHandle::Show(title, message, ...) 形态）跟随主题：DialogStyle
@@ -246,14 +321,15 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
         .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
     };
     dialogs.action_separator_color = spec.colors.outline;
-    dialogs.corner_radii = huxerui::CornerRadii{spec.shapes.large};
+    dialogs.corner_radii = huxerui::CornerRadii{
+        spec.shapes.large + spec.spacing.extra_small * 0.5F};
     dialogs.action_corner_radii = huxerui::CornerRadii{spec.shapes.medium};
     definition.Set(dialogs);
 
     // 下拉选择（Select，全局设置页/历史页在用）跟随主题：触发框与弹出菜单
     // 使用中等圆角，和请求参数行、卡片保持同一视觉节奏。
     // 叠加层沿用 DialogStyle 的 on_surface 半透明做法，不用 M3 ripple。
-    huxerui::SelectStyle selects;
+    huxerui::SelectStyle selects = huxerui::SelectStyle::Default();
     selects.background = spec.colors.surface_container_highest;
     selects.foreground = spec.colors.on_surface;
     selects.border = huxerui::Border{spec.colors.outline, 1.0F};
@@ -267,12 +343,12 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     selects.trigger_padding = huxerui::EdgeInsets::Symmetric(spec.spacing.medium,
                                                              spec.spacing.small);
     selects.item_padding = selects.trigger_padding;
-    selects.popup_shadow = huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.24F), {}, 8.0F, 0.0F};
+    selects.popup_shadow = huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.16F), {}, 12.0F, 0.0F};
     selects.content_spacing = spec.spacing.small;
     selects.validation_spacing = spec.spacing.extra_small;
-    selects.minimum_height = 48.0F;
-    selects.minimum_item_height = 40.0F;
-    selects.indicator_size = 20.0F;
+    selects.minimum_height = 36.0F;
+    selects.minimum_item_height = 36.0F;
+    selects.indicator_size = 16.0F;
     selects.corner_radii = huxerui::CornerRadii{spec.shapes.medium};
     selects.popup_corner_radii = huxerui::CornerRadii{spec.shapes.medium};
     const huxerui::Indication selectIndication{
@@ -291,12 +367,12 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     menus.foreground = spec.colors.on_surface;
     menus.icon_tint = spec.colors.on_surface_variant;
     menus.separator_color = spec.colors.outline;
-    menus.shadow = huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.24F), {}, 8.0F, 0.0F};
+    menus.shadow = huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.16F), {}, 12.0F, 0.0F};
     menus.corner_radii = huxerui::CornerRadii{spec.shapes.medium};
     menus.item_indication = selectIndication;
     definition.Set(menus);
 
-    huxerui::ComboBoxStyle combos;
+    huxerui::ComboBoxStyle combos = huxerui::ComboBoxStyle::Default();
     combos.popup_background = spec.colors.surface_container;
     combos.foreground = spec.colors.on_surface;
     combos.active_item_background = withAlpha(spec.colors.primary, 0.08F);
@@ -329,11 +405,10 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
 
 
 // 左列：图标侧边栏（选中态用实心图标变体，悬停显示文字提示）。
-// 侧栏是海洋主题里的独立导航岛，选中项用冰川青容器强调；WebSocket/TCP
+// 侧栏是海洋主题里的独立导航岛，选中项只用浅色容器和左侧指示条强调；WebSocket/TCP
 // 已并入请求页标签，不再单列。
 [[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const IslandTheme islands = ResolveIslandTheme(theme);
     auto tasks = huxerui::UseTaskScope();
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     struct Item {
@@ -356,20 +431,27 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
         const bool selected = navPage.Get() == page;
         const huxerui::ImageResource& icon = selected ? item.icon_selected : item.icon;
         buttons.push_back(
-            huxerui::Row{huxerui::IconButton(icon, item.tooltip)
-                             .OnClick([tasks, navPage, page] {
-                                 // 切页会卸载内容子树：推迟出指针事件路径
-                                 tasks.Launch([=]() -> huxerui::Task<void> {
-                                     co_await huxerui::Delay(std::chrono::duration<double>{0});
-                                     navPage = page;
-                                 });
-                             })}
+            huxerui::Row{
+                huxerui::Row{}
+                    .With(huxerui::Frame{.width = 3.0F, .height = 20.0F},
+                          huxerui::Background(selected ? theme.colors.primary
+                                                        : huxerui::Color::Transparent()),
+                          huxerui::CornerRadius(theme.shapes.full)),
+                huxerui::IconButton(icon, item.tooltip)
+                    .OnClick([tasks, navPage, page] {
+                        // 切页会卸载内容子树：推迟出指针事件路径
+                        tasks.Launch([=]() -> huxerui::Task<void> {
+                            co_await huxerui::Delay(std::chrono::duration<double>{0});
+                            navPage = page;
+                        });
+                    }),
+            }
                 .With(huxerui::Frame{.width = 40.0F, .height = 40.0F},
                       huxerui::Background(selected ? theme.colors.primary_container
                                                     : huxerui::Color::Transparent()),
-                      huxerui::CornerRadius(theme.shapes.medium),
-                      huxerui::Border(selected ? theme.colors.primary : theme.colors.outline,
-                                      selected ? 1.0F : 0.0F))
+                      huxerui::CornerRadius(theme.shapes.small),
+                      huxerui::Spacing(2.0F),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
                 .With(huxerui::Tooltip(item.tooltip)));
     }
     return huxerui::Column(std::move(buttons))
@@ -377,7 +459,6 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
               huxerui::Spacing(theme.spacing.small),
               huxerui::Frame{.width = compact ? 52.0F : 64.0F},
               huxerui::Background(theme.colors.surface_container_low),
-              huxerui::Border(islands.outline_soft, 1.0F),
               huxerui::CornerRadius(theme.shapes.large),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }

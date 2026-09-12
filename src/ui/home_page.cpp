@@ -26,14 +26,18 @@ namespace apitab::ui {
 namespace {
 
 // 首页品牌入口：把设计稿里的 apitab 标记落到真实工作台中，作为组织/项目
-// 两个业务岛屿之前的轻量欢迎卡。卡片只使用主题 token，深浅模式共享同一结构。
+// 两个业务岛屿之前的轻量欢迎卡。品牌只承担欢迎和定位，不给整个工作区染色。
 [[huxerui::composable]] huxerui::View BrandIntro() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Row {
-        huxerui::Row{BrandMark(36.0F)}
-            .With(huxerui::Frame{.width = 52.0F, .height = 52.0F},
+        huxerui::Row{}
+            .With(huxerui::Frame{.width = 3.0F, .height = 42.0F},
+                  huxerui::Background(theme.colors.primary),
+                  huxerui::CornerRadius(theme.shapes.full)),
+        huxerui::Row{BrandMark(30.0F)}
+            .With(huxerui::Frame{.width = 46.0F, .height = 46.0F},
                   huxerui::Background(theme.colors.surface),
-                  huxerui::Border(theme.colors.primary, 1.0F),
+                  huxerui::Border(theme.colors.outline, 1.0F),
                   huxerui::CornerRadius(theme.shapes.medium),
                   huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
@@ -41,15 +45,18 @@ namespace {
             BrandWordmark(20.0F),
             huxerui::Text("让每一次请求都清澈可见", huxerui::TextRole::Body)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+            huxerui::Text("One Tab For a Brighter Connection", huxerui::TextRole::Label)
+                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
         }
-            .With(huxerui::Spacing(4.0F), huxerui::Grow(1.0F)),
+            .With(huxerui::Spacing(theme.spacing.extra_small), huxerui::Grow(1.0F)),
         huxerui::Text("API 工作台", huxerui::TextRole::Label)
             .With(huxerui::Foreground(theme.colors.primary)),
     }
-        .With(huxerui::Padding(theme.spacing.medium), huxerui::Spacing(theme.spacing.medium),
-              huxerui::Background(theme.colors.primary_container),
-              huxerui::Border(theme.colors.primary, 1.0F),
-              huxerui::CornerRadius(theme.shapes.large), huxerui::Frame{.min_height = 76.0F},
+        .With(huxerui::Padding(theme.spacing.medium),
+              huxerui::Spacing(theme.spacing.medium),
+              huxerui::Background(theme.colors.surface),
+              huxerui::Border(theme.colors.outline, 1.0F),
+              huxerui::CornerRadius(theme.shapes.large), huxerui::Frame{.min_height = 82.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
