@@ -564,11 +564,15 @@ std::string_view SyntaxForBodyKind(std::size_t kind);
 std::string StripJsonComments(const std::string& in);
 std::string PrettyXml(const std::string& input);
 
-// request_editor.cpp — KV 编辑原语与请求编辑器（P1-C1 自 request_page.cpp 拆出，
-// KV 为单一 owner）：KvTable（回调风格，行数据寄宿草稿；类型列下拉随值自动推断）
-// 被编辑器与环境表单共用，签名仅用 draft.h/huxerui/std 类型，可安全进头文件；
-// 其余桥接（ToKeyValue/FromKeyValue/SpecFromDraft/CookiesFromHeaders 等，签名含
-// 模块类型）留在 owner TU 内，不进头文件（CLAUDE.md 模块约束）。
+// request_editor.cpp — 请求编辑器本体（P1-C1 自 request_page.cpp 拆出，P1-C2
+// 再拆出 request_editor_kv.cpp）：顶部切换、方法/URL/发送/保存栏、Params/
+// Headers/Cookies/Body 分区编排与保存/发送/Mock 完整路径。测试用例/Mock 桥接
+// （SpecFromDraft/CookiesFromHeaders 等，签名含模块类型）留在 owner TU 内，
+// 不进头文件（CLAUDE.md 模块约束）。
+// request_editor_kv.cpp — KV 编辑原语实现：KvTable（回调风格，行数据寄宿草稿；
+// 类型列下拉随值自动推断）被编辑器与环境表单共用；下方桥接（Header/认证/类型
+// 推断）供 RequestEditor 跨 TU 调用，签名仅用 draft.h/huxerui/std 类型。
+// ToKeyValue/FromKeyValue 依赖 api::KeyValue（模块类型），留在 request_editor.cpp。
 struct KvTableOptions {
     bool show_type = true;
     bool show_remark = true;
@@ -593,6 +597,17 @@ huxerui::View RequestEditor(
     huxerui::StateList<std::string> responseHeaders,
     huxerui::StateList<std::string> responseCookies,
     huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab);
+
+// 把 vector 同步进 StateList（尾部对齐，多退少补）；KV 表批量导入与编辑器
+// 草稿回填共用，定义在 request_editor_kv.cpp。
+void ReplaceStringList(huxerui::StateList<std::string> target,
+                       const std::vector<std::string>& values);
+// 请求头桥接与认证值读写（大小写不敏感匹配；写侧先清除旧 Authorization/
+// X-API-Key 再按模式补写），供 RequestEditor 的认证模式切换调用。
+std::string HeaderValue(const std::vector<KvRow>& headers, std::string_view name);
+std::size_t AuthModeFromHeaders(const std::vector<KvRow>& headers);
+std::string BearerToken(const std::vector<KvRow>& headers);
+void SetAuthValue(RequestDraft& draft, std::size_t mode, const std::string& value);
 
 // environment_widgets.cpp — 环境配置弹窗（P1-C1 自 request_page.cpp 拆出）：左侧
 // 环境列表（选中/新建/重命名/删除）+ 右侧选中环境的名称/基础 URL/变量 KV 表，
@@ -670,6 +685,17 @@ huxerui::View HistoryPage();
 huxerui::View GlobalSettingsPage(huxerui::State<int> themeMode, huxerui::State<int> closeBehavior,
                                  huxerui::State<std::size_t> category,
                                  huxerui::State<huxerui::ImageAsset> avatarImage);
+
+// settings_avatar_crop.cpp — 头像裁剪子系统（自 settings_page.cpp 拆出）：
+// PersonalInfo 表单仅依赖这两个入口（拖放接入/变换数学/缩放控制条留在实现 TU）。
+huxerui::View AvatarCropImage(
+    huxerui::ImageAsset source, float stageSize,
+    huxerui::State<float> imageScale, huxerui::State<float> imageRotation,
+    huxerui::State<float> imageOffsetX, huxerui::State<float> imageOffsetY);
+huxerui::View AvatarCropDialog(
+    huxerui::DialogContext ctx, std::string sourcePath, huxerui::ImageAsset source,
+    huxerui::State<std::string> avatarName,
+    huxerui::State<huxerui::ImageAsset> avatarImage, std::shared_ptr<bool> canceled);
 
 // project_settings_page.cpp（当前项目设置）
 huxerui::View ProjectSettingsPage();
