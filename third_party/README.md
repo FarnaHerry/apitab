@@ -62,3 +62,12 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
 - SweetEdit 与嵌套 SweetEditor（`bd4330e`）、SweetLine（`64665d9`）上游均无新提交。
 - 按流程重建 hcg/hrc 到 `third_party/huxerui-tools/linux/x86_64/`，并清理
   `build/hcg`、`build/huxerui-resources` 旧产物；`apitab` 全量构建链接通过。
+
+### 2026-09-13 上游同步（PR #137）
+
+- HuxerUI 源码 `445488a` → `64264cb`：合入本地贡献的 PR #137（Linux Pango 文本
+  布局跨 measure 缓存与超限回收，仅 `platform/linux/linux_renderer.cpp` 与渲染
+  测试），与三份本地补丁零重叠，反向校验后重置重放全部干净套用。
+- SweetEdit 与嵌套 SweetEditor（`bd4330e`）、SweetLine（`64665d9`）上游仍无新提交。
+- 重建 hcg/hrc；清掉 `build/huxerui-resources` 后 ninja 仍引用其中旧资源计划，
+  重新 configure 再生成后 `apitab` 全量构建链接通过。
