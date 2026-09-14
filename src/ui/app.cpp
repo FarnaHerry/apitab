@@ -1,10 +1,10 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 托盘）：
-//   标题栏岛：Logo(AT) + 顶级标签条（TopTabStrip：主页钉在最左、项目标签横向滚动、
-//     设置单例标签固定追加在所有项目标签之后）+ 齿轮（全局设置单例标签）+
-//     框架窗口按钮；收窄为 24px 高，使用轻量玻璃背景融入窗口底色，
+//   标题栏（不做岛，直接落海面）：Logo(AT) + 顶级标签条（TopTabStrip：主页钉在最左、
+//     项目标签横向滚动、设置单例标签固定追加在所有项目标签之后）+ 齿轮（全局设置
+//     单例标签）+ 框架窗口按钮；收窄为 24px 高，
 //     主题为 apitab 海洋品牌风：深海蓝、冰川青、玻璃白与柔和的水母紫点缀。
-//   下方：左侧图标侧边栏（独立导航岛）｜内容区（页面自己的一级岛屿划分区域，
-//   外壳不再套岛）。根节点刷整窗底色（rootSpec.colors.background——
+//   下方：左侧图标侧边栏（同样不做岛，直接落海面）｜内容区（页面自己的一级岛屿
+//   划分区域，外壳不再套岛）。根节点刷整窗底色（rootSpec.colors.background——
 //   AppRoot 在主题 provider 之上，UseTheme 只能拿到默认浅色 spec，须按 dark 自选）。
 //   顶级位置模型（island-structure-theme.md §13.1，P1-B0.1）：主页/项目/全局设置
 //   统一为同一套顶级标签（TopTabId/TopTabState 见 ui.h），内容区按 activeTopTab
@@ -418,8 +418,8 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
 
 
 // 左列：图标侧边栏（选中态用实心图标变体，悬停显示文字提示）。
-// 侧栏是海洋主题里的独立导航岛，选中项只用浅色容器和左侧指示条强调；WebSocket/TCP
-// 已并入请求页标签，不再单列。
+// 侧栏不做岛、直接落在海面（窗口背景）上，选中项只用实心图标变体和左侧指示条
+// 强调；WebSocket/TCP 已并入请求页标签，不再单列。
 [[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
@@ -471,8 +471,6 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
         .With(huxerui::Padding(compact ? theme.spacing.small : theme.spacing.medium),
               huxerui::Spacing(theme.spacing.small),
               huxerui::Frame{.width = compact ? 52.0F : 64.0F},
-              huxerui::Background(theme.colors.surface_container_low),
-              huxerui::CornerRadius(theme.shapes.large),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
@@ -750,7 +748,8 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     });
 
     huxerui::View content = huxerui::Column {
-        // 自定义标题栏岛：Logo + 顶级标签条 + 齿轮（框架在其右侧渲染窗口按钮）。
+        // 自定义标题栏（不做岛，直接落海面）：Logo + 顶级标签条 + 齿轮（框架在其
+        // 右侧渲染窗口按钮）。
         // 全部内容统一 24pt 高（kTitleBarContentHeight = title_bar_height）；
         // WindowTitleBar 构造即带交叉轴居中，这里给中间标签条包装 Row 也补上
         // 居中，任何一侧偏高都不漂移。
@@ -802,15 +801,13 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
             // 用户头像：固定圆形命中区；点击打开登录弹窗。
             std::move(topAvatar),
         }
-            // 标签栏保持轻量，但使用低层级玻璃表面把品牌导航从内容区托起。
-            // 垂直零内边距：内容本身 24pt 高，与 title_bar_height 对齐，避免
-            // 标题栏下缘与岛屿之间多出一条空隙。
+            // 标题栏不做岛（§2.2 停靠区域）：壳层导航直接落在窗口背景上，不再
+            // 用玻璃表面/描边自成一层。垂直零内边距：内容本身 24pt 高，与
+            // title_bar_height 对齐，避免标题栏下缘与内容岛之间多出一条空隙。
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                       compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small, 0.0F)),
-                  huxerui::Spacing(gap),
-                  huxerui::Background(rootSpec.colors.surface_container_low),
-                  huxerui::Border(rootSpec.colors.outline, 1.0F)),
-        // 主行：导航岛 + 内容区；Grow 吃满标题栏之外的剩余高度。
+                  huxerui::Spacing(gap)),
+        // 主行：图标侧栏（直接落海面）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
         // 仅 Project(id) 顶级标签显示侧栏；主页/设置整宽覆盖。
         // 占位必须用空 Row——Spacer 自带 Grow(1)，会分走一半宽度。
