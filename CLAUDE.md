@@ -121,6 +121,16 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
 - 主题从 MaterialTheme/MaterialDarkTheme 等内置主题定制；受控值以应用状态为
   权威；动态兄弟用稳定 Key。
 - 框架资源：resources.bin 拷到 `<exe>.resources/huxerui/`（POST_BUILD 完成）。
+- **弹层菜单行禁用 `Grow`（菜单宽度必须自适应）**：流式布局测量中，行内只要
+  有 Grow 子项且约束有限，行宽直接取约束上限、无视内容固有宽度（HuxerUI
+  `containers.cpp` MeasureAxisLayout）；而弹层的测量上限≈视口宽——菜单行用
+  Grow 推尾随图标曾导致所有菜单层（根层/级联子层）铺满可用宽度（6266d446
+  引入，fff4b557 修复）。自绘菜单（common.cpp `PopupMenuContent` /
+  `PopupMenuRow`）的宽度契约：整层收缩到最宽条目、下限取
+  `MenuStyle.minimum_width`，不加宽度上限；尾随元素（级联箭头等）紧随文字
+  排布（Spacing(6)），通栏 hover/选中背景靠外层 Column 的
+  `CrossAlign(Stretch)` 保证。其他"容器宽度由内容决定"的弹层/自适应场景同理：
+  行内 `Grow` 或 `MainAlign` 非 `Start` 都会 claim 可用上限，不得使用。
 - **SDK/源码版本更新时检索计划项**：HuxerUI 版本变化（tarball 换新或
   `third_party/huxerui` git pull 升级）后，按 `docs/plans/` 里各计划的
   「版本检索规则」检索新版能力（多窗口/跨窗口拖放等，见
