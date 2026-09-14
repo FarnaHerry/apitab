@@ -609,18 +609,22 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
         reg->closeChild = closer;
     };
 
+    // 行内不使用 Grow：流式布局测量中"有 Grow 子项且约束有限"会直接把行宽
+    // 取为约束上限（弹层上限≈视口宽），菜单便失去自适应宽度、铺满可用空间；
+    // 通栏背景由外层 Column 的 CrossAlign(Stretch) 保证，箭头紧随文字。
     huxerui::View row =
         huxerui::Row {
             huxerui::Text(item.label, huxerui::TextRole::Body)
-                .With(huxerui::Grow(1.0F), huxerui::Foreground(labelColor)),
+                .With(huxerui::Foreground(labelColor)),
             hasChildren
                 ? huxerui::View{huxerui::Image(app::images::chevron_right)
                                      .Fit(huxerui::ImageFit::Contain)
                                      .Tint(labelColor)
                                      .With(huxerui::Frame{.width = 16.0F, .height = 16.0F})}
-                : huxerui::View{huxerui::Row{}.With(huxerui::Frame{.width = 16.0F})},
+                : huxerui::View{},
         }
-            .With(// 选中项：深于 hover 的填充底色（无对钩）。Background 在
+            .With(huxerui::Spacing(6.0F),
+                  // 选中项：深于 hover 的填充底色（无对钩）。Background 在
                   // Padding 外层，整行铺满。
                   huxerui::Background(item.checked ? selectedFill
                                                    : huxerui::Color::Transparent()),
@@ -702,21 +706,18 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
     // 条目多时长列表限高滚动（方法下拉有 20 项，不限高会顶穿屏幕）：行列表
     // 进 ScrollView + ScrollBar，max_height 只封顶、内容不足时按内容收缩。
     constexpr float kMenuMaxHeight = 320.0F;
-    // 菜单层宽度上限（根层与级联子层共用本内容构建）。
-    constexpr float kMenuMaxWidth = 360.0F;
+    // 宽度自适应：行内不用 Grow（见 PopupMenuRow），本层收缩到最宽条目，
+    // 仅保菜单样式的最小宽。
     huxerui::View list = huxerui::ScrollView {
         huxerui::Column{std::move(rows)}.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
     }
                            .With(huxerui::ScrollBar(),
                                  huxerui::Frame{.max_height = kMenuMaxHeight});
-    // 菜单层宽度上下限：弹层的测量约束是松的（上限≈视口宽），一旦内容链某处
-    // 给出超固有宽的测量（如级联子层），没有上限就会直接铺满屏幕。下限沿用
-    // 菜单样式，上限取上下文菜单的常规上限——正常条目（≤360pt）渲染零变化。
     return huxerui::Column{std::move(list)}.With(
         menuStyle.shadow, huxerui::Background(menuStyle.background),
         huxerui::CornerRadius(menuStyle.corner_radii.top_left), huxerui::ClipChildren(),
         huxerui::Padding(menuStyle.content_padding),
-        huxerui::Frame{.min_width = menuStyle.minimum_width, .max_width = kMenuMaxWidth},
+        huxerui::Frame{.min_width = menuStyle.minimum_width},
         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
