@@ -585,6 +585,22 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
         .item_padding = 0.0F,
         .indication = huxerui::Indication{},
     };
+    const auto openRequest = [drafts, activeTab](const RequestTreeNodePtr& node) {
+        if (!node->request) return;
+        const std::int64_t id = node->request->id;
+        std::vector<RequestDraft> copy = drafts.Get();
+        for (std::size_t index = 0; index < copy.size(); ++index) {
+            if (copy[index].savedId == id) {
+                activeTab = index;
+                return;
+            }
+        }
+        if (const db::SavedRequest* savedRequest = g_requests.find(id)) {
+            copy.push_back(DraftFromSaved(*savedRequest));
+            drafts = copy;
+            activeTab = copy.size() - 1;
+        }
+    };
     huxerui::View requestTree = huxerui::TreeView<RequestTreeNodePtr>(
         treeRoots,
         // TreeView 延迟调用此工厂，不能捕获本 composable 的 Toast/Popup/Task handle。
@@ -661,21 +677,13 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
             if (!expanded && it == copy.end()) copy.push_back(node->group->id);
             collapsed = copy;
         })
-        .OnActivated([drafts, activeTab](const RequestTreeNodePtr& node) {
-            if (!node->request) return;
-            const std::int64_t id = node->request->id;
-            std::vector<RequestDraft> copy = drafts.Get();
-            for (std::size_t index = 0; index < copy.size(); ++index) {
-                if (copy[index].savedId == id) {
-                    activeTab = index;
-                    return;
-                }
-            }
-            if (const db::SavedRequest* savedRequest = g_requests.find(id)) {
-                copy.push_back(DraftFromSaved(*savedRequest));
-                drafts = copy;
-                activeTab = copy.size() - 1;
-            }
+        // 鼠标首击会先改变选中项；直接在这里打开请求，避免用户必须双击才能触发。
+        .OnSelectionChanged([openRequest](const RequestTreeNodePtr& node, bool selected) {
+            if (selected) openRequest(node);
+        })
+        // 保留激活事件以支持键盘 Enter 和无障碍语义激活。
+        .OnActivated([openRequest](const RequestTreeNodePtr& node) {
+            openRequest(node);
         })
         .Label("请求树")
         .ItemExtent(36.0F)

@@ -273,8 +273,8 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
 // 在线更新/遥测/账户能力）----------------------------------------------------
 // HuxerUI 版本：SDK 头没有版本常量（third_party/huxerui include/ 全量 grep
 // 已核实），用常量对齐 third_party/tarballs 的 SDK 包与 third_party/huxerui
-// 源码 project(VERSION 0.2.0)；SDK/源码升级时必须同步本常量。
-constexpr std::string_view kHuxerUiVersion = "0.2.0";
+// 源码 project(VERSION 0.3.0)；SDK/源码升级时必须同步本常量。
+constexpr std::string_view kHuxerUiVersion = "0.3.0";
 
 // 关键第三方依赖及许可证类型（版本清单以 third_party/README.md 为唯一来源，
 // 此处不重复版本号以免失同步）。许可证逐一核对自各依赖源码树：

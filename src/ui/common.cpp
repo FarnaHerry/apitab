@@ -706,8 +706,8 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
     // 条目多时长列表限高滚动（方法下拉有 20 项，不限高会顶穿屏幕）：行列表
     // 进 ScrollView + ScrollBar，max_height 只封顶、内容不足时按内容收缩。
     constexpr float kMenuMaxHeight = 320.0F;
-    // 宽度自适应：行内不用 Grow（见 PopupMenuRow），本层收缩到最宽条目，
-    // 仅保菜单样式的最小宽。
+    // 宽度自适应：行内不用 Grow（见 PopupMenuRow），本层收缩到最宽条目；
+    // 不套 MenuStyle 的固定最小宽，避免单项菜单被无意义地撑长。
     huxerui::View list = huxerui::ScrollView {
         huxerui::Column{std::move(rows)}.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
     }
@@ -717,7 +717,6 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
         menuStyle.shadow, huxerui::Background(menuStyle.background),
         huxerui::CornerRadius(menuStyle.corner_radii.top_left), huxerui::ClipChildren(),
         huxerui::Padding(menuStyle.content_padding),
-        huxerui::Frame{.min_width = menuStyle.minimum_width},
         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
@@ -857,6 +856,17 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     auto popup = huxerui::UsePopup(); // 方法下拉：自绘内容（DELETE 常驻红，MenuItem 无文字配色 API）
     const std::size_t safe = methodIndex < methods.size() ? methodIndex : 0;
 
+    huxerui::Color methodHover = theme.colors.on_surface;
+    methodHover.alpha = 0.06F;
+    huxerui::Color methodPress = theme.colors.on_surface;
+    methodPress.alpha = 0.12F;
+    const huxerui::Indication methodIndication{
+        .hover = huxerui::IndicationLayer{
+            .fill = huxerui::VisualFill{huxerui::Brush{methodHover}}},
+        .press = huxerui::IndicationLayer{
+            .fill = huxerui::VisualFill{huxerui::Brush{methodPress}}},
+    };
+
     huxerui::TextFieldStyle urlStyle = huxerui::UseEnvironment<huxerui::TextFieldStyle>();
     urlStyle.outlined.border = huxerui::Color::Transparent();
     urlStyle.outlined.hovered_border = huxerui::Color::Transparent();
@@ -888,7 +898,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
         }
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(10.0F, 6.0F)),
                   huxerui::Spacing(theme.spacing.extra_small),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center), methodIndication)
             .OnClick([popup, methods = std::move(methods), current = safe,
                       onChanged = std::move(onMethodChanged), &theme] {
                 // 点击时组件仍挂载、theme 引用有效；颜色在弹层内容里随点击

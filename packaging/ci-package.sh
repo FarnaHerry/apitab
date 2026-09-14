@@ -48,7 +48,7 @@ EOF
     chmod +x "$dist/run.sh"
 fi
 
-out="$root/apitab-v$version-$os-$arch.tar.gz"
+out="$root/apitab-$version-$os-$arch.tar.gz"
 rm -f "$out"
 tar -C "$root" -czf "$out" dist
 echo "produced: $out"

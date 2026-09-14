@@ -73,7 +73,7 @@ rpmbuild -bb \
     --define "srcdir $root/packaging" \
     "$top/SPECS/apitab.spec"
 
-out="$root/apitab-v${version}-linux-${arch}.rpm"
+out="$root/apitab-${version}-linux-${arch}.rpm"
 rm -f "$out"
 mv "$top/RPMS/${rpmarch}/apitab-${version}-1.${rpmarch}.rpm" "$out"
 rm -rf "$top"

@@ -54,7 +54,7 @@ Description: API testing and load testing tool
 Installed-Size: $(du -sk "$stage/opt" | cut -f1)
 EOF
 
-out="$root/apitab-v${version}-linux-${arch}.deb"
+out="$root/apitab-${version}-linux-${arch}.deb"
 rm -f "$out"
 dpkg-deb --root-owner-group --build "$stage" "$out"
 rm -rf "$root/dist-deb"

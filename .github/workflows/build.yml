@@ -748,15 +748,15 @@ jobs:
             -out $bundle
           if ($LASTEXITCODE -ne 0) { throw 'WiX Burn bundle assembly failed' }
           if (-not (Test-Path $bundle)) { throw 'WiX setup executable was not produced' }
-          Copy-Item $bundle "apitab-v$version-windows-x86_64-setup.exe" -Force
-          Get-Item "apitab-v$version-windows-x86_64-setup.exe"
+          Copy-Item $bundle "apitab-$version-windows-x86_64-setup.exe" -Force
+          Get-Item "apitab-$version-windows-x86_64-setup.exe"
 
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
         with:
           name: pkg-${{ matrix.name }}
           path: |
-            apitab-v*
+            apitab-*
           if-no-files-found: error
           retention-days: 14
 

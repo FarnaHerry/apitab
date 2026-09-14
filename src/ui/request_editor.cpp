@@ -832,6 +832,16 @@ huxerui::View SplitActionButton(
             hover->layer = 0;
         });
     };
+    huxerui::Color arrowHover = theme.colors.on_primary;
+    arrowHover.alpha = 0.10F;
+    huxerui::Color arrowPress = theme.colors.on_primary;
+    arrowPress.alpha = 0.18F;
+    const huxerui::Indication arrowIndication{
+        .hover = huxerui::IndicationLayer{
+            .fill = huxerui::VisualFill{huxerui::Brush{arrowHover}}},
+        .press = huxerui::IndicationLayer{
+            .fill = huxerui::VisualFill{huxerui::Brush{arrowPress}}},
+    };
     auto showAlternates = [popup, alternateLabel, onAction, alternateEnabled, hover, closeIfLeft] {
         if (!alternateEnabled) return;
         if (hover->layer != 0) return; // 同一次 hover 只挂一层，避免重复 Show 闪烁
@@ -873,6 +883,7 @@ huxerui::View SplitActionButton(
                           .With(huxerui::Frame{.width = 12.0F, .height = 12.0F})}
             .With(huxerui::Frame{.width = 24.0F, .height = islands.control_height},
                   huxerui::Background(huxerui::Color::Transparent()),
+                  arrowIndication,
                   huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                   huxerui::Focusable(true), huxerui::Enabled(alternateEnabled), popup.Anchor(),
