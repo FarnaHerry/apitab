@@ -534,7 +534,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         endif ()
     endif ()
 
-    # 常规 Windows 构建不产生安装器；仅 `huxerui package windows` 进入
+    # 常规 Windows 构建不产生安装器；仅 HUXERUI_PACKAGE=ON 进入
     # HuxerUI Burn/MSI + 自定义 HuxerUI 安装界面的发布通道。
     if (WIN32 AND COMMAND huxerui_configure_windows_project_package)
         get_target_property(APITAB_INSTALL_COMPONENT apitab HUXERUI_APPLICATION_INSTALL_COMPONENT)

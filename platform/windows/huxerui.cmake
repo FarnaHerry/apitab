@@ -9,9 +9,9 @@ configure_file(
 set(HUXERUI_WINDOWS_RESOURCE
     "${HUXERUI_WINDOWS_RESOURCE_DIRECTORY}/app.rc")
 
-# `huxerui package windows` sets HUXERUI_PACKAGE and invokes this hook after
-# the normal application target has been configured. Burn owns elevation,
-# rollback, repair, and uninstall; this project supplies its HuxerUI interface.
+# Windows packaging mode sets HUXERUI_PACKAGE and invokes this hook after the
+# normal application target has been configured. Burn owns elevation, rollback,
+# repair, and uninstall; this project supplies its HuxerUI interface.
 function(huxerui_configure_windows_project_package target_name install_component)
     if (NOT HUXERUI_PACKAGE)
         return()

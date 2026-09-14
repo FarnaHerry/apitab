@@ -311,6 +311,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           choco install openssl -y --no-progress
+          # WiX 5 is a .NET 6 host; configure-time probing happens in the
+          # build job now that the package-mode project is configured here.
+          choco install dotnet-6.0-runtime -y --no-progress
           Write-Host "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Set up MSVC environment (Windows)
@@ -380,6 +383,85 @@ jobs:
           if (-not (Test-Path (Join-Path $sdkPrefix 'lib/cmake/HuxerUI/HuxerUIConfig.cmake'))) { throw 'HuxerUI SDK CMake package not installed' }
           "HUXERUI_HOME=$sdkPrefix" | Out-File -FilePath $env:GITHUB_ENV -Append
           if (-not (Test-Path (Join-Path $sdkPrefix 'bin/huxerui.dll'))) { throw 'HuxerUI SDK DLL not installed' }
+
+      - name: Download k6 (Windows package input)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force engines, k6-tmp | Out-Null
+          $archive = "k6-v$env:K6_VERSION-windows-amd64.zip"
+          $archivePath = Join-Path $env:RUNNER_TEMP $archive
+          curl.exe -fL --retry 3 -o $archivePath "https://github.com/grafana/k6/releases/download/v$env:K6_VERSION/$archive"
+          $checksumPath = Join-Path $env:RUNNER_TEMP "k6-v$env:K6_VERSION-checksums.txt"
+          curl.exe -fL --retry 3 -o $checksumPath "https://github.com/grafana/k6/releases/download/v$env:K6_VERSION/k6-v$env:K6_VERSION-checksums.txt"
+          $expected = (Get-Content $checksumPath | Where-Object { $_ -match "\s$([regex]::Escape($archive))$" } | Select-Object -First 1) -replace '^\s*([^\s]+).*', '$1'
+          if (-not $expected) { throw "checksum entry missing for $archive" }
+          $actual = (Get-FileHash $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected.ToLowerInvariant()) { throw "checksum mismatch for $archive" }
+          Expand-Archive -Path $archivePath -DestinationPath k6-tmp -Force
+          $found = Get-ChildItem k6-tmp -Filter k6.exe -File -Recurse | Select-Object -First 1
+          if (-not $found) { throw 'k6.exe not found in archive' }
+          Copy-Item $found.FullName engines\k6.exe -Force
+          & (Join-Path $PWD 'engines\k6.exe') version
+          if ($LASTEXITCODE -ne 0) { throw 'k6.exe version probe failed' }
+
+      - name: Configure Windows package build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The package-mode CMake hook prepares WiX and emits the MSI/Burn
+          # sources here; the later job only consumes those generated files.
+          $wixRoot = Join-Path $PWD '.huxerui/package/windows/dependencies/wix'
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DHUXERUI_HOME=$env:HUXERUI_HOME" `
+            -DAPITAB_HUXERUI_FORCE_SDK=ON `
+            -DHUXERUI_PACKAGE=ON `
+            "-DHUXERUI_WIX_ROOT=$wixRoot" `
+            -DCMAKE_CXX_COMPILER=cl
+          if ($LASTEXITCODE -ne 0) { throw 'Windows package-mode configure failed' }
+
+      - name: Build Windows application and installer UI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # apitab_installer has no dependency on apitab; Ninja can compile
+          # the application and the custom HuxerUI installer page concurrently.
+          $jobs = [Environment]::ProcessorCount
+          $env:CMAKE_BUILD_PARALLEL_LEVEL = "$jobs"
+          cmake --build build --config Release --target apitab apitab_installer --parallel $jobs
+          if ($LASTEXITCODE -ne 0) { throw 'Windows application/installer build failed' }
+
+      - name: Stage Windows application and installer UI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $appStage = Join-Path $PWD 'dist-windows-application'
+          $installerStage = Join-Path $PWD 'dist-windows-installer'
+          cmake -E rm -rf $appStage $installerStage
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to clear Windows staging directories' }
+          cmake -E make_directory $appStage $installerStage
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to create Windows staging directories' }
+          cmake --install build --config Release --component HuxerUIApplication --prefix $appStage
+          if ($LASTEXITCODE -ne 0) { throw 'Windows application staging failed' }
+          cmake --install build --config Release --component HuxerUIInstaller_apitab_installer --prefix $installerStage
+          if ($LASTEXITCODE -ne 0) { throw 'Windows installer UI staging failed' }
+          foreach ($required in @(
+              (Join-Path $appStage 'apitab.exe'),
+              (Join-Path $appStage 'apitab.resources'),
+              (Join-Path $installerStage 'apitab-Installer.exe')
+          )) {
+            if (-not (Test-Path $required)) { throw "Windows staging output missing: $required" }
+          }
+          New-Item -ItemType Directory -Force windows-package-metadata, windows-package-tools | Out-Null
+          Copy-Item build/huxerui-package/windows/Package.wxs windows-package-metadata/Package.wxs -Force
+          Copy-Item build/huxerui-package/windows/Bundle.wxs windows-package-metadata/Bundle.wxs -Force
+          Copy-Item third_party/huxerui/cmake/HuxerUIGenerateWixPayloads.cmake windows-package-tools/HuxerUIGenerateWixPayloads.cmake -Force
+          Get-Item $appStage/*, $installerStage/*, windows-package-metadata/*, windows-package-tools/*
 
       - name: Build release
         if: runner.os == 'macOS'
@@ -451,23 +533,49 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload Windows HuxerUI SDK for installer packaging
+      - name: Upload Windows application component
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: huxerui-sdk-windows
-          path: huxerui-sdk
+          name: build-windows-application
+          path: dist-windows-application
           if-no-files-found: error
           retention-days: 14
 
-      # The Windows package job consumes these exact SDK/source artifacts and
-      # performs the only Windows application build together with the installer.
-      - name: Upload patched SweetEdit source for Windows installer packaging
+      - name: Upload Windows installer UI component
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: huxerui-sweetedit-windows
-          path: third_party/huxerui-sweetedit
+          name: build-windows-installer
+          path: dist-windows-installer
+          if-no-files-found: error
+          retention-days: 14
+
+      # The package job only assembles these prebuilt components with WiX.
+      - name: Upload Windows package metadata
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package-metadata
+          path: windows-package-metadata
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload HuxerUI WiX payload script
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: huxerui-wix-payload-script
+          path: windows-package-tools
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload WiX Windows dependencies
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: huxerui-wix-windows
+          path: .huxerui/package/windows/dependencies/wix
           if-no-files-found: error
           retention-days: 14
 
@@ -506,19 +614,40 @@ jobs:
           name: build-${{ matrix.name }}
           path: dist-src
 
-      - name: Download HuxerUI SDK for Windows installer packaging
+      - name: Download Windows application component
         if: runner.os == 'Windows'
         uses: actions/download-artifact@v4
         with:
-          name: huxerui-sdk-windows
-          path: huxerui-sdk
+          name: build-windows-application
+          path: dist-windows-application
 
-      - name: Download patched SweetEdit source for Windows installer packaging
+      - name: Download Windows installer UI component
         if: runner.os == 'Windows'
         uses: actions/download-artifact@v4
         with:
-          name: huxerui-sweetedit-windows
-          path: third_party/huxerui-sweetedit
+          name: build-windows-installer
+          path: dist-windows-installer
+
+      - name: Download Windows package metadata
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-package-metadata
+          path: windows-package-metadata
+
+      - name: Download HuxerUI WiX payload script
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v4
+        with:
+          name: huxerui-wix-payload-script
+          path: huxerui-wix-payload-script
+
+      - name: Download WiX Windows dependencies
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v4
+        with:
+          name: huxerui-wix-windows
+          path: .huxerui/package/windows/dependencies/wix
 
       - name: Install Unix tools
         if: runner.os != 'Windows'
@@ -557,27 +686,6 @@ jobs:
           chmod +x engines/k6
           engines/k6 version
 
-      - name: Download k6 (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force engines, k6-tmp | Out-Null
-          $archive = '${{ matrix.k6_asset }}'
-          $archivePath = Join-Path $env:RUNNER_TEMP $archive
-          curl.exe -fL --retry 3 -o $archivePath "https://github.com/grafana/k6/releases/download/v$env:K6_VERSION/$archive"
-          $checksumPath = Join-Path $env:RUNNER_TEMP "k6-v$env:K6_VERSION-checksums.txt"
-          curl.exe -fL --retry 3 -o $checksumPath "https://github.com/grafana/k6/releases/download/v$env:K6_VERSION/k6-v$env:K6_VERSION-checksums.txt"
-          $expected = (Get-Content $checksumPath | Where-Object { $_ -match "\s$([regex]::Escape($archive))$" } | Select-Object -First 1) -replace '^\s*([^\s]+).*', '$1'
-          if (-not $expected) { throw "checksum entry missing for $archive" }
-          $actual = (Get-FileHash $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne $expected.ToLowerInvariant()) { throw "checksum mismatch for $archive" }
-          Expand-Archive -Path $archivePath -DestinationPath k6-tmp -Force
-          $found = Get-ChildItem k6-tmp -Filter k6.exe -File -Recurse | Select-Object -First 1
-          if (-not $found) { throw 'k6.exe not found in archive' }
-          Copy-Item $found.FullName engines\k6.exe
-          & engines\k6.exe version
-
       - name: Package Unix archive
         if: runner.os != 'Windows'
         shell: bash
@@ -594,37 +702,53 @@ jobs:
           bash packaging/ci-package-deb.sh "$version" x86_64 dist
           bash packaging/ci-package-rpm.sh "$version" x86_64 dist
 
-      - name: Package HuxerUI Windows installer
+      - name: Install Windows packaging dependencies
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m pip install --disable-pip-version-check -q cmake==4.4.2
-          choco install openssl -y --no-progress
-          # HuxerUI restores and runs the pinned WiX host during `package`.
+          # WiX assembly is the only native work left in this job.
           choco install dotnet-6.0-runtime -y --no-progress
-          # HuxerUI's package command requires the native Windows icon in the
-          # generated shell; reuse the checked-in application icon.
-          Copy-Item assets/icon.ico platform/windows/app.ico -Force
-          # The project keeps the resource template under cmake/; expose it at
-          # the shell path required by HuxerUI's package diagnostic.
-          Copy-Item cmake/apitab.rc.in platform/windows/app.rc.in -Force
-          $env:HUXERUI_HOME = (Resolve-Path huxerui-sdk).Path
-          # HuxerUI's desktop build uses Ninja here; keep the app and installer
-          # compilation fully parallel on the Windows runner.
-          $env:CMAKE_BUILD_PARALLEL_LEVEL = "$([Environment]::ProcessorCount)"
-          # Keep this aligned with the Windows build job's Chocolatey package
-          # location; CMake locates libssl/libcrypto from this prefix.
-          $env:OPENSSL_ROOT_DIR = 'C:\Program Files\OpenSSL'
-          $huxerui = Join-Path $env:HUXERUI_HOME 'bin\huxerui.exe'
-          if (-not (Test-Path $huxerui)) { throw "HuxerUI CLI not installed: $huxerui" }
-          & $huxerui package windows --profile release
-          if ($LASTEXITCODE -ne 0) { throw 'huxerui package windows failed' }
+          if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) { throw 'cmake is required for WiX payload generation' }
+          $root = $PWD.Path
+          $appStage = Join-Path $root 'dist-windows-application'
+          $installerStage = Join-Path $root 'dist-windows-installer'
+          $metadataRoot = Join-Path $root 'windows-package-metadata'
+          $packageSource = Join-Path $metadataRoot 'Package.wxs'
+          $bundleSource = Join-Path $metadataRoot 'Bundle.wxs'
+          $wix = Join-Path $root '.huxerui/package/windows/dependencies/wix/tool/tools/net6.0/any/wix.exe'
+          $payloadScript = Join-Path $root 'huxerui-wix-payload-script/HuxerUIGenerateWixPayloads.cmake'
+          $packageRoot = Join-Path $root 'windows-package-output'
+          $msi = Join-Path $packageRoot 'apitab.msi'
+          $payloads = Join-Path $packageRoot 'installer-payloads.wxs'
+          foreach ($required in @($appStage, $installerStage, $packageSource, $bundleSource, $wix, $payloadScript)) {
+            if (-not (Test-Path $required)) { throw "Windows packaging input missing: $required" }
+          }
+          if (-not (Test-Path (Join-Path $appStage 'apitab.exe'))) { throw 'staged apitab.exe is missing' }
+          if (-not (Test-Path (Join-Path $installerStage 'apitab-Installer.exe'))) { throw 'staged installer UI is missing' }
+          New-Item -ItemType Directory -Force $packageRoot | Out-Null
+          & $wix build $packageSource -arch x64 `
+            -bindpath "Application=$appStage" `
+            -bindpath "Project=$(Join-Path $root 'platform/windows')" `
+            -out $msi
+          if ($LASTEXITCODE -ne 0) { throw 'WiX MSI assembly failed' }
+          & cmake `
+            "-DHUXERUI_WIX_PAYLOAD_DIRECTORY=$installerStage" `
+            '-DHUXERUI_WIX_PAYLOAD_EXECUTABLE=apitab-Installer.exe' `
+            "-DHUXERUI_WIX_PAYLOAD_OUTPUT=$payloads" `
+            -P $payloadScript
+          if ($LASTEXITCODE -ne 0) { throw 'WiX installer payload generation failed' }
           $line = Get-Content CMakeLists.txt | Where-Object { $_ -match '^\s*project\(apitab\s+VERSION\s+' } | Select-Object -First 1
           $version = $line -replace '^\s*project\(apitab\s+VERSION\s+([0-9.]+).*', '$1'
-          $setup = Get-ChildItem 'dist\windows' -Filter "apitab-Setup-$version.exe" -File | Select-Object -First 1
-          if (-not $setup) { throw 'HuxerUI setup executable was not produced' }
-          Copy-Item $setup.FullName "apitab-v$version-windows-x86_64-setup.exe"
+          $bundle = Join-Path $packageRoot "apitab-Setup-$version.exe"
+          & $wix build $bundleSource $payloads -arch x64 `
+            -bindpath "Installer=$installerStage" `
+            -bindpath "Package=$packageRoot" `
+            -bindpath "Project=$(Join-Path $root 'platform/windows')" `
+            -out $bundle
+          if ($LASTEXITCODE -ne 0) { throw 'WiX Burn bundle assembly failed' }
+          if (-not (Test-Path $bundle)) { throw 'WiX setup executable was not produced' }
+          Copy-Item $bundle "apitab-v$version-windows-x86_64-setup.exe" -Force
           Get-Item "apitab-v$version-windows-x86_64-setup.exe"
 
       - name: Upload packaged artifacts
