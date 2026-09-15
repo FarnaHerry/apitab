@@ -30,6 +30,12 @@ jobs:
   #    需按 llvm-21 前缀改写为绝对路径，见下方步骤）。
   build-linux:
     name: build-linux-x86_64
+    # Release-preparation commits are verified by the v* tag run below. Skip
+    # the duplicate main push so a release only compiles each platform once.
+    if: >-
+      github.event_name != 'push' ||
+      github.ref != 'refs/heads/main' ||
+      !startsWith(github.event.head_commit.message, 'chore(release): prepare ')
     runs-on: ubuntu-24.04
     container:
       image: ubuntu:26.04
@@ -196,6 +202,12 @@ jobs:
 
   build-other:
     name: build-${{ matrix.name }}
+    # The release tag is the canonical full build for release-preparation
+    # commits; ordinary main pushes and pull requests still run normally.
+    if: >-
+      github.event_name != 'push' ||
+      github.ref != 'refs/heads/main' ||
+      !startsWith(github.event.head_commit.message, 'chore(release): prepare ')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -363,8 +375,28 @@ jobs:
             -DHUXERUI_HOME="$HUXERUI_HOME" \
             -DAPITAB_HUXERUI_FORCE_SDK=ON
 
-      - name: Build and install HuxerUI SDK (Windows source)
+      - name: Restore HuxerUI SDK cache (Windows)
         if: runner.os == 'Windows'
+        id: huxerui_sdk_cache
+        uses: actions/cache@v4
+        with:
+          path: huxerui-sdk
+          key: huxerui-sdk-windows-x86_64-msvc-d1d2daa-${{ hashFiles('cmake/patches/huxerui-window-p0960.patch', 'cmake/patches/huxerui-linux-resize-hitarea.patch') }}
+
+      - name: Check HuxerUI SDK cache (Windows)
+        if: runner.os == 'Windows' && steps.huxerui_sdk_cache.outputs.cache-hit == 'true'
+        id: huxerui_sdk_cache_check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdkPrefix = Join-Path $PWD 'huxerui-sdk'
+          $config = Join-Path $sdkPrefix 'lib/cmake/HuxerUI/HuxerUIConfig.cmake'
+          $dll = Join-Path $sdkPrefix 'bin/huxerui.dll'
+          $valid = (Test-Path $config -PathType Leaf) -and (Test-Path $dll -PathType Leaf)
+          "valid=$($valid.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if (-not $valid) { Write-Warning 'HuxerUI SDK cache is incomplete; rebuilding it' }
+
+      - name: Build and install HuxerUI SDK (Windows source)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -383,8 +415,21 @@ jobs:
           cmake --build huxerui-sdk-build --config Release --parallel
           cmake --install huxerui-sdk-build --config Release --strip
           if (-not (Test-Path (Join-Path $sdkPrefix 'lib/cmake/HuxerUI/HuxerUIConfig.cmake'))) { throw 'HuxerUI SDK CMake package not installed' }
-          "HUXERUI_HOME=$sdkPrefix" | Out-File -FilePath $env:GITHUB_ENV -Append
           if (-not (Test-Path (Join-Path $sdkPrefix 'bin/huxerui.dll'))) { throw 'HuxerUI SDK DLL not installed' }
+        if: >-
+          runner.os == 'Windows' &&
+          (steps.huxerui_sdk_cache.outputs.cache-hit != 'true' ||
+           steps.huxerui_sdk_cache_check.outputs.valid != 'true')
+
+      - name: Use HuxerUI SDK (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdkPrefix = Join-Path $PWD 'huxerui-sdk'
+          if (-not (Test-Path (Join-Path $sdkPrefix 'lib/cmake/HuxerUI/HuxerUIConfig.cmake'))) { throw 'HuxerUI SDK CMake package not found' }
+          if (-not (Test-Path (Join-Path $sdkPrefix 'bin/huxerui.dll'))) { throw 'HuxerUI SDK DLL not found' }
+          "HUXERUI_HOME=$sdkPrefix" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Download k6 (Windows package input)
         if: runner.os == 'Windows'
