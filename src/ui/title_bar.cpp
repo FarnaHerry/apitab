@@ -352,9 +352,10 @@ struct ProjectTabDragPayload {
 
     // 标签条内项目标签的渲染顺序 = tabs 顺序（打开顺序）；g_requests 只用于
     // 取名，已不存在的项目 id 跳过（与原逻辑一致）。
+    const std::vector<db::Project> allProjects = g_requests.allProjects();
     std::vector<std::pair<std::int64_t, std::string>> visibleTabs;
     for (const std::int64_t id : tabs.Get()) {
-        for (const db::Project& p : g_requests.allProjects()) {
+        for (const db::Project& p : allProjects) {
             if (p.id == id) {
                 visibleTabs.emplace_back(id, p.name);
                 break;

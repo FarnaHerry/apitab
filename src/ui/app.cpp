@@ -494,22 +494,38 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     auto tasks = huxerui::UseTaskScope();
     auto loggedIn = huxerui::UseState(true);
     auto loginDialog = huxerui::UseDialog();
-    huxerui::ImageAsset initialAvatar;
-    const std::filesystem::path avatarPath = cfg::dataDir() / "avatar.png";
-    if (std::filesystem::exists(avatarPath)) {
-        try { initialAvatar = huxerui::ImageAsset::FromFile(avatarPath); } catch (const std::exception&) {}
-    }
-    auto avatarImage = huxerui::UseState(initialAvatar);
+    // UseState 的 initial 参数在重组时仍会先求值；用一个一次性门闩避免把启动恢复
+    // 与磁盘读取误放进每次 AppRoot 重组。头像稍后由生命周期任务异步加载。
+    auto initialized = huxerui::UseState(false);
+    const bool firstComposition = !initialized.Get();
+    auto avatarImage = huxerui::UseState(huxerui::ImageAsset{});
+
+    huxerui::Lifecycle([tasks, avatarImage] {
+        const std::filesystem::path avatarPath = cfg::dataDir() / "avatar.png";
+        tasks.Launch([avatarPath, avatarImage]() -> huxerui::Task<void> {
+            try {
+                const huxerui::ImageAsset image = co_await huxerui::RunWorker([avatarPath] {
+                    std::error_code ec;
+                    if (!std::filesystem::is_regular_file(avatarPath, ec) || ec)
+                        return huxerui::ImageAsset{};
+                    return huxerui::ImageAsset::FromFile(avatarPath);
+                });
+                if (image.HasValue()) avatarImage = image;
+            } catch (const std::exception&) {
+                // 头像是可选装饰资源，读取失败时保留默认头像，不打断应用启动。
+            }
+        });
+    });
 
     // 初始值在 UseState 之前算好（组合体内不写 State）：
     // 主题模式 0=跟随系统 1=深色 2=浅色，未保存偏好时默认深色（深海蓝底）。
     int initialThemeMode = 1;
-    if (sessionPreference("theme_mode") == "0") initialThemeMode = 0;
-    if (sessionPreference("theme_mode") == "2") initialThemeMode = 2;
+    if (firstComposition && sessionPreference("theme_mode") == "0") initialThemeMode = 0;
+    if (firstComposition && sessionPreference("theme_mode") == "2") initialThemeMode = 2;
     // 关闭行为：0=每次询问 1=直接关闭 2=最小化到托盘
     int initialCloseBehavior = 0;
-    if (sessionPreference("close_behavior") == "1") initialCloseBehavior = 1;
-    if (sessionPreference("close_behavior") == "2") initialCloseBehavior = 2;
+    if (firstComposition && sessionPreference("close_behavior") == "1") initialCloseBehavior = 1;
+    if (firstComposition && sessionPreference("close_behavior") == "2") initialCloseBehavior = 2;
 
     // ---- 顶级标签状态（island-structure-theme.md §13.1/§13.2，P1-B0.1）----
     // navPage：项目工作区内部页（kRequest/kLoad/kHistory/kProjectSettings），不再包含
@@ -523,31 +539,41 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     // lastProjectTab：最近激活且仍打开的项目 id（关设置回退用；0 = 无，不持久化）。
     auto navPage = huxerui::UseState<std::size_t>(pages::kRequest);
     // P1-B0.5 启动恢复：从 session.open_projects / session.active_project 重建 tabs 与 active（解析/去重/过滤已删，数据无效回主页）。
-    TopTabState restored = [&] {
+    TopTabState restored;
+    if (firstComposition) {
         std::vector<std::int64_t> existIds;
         for (const db::Project& p : g_requests.allProjects()) existIds.push_back(p.id);
-        return RestoreTopTabs(sessionPreference("open_projects"), sessionPreference("active_project"),
-                              existIds);
-    }();
-    // 领域游标与 State 同步（启动时即一致，首帧不闪回主页）。
-    if (restored.active.kind == TopTabKind::Project) {
-        g_requests.selectProject(restored.active.project_id);
-        g_loadtest.setProject(restored.active.project_id);
-    } else {
-        g_requests.selectProject(0);
-        g_loadtest.setProject(0);
+        restored = RestoreTopTabs(sessionPreference("open_projects"),
+                                  sessionPreference("active_project"), existIds);
     }
-    auto tabs = huxerui::UseState(std::move(restored.open_projects));
+    // 领域游标与 State 同步（启动时即一致，首帧不闪回主页）。
+    if (firstComposition) {
+        if (restored.active.kind == TopTabKind::Project) {
+            g_requests.selectProject(restored.active.project_id);
+            g_loadtest.setProject(restored.active.project_id);
+        } else {
+            g_requests.selectProject(0);
+            g_loadtest.setProject(0);
+        }
+    }
+    auto tabs = huxerui::UseState(firstComposition ? std::move(restored.open_projects)
+                                                   : std::vector<std::int64_t>{});
     auto activeProject = huxerui::UseState(
-        restored.active.kind == TopTabKind::Project ? restored.active.project_id : std::int64_t{0});
-    auto settingsOpen = huxerui::UseState(restored.settings_open);
-    auto activeTopTab = huxerui::UseState(restored.active);
-    auto lastProjectTab = huxerui::UseState(restored.last_project);
+        firstComposition && restored.active.kind == TopTabKind::Project
+            ? restored.active.project_id
+            : std::int64_t{0});
+    auto settingsOpen = huxerui::UseState(firstComposition && restored.settings_open);
+    auto activeTopTab = huxerui::UseState(firstComposition ? restored.active : TopTabId{});
+    auto lastProjectTab = huxerui::UseState(firstComposition ? restored.last_project : std::int64_t{0});
     auto themeMode = huxerui::UseState<int>(std::move(initialThemeMode));
     auto closeBehavior = huxerui::UseState<int>(std::move(initialCloseBehavior));
     auto closeDialogOpen = huxerui::UseState(false);
     // P1-B0.5 状态保活：设置分类在 AppRoot，随顶级标签存活（切到项目再回保留原分类）
     auto settingsCategory = huxerui::UseState<std::size_t>(0);
+
+    // 生命周期 setup 在首帧提交后运行；从此以后 AppRoot 重组只消费已挂载 State，
+    // 不再重复执行启动恢复的数据库查询与领域重载。
+    huxerui::Lifecycle([initialized] { initialized = true; });
 
     // ---- 顶级标签操作（事件回调只做 tasks.Launch 推迟，CLAUDE.md 约定 6）----
     // 变更本体（领域写入 + State 写回）在推迟任务里同步完成：切到 Project(id) 时
