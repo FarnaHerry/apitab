@@ -1,6 +1,6 @@
 // settings_page.cpp — 全局设置工作区（顶级"设置"单例标签的内容，AppRoot 全宽
 // 渲染）。岛屿式双岛布局（island-structure-theme.md §13.3）：左侧分类岛
-// （通用 / 外观 / 个人信息 / 关于，固定宽不随内容滚动）+ 右侧内容岛（独立滚动）；
+// （通用（含外观）/ 个人信息 / 关于，固定宽不随内容滚动）+ 右侧内容岛（独立滚动）；
 // Compact 视口下左栏折叠为内容岛上方的横向三分段条（官方 SegmentedButton，
 // 不引入 Drawer），标准/Compact 共用同一个分类 State。
 //
@@ -50,11 +50,10 @@ namespace {
 // ---- 分类模型（island-structure-theme.md §13.3）---------------------------
 // 下标即分类 State 值；标准/Compact 两种形态共用同一 State。
 constexpr std::size_t kCategoryGeneral = 0;
-constexpr std::size_t kCategoryAppearance = 1;
-constexpr std::size_t kCategoryProfile = 2;
-constexpr std::size_t kCategoryAbout = 3;
-constexpr std::size_t kCategoryCount = 4;
-constexpr std::string_view kCategoryNames[kCategoryCount] = {"通用", "外观", "个人信息", "关于"};
+constexpr std::size_t kCategoryProfile = 1;
+constexpr std::size_t kCategoryAbout = 2;
+constexpr std::size_t kCategoryCount = 3;
+constexpr std::string_view kCategoryNames[kCategoryCount] = {"通用", "个人信息", "关于"};
 
 // 左栏固定宽档位：取 §13.3 允许的 176–208pt 档的中值 192pt——三字分类名加
 // 行内边距舒适，且与主页 240pt 组织岛拉开层次。
@@ -190,11 +189,28 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
 
 // ---- 通用分区：关闭行为、默认请求超时、数据目录 -------------------------
 [[huxerui::composable]] huxerui::View GeneralSettingsSection(
+    huxerui::State<int> themeMode,
     huxerui::State<int> closeBehavior,
-    huxerui::State<huxerui::TextEditingValue> timeoutSec) {
+    huxerui::State<huxerui::TextEditingValue> timeoutSec,
+    const std::function<void(int)>& applyTheme) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Column {
-        PageHeader("通用", "应用级默认行为，保存于 settings.ini。"),
+        PageHeader("通用", "应用级行为、主题外观与界面偏好，保存于 settings.ini。"),
+        // 主题模式与其他应用级偏好同属通用设置；动画逻辑由页面传入，保持
+        // 主题切换时的圆形揭示过渡与受控状态行为不变。
+        SettingsGroup("主题模式",
+                      huxerui::Row {
+                          huxerui::Select(std::vector<std::string>{"跟随系统", "深色模式", "浅色模式"},
+                                          static_cast<std::size_t>(themeMode.Get()),
+                                          [](const std::string& option) {
+                                              return huxerui::Text(option).Key(option);
+                                          })
+                              .OnChanged([applyTheme](std::size_t index) {
+                                  applyTheme(static_cast<int>(index));
+                              }),
+                      },
+                      "跟随系统会读取当前桌面的深浅色偏好。界面密度与动效偏好将在"
+                      "后续版本提供。"),
         // 关闭行为：受控 Select，值由 AppRoot 持有传入。
         SettingsGroup("关闭行为",
                       huxerui::Row {
@@ -238,32 +254,6 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
                       "进行。",
                       huxerui::TextRole::Body)
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-    }
-        .With(huxerui::Spacing(theme.spacing.medium),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-}
-
-// ---- 外观分区：主题模式 + 圆形揭示过渡（动画逻辑原样保留）-----------------
-[[huxerui::composable]] huxerui::View AppearanceSettingsSection(
-    huxerui::State<int> themeMode, const std::function<void(int)>& applyTheme) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    return huxerui::Column {
-        PageHeader("外观", "主题外观与界面偏好。"),
-        // 官方下拉选择（下标即 themeMode：0=跟随系统 1=深色 2=浅色）；动画
-        // 原点 = 点中菜单项的指针位置，切换后仍停留在外观分类。
-        SettingsGroup("主题模式",
-                      huxerui::Row {
-                          huxerui::Select(std::vector<std::string>{"跟随系统", "深色模式", "浅色模式"},
-                                          static_cast<std::size_t>(themeMode.Get()),
-                                          [](const std::string& option) {
-                                              return huxerui::Text(option).Key(option);
-                                          })
-                              .OnChanged([applyTheme](std::size_t index) {
-                                  applyTheme(static_cast<int>(index));
-                              }),
-                      },
-                      "跟随系统会读取当前桌面的深浅色偏好。界面密度与动效偏好将在"
-                      "后续版本提供。"),
     }
         .With(huxerui::Spacing(theme.spacing.medium),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -574,20 +564,18 @@ constexpr AboutDependency kAboutDependencies[] = {
     // 按当前分类渲染对应分区；分区受控 State 在页面顶层，分类切换不丢输入。
     huxerui::View section;
     switch (category.Get()) {
-    case kCategoryAppearance:
-        section = AppearanceSettingsSection(themeMode, applyTheme).Key(kCategoryNames[1]);
-        break;
     case kCategoryProfile:
         section = PersonalInfoSettingsSection(profileDisplayName, profileEmail,
                                                profileOrganization, avatarName, avatarImage)
-                      .Key(kCategoryNames[2]);
+                      .Key(kCategoryNames[1]);
         break;
     case kCategoryAbout:
-        section = AboutSettingsSection().Key(kCategoryNames[3]);
+        section = AboutSettingsSection().Key(kCategoryNames[2]);
         break;
     case kCategoryGeneral:
     default:
-        section = GeneralSettingsSection(closeBehavior, timeoutSec).Key(kCategoryNames[0]);
+        section = GeneralSettingsSection(themeMode, closeBehavior, timeoutSec, applyTheme)
+                      .Key(kCategoryNames[0]);
         break;
     }
 
@@ -602,8 +590,7 @@ constexpr AboutDependency kAboutDependencies[] = {
         page = IslandSurface(huxerui::Column {
                                  huxerui::SegmentedButton(
                                      std::vector<huxerui::StringVariant>{
-                                         kCategoryNames[0], kCategoryNames[1],
-                                         kCategoryNames[2], kCategoryNames[3]},
+                                         kCategoryNames[0], kCategoryNames[1], kCategoryNames[2]},
                                      category.Get())
                                      .OnChanged([tasks, category](std::size_t index) {
                                          // 分段条与内容分属不同子树，本组件切换分类
