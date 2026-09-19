@@ -291,14 +291,16 @@ huxerui::View SplitActionButton(
     bool sectionOwnsScroll = false;
     switch (section.Get()) {
         case 0:
+            // 认证方式选择与 Body 类型选择共用同一套扁平选择行（选中 = 主色实心块）。
             sectionContent = huxerui::Column {
-                huxerui::SegmentedButton({"无认证", "Bearer Token", "API Key"}, authMode)
-                    .OnChanged([authMode, drafts, index](std::size_t mode) {
-                        authMode = mode;
-                        MutateDraft(drafts, index, [mode](RequestDraft& d) {
-                            SetAuthValue(d, mode, {});
-                        });
-                    }),
+                FlatSelectRow({"无认证", "Bearer Token", "API Key"}, authMode.Get(),
+                              [authMode, drafts, index](std::size_t mode) {
+                                  authMode = mode;
+                                  MutateDraft(drafts, index, [mode](RequestDraft& d) {
+                                      SetAuthValue(d, mode, {});
+                                  });
+                              },
+                              "认证方式 "),
                 authMode.Get() == 0
                     ? huxerui::Text("请求不会附加认证信息。", huxerui::TextRole::Body)
                           .With(huxerui::Foreground(theme.colors.on_surface_variant))
@@ -369,56 +371,20 @@ huxerui::View SplitActionButton(
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
             break;
         default: {
-            // Body 固定头：类型选择行（横向普通列表，下标 = api::BodyKind，标签取
-            // draft.h 的唯一数组 kBodyTypeNames —— None 项显示 none）；选中
-            // JSON/XML 时下一行出现"格式化"按钮（左对齐；JSON 剥注释后
-            // nlohmann dump(2)，XML 标签缩进换行），其余类型整行不渲染。
-            // 固定在滚动区外，滚动时仍可见。
-            huxerui::Color kindHover = theme.colors.on_surface;
-            kindHover.alpha = 0.06F;
-            huxerui::Color kindPress = theme.colors.on_surface;
-            kindPress.alpha = 0.12F;
-            huxerui::Indication kindIndication;
-            kindIndication.hover = huxerui::IndicationLayer{
-                .fill = huxerui::VisualFill{huxerui::Brush{kindHover}}};
-            kindIndication.press = huxerui::IndicationLayer{
-                .fill = huxerui::VisualFill{huxerui::Brush{kindPress}}};
-            std::vector<huxerui::View> kindItems;
-            kindItems.reserve(kBodyTypeNames.size());
-            for (std::size_t kind = 0; kind < kBodyTypeNames.size(); ++kind) {
-                const bool selected = snapshot.bodyKindIndex == kind;
-                const std::string kindLabel{kBodyTypeNames[kind]};
-                kindItems.push_back(
-                    huxerui::Column {
-                        huxerui::Text(kBodyTypeNames[kind], huxerui::TextRole::Label)
-                            .With(huxerui::Foreground(selected ? theme.colors.primary
-                                                               : theme.colors.on_surface_variant)),
-                        // 两态同高的短线：选中显示主色，未选中透明占位，无布局跳动。
-                        huxerui::Row{}
-                            .With(huxerui::Frame{.height = 2.0F},
-                                  selected
-                                      ? huxerui::Background(theme.colors.primary)
-                                      : huxerui::Background(huxerui::Color::Transparent()),
-                                  huxerui::CornerRadius(theme.shapes.full)),
-                    }
-                        .With(huxerui::Spacing(3.0F),
-                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                              huxerui::Padding(huxerui::EdgeInsets::Symmetric(8.0F, 4.0F)),
-                              huxerui::CornerRadius(theme.shapes.small),
-                              kindIndication,
-                              huxerui::Focusable(true),
-                              huxerui::Semantics{
-                                  .role = huxerui::SemanticRole::Button,
-                                  .label = "请求体类型 " + kindLabel})
-                        .OnClick([drafts, index, kind] {
-                            MutateDraft(drafts, index,
-                                        [kind](RequestDraft& d) { d.bodyKindIndex = kind; });
-                        }));
-            }
+            // Body 固定头：类型选择行（扁平选择行，下标 = api::BodyKind，标签取
+            // draft.h 的唯一数组 kBodyTypeNames —— None 项显示 none，选中 = 主色
+            // 实心块，与 Auth 认证方式选择同源）；选中 JSON/XML 时下一行出现
+            // "格式化"按钮（左对齐；JSON 剥注释后 nlohmann dump(2)，XML 标签缩进
+            // 换行），其余类型整行不渲染。固定在滚动区外，滚动时仍可见。
             std::vector<huxerui::View> bodyFixed{
-                huxerui::Row(std::move(kindItems))
-                    .With(huxerui::Spacing(theme.spacing.extra_small),
-                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+                FlatSelectRow(
+                    std::vector<std::string>(kBodyTypeNames.begin(), kBodyTypeNames.end()),
+                    snapshot.bodyKindIndex,
+                    [drafts, index](std::size_t kind) {
+                        MutateDraft(drafts, index,
+                                    [kind](RequestDraft& d) { d.bodyKindIndex = kind; });
+                    },
+                    "请求体类型 "),
             };
             if (snapshot.bodyKindIndex == 1 || snapshot.bodyKindIndex == 5) {
                 bodyFixed.push_back(huxerui::Row {

@@ -343,6 +343,54 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
               huxerui::Foreground(theme.colors.on_surface_variant));
 }
 
+// 扁平选择行（契约见 ui.h）：横向排布的纯文本选项，选中项用品牌主色填充圆角底 +
+// on_primary 文字（与分段按钮的选中语义同色，页面里"选中 = 主色实心块"只有这一套），
+// 未选中为次级文字色 + 透明底，hover/press 只在项上叠加半透明遮罩；无描边、无下划线。
+// 每项自带 Focusable + Button 语义，键盘可 Tab 聚焦、Enter/Space 激活。
+[[huxerui::composable]] huxerui::View FlatSelectRow(
+    std::vector<std::string> labels, std::size_t selected,
+    std::function<void(std::size_t)> onChanged, std::string semanticsPrefix) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    huxerui::Color hoverTint = theme.colors.on_surface;
+    hoverTint.alpha = 0.06F;
+    huxerui::Color pressTint = theme.colors.on_surface;
+    pressTint.alpha = 0.12F;
+    const huxerui::Indication indication{
+        .hover = huxerui::IndicationLayer{
+            .fill = huxerui::VisualFill{huxerui::Brush{hoverTint}}},
+        .press = huxerui::IndicationLayer{
+            .fill = huxerui::VisualFill{huxerui::Brush{pressTint}}},
+    };
+    std::vector<huxerui::View> items;
+    items.reserve(labels.size());
+    for (std::size_t i = 0; i < labels.size(); ++i) {
+        const bool active = selected == i;
+        const std::string label = labels[i];
+        items.push_back(
+            huxerui::Row {
+                huxerui::Text(label, huxerui::TextRole::Label)
+                    .With(huxerui::Foreground(active ? theme.colors.on_primary
+                                                     : theme.colors.on_surface_variant)),
+            }
+                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(12.0F, 6.0F)),
+                      active ? huxerui::Background(theme.colors.primary)
+                             : huxerui::Background(huxerui::Color::Transparent()),
+                      huxerui::CornerRadius(theme.shapes.small),
+                      indication,
+                      huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                      huxerui::Focusable(true),
+                      huxerui::Semantics{.role = huxerui::SemanticRole::Button,
+                                          .label = semanticsPrefix + label})
+                .OnClick([onChanged, i] {
+                    if (onChanged) onChanged(i);
+                }));
+    }
+    return huxerui::Row(std::move(items))
+        .With(huxerui::Spacing(theme.spacing.extra_small),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+}
+
 // 大型自适应输入表面（契约见 ui.h）。实现要点：
 // - 单行↔多行的唯一几何差异是圆角（full capsule ↔ large_control_radius）；
 //   Padding/Spacing/尾部动作锚点/ScrollView 结构两态完全一致 → 零跳动。
