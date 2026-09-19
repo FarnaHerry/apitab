@@ -473,6 +473,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                 huxerui::Row{}.With(kAssertActionWidth),
             }
                                .With(huxerui::Spacing(theme.spacing.small),
+                                     huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                                      huxerui::Foreground(theme.colors.on_surface_variant)));
             for (std::size_t i = 0; i <= c.asserts.size(); ++i) {
                 const bool phantom = i == c.asserts.size();

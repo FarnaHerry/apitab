@@ -485,8 +485,11 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
                              .With(huxerui::ScrollBar(), huxerui::Grow(1.0F),
                                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     return huxerui::Column{
+               // 标题行整行垂直居中：勾选框、各列标题、批量编辑按钮统一按中线对齐
+               // （默认 CrossAlign::Start 会让文字贴着行顶，行高由最高的子项决定）。
                huxerui::Row(std::move(header))
                    .With(huxerui::Spacing(theme.spacing.small),
+                         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                          huxerui::Foreground(theme.colors.on_surface_variant)),
                std::move(list),
                huxerui::Divider(),
