@@ -343,23 +343,24 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
               huxerui::Foreground(theme.colors.on_surface_variant));
 }
 
-// 扁平选择行（契约见 ui.h）：横向排布的纯文本选项，选中项用品牌主色填充圆角底 +
-// on_primary 文字（与分段按钮的选中语义同色，页面里"选中 = 主色实心块"只有这一套），
-// 未选中为次级文字色 + 透明底，hover/press 只在项上叠加半透明遮罩；无描边、无下划线。
+// 扁平选择行（契约见 ui.h）：横向排布的纯文本选项，无外框、无卡片分段——选中项 =
+// 主色文字 + 底部 2pt 主色下划线（未选中用同高透明占位，布局不跳动），其余项为
+// 次级文字色。hover/press 用普通按钮那套叠加反馈（常态透明、指针进入/按下才出
+// 圆角填充），所以"选中"只由下划线表达，"选择中"由填充表达，两者互不混淆。
 // 每项自带 Focusable + Button 语义，键盘可 Tab 聚焦、Enter/Space 激活。
 [[huxerui::composable]] huxerui::View FlatSelectRow(
     std::vector<std::string> labels, std::size_t selected,
     std::function<void(std::size_t)> onChanged, std::string semanticsPrefix) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    huxerui::Color hoverTint = theme.colors.on_surface;
-    hoverTint.alpha = 0.06F;
-    huxerui::Color pressTint = theme.colors.on_surface;
-    pressTint.alpha = 0.12F;
+    huxerui::Color hoverFill = theme.colors.on_surface;
+    hoverFill.alpha = 0.08F;
+    huxerui::Color pressFill = theme.colors.on_surface;
+    pressFill.alpha = 0.14F;
     const huxerui::Indication indication{
         .hover = huxerui::IndicationLayer{
-            .fill = huxerui::VisualFill{huxerui::Brush{hoverTint}}},
+            .fill = huxerui::VisualFill{huxerui::Brush{hoverFill}}},
         .press = huxerui::IndicationLayer{
-            .fill = huxerui::VisualFill{huxerui::Brush{pressTint}}},
+            .fill = huxerui::VisualFill{huxerui::Brush{pressFill}}},
     };
     std::vector<huxerui::View> items;
     items.reserve(labels.size());
@@ -367,18 +368,22 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
         const bool active = selected == i;
         const std::string label = labels[i];
         items.push_back(
-            huxerui::Row {
+            huxerui::Column {
                 huxerui::Text(label, huxerui::TextRole::Label)
-                    .With(huxerui::Foreground(active ? theme.colors.on_primary
+                    .With(huxerui::Foreground(active ? theme.colors.primary
                                                      : theme.colors.on_surface_variant)),
+                // 两态同高的短线：选中显示主色，未选中透明占位，无布局跳动。
+                huxerui::Row{}
+                    .With(huxerui::Frame{.height = 2.0F},
+                          active ? huxerui::Background(theme.colors.primary)
+                                 : huxerui::Background(huxerui::Color::Transparent()),
+                          huxerui::CornerRadius(theme.shapes.full)),
             }
-                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(12.0F, 6.0F)),
-                      active ? huxerui::Background(theme.colors.primary)
-                             : huxerui::Background(huxerui::Color::Transparent()),
+                .With(huxerui::Spacing(3.0F),
+                      huxerui::Padding(huxerui::EdgeInsets::Symmetric(8.0F, 4.0F)),
                       huxerui::CornerRadius(theme.shapes.small),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                       indication,
-                      huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                       huxerui::Focusable(true),
                       huxerui::Semantics{.role = huxerui::SemanticRole::Button,
                                           .label = semanticsPrefix + label})

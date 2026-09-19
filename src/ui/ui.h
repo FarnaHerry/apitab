@@ -401,10 +401,11 @@ huxerui::View TrailingActionGroup(std::vector<huxerui::View> actions);
 // 只封装已有的菜单触发回调，由调用方在 onClick 里自己 UsePopup/ShowPopupMenu，
 // 本组件不引入新菜单数据模型。enabled=false 时点击空转、外观降透明。
 huxerui::View OverflowButton(std::function<void()> onOpenMenu, bool enabled = true);
-// 扁平选择行：横向纯文本选项，选中项 = 品牌主色圆角填充 + on_primary 文字，
-// 未选中 = 次级文字色 + 透明底，hover/press 只叠加半透明遮罩（无描边、无下划线）。
-// 请求页 Auth 认证方式与 Body 类型两级选择共用同一外观；semanticsPrefix 拼在每项
-// 可访问名称前（如"请求体类型 "）。onChanged 传选中下标。
+// 扁平选择行：横向纯文本选项，无外框、无卡片分段。选中项 = 主色文字 + 底部 2pt
+// 主色下划线（未选中同高透明占位，无布局跳动），非选中为次级文字色；"选择中"
+// （hover/press）走普通按钮那套叠加填充，与选中态互不混淆。请求页 Auth 认证方式
+// 与 Body 类型两级选择共用；semanticsPrefix 拼在每项可访问名称前（如"请求体类型 "）。
+// onChanged 传选中下标。
 huxerui::View FlatSelectRow(std::vector<std::string> labels, std::size_t selected,
                             std::function<void(std::size_t)> onChanged,
                             std::string semanticsPrefix);

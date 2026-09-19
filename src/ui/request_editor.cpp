@@ -291,7 +291,8 @@ huxerui::View SplitActionButton(
     bool sectionOwnsScroll = false;
     switch (section.Get()) {
         case 0:
-            // 认证方式选择与 Body 类型选择共用同一套扁平选择行（选中 = 主色实心块）。
+            // 认证方式选择与 Body 类型选择共用同一套扁平选择行（无卡片边框，
+            // 选中项底部下划线；hover/press 才是按钮式填充）。
             sectionContent = huxerui::Column {
                 FlatSelectRow({"无认证", "Bearer Token", "API Key"}, authMode.Get(),
                               [authMode, drafts, index](std::size_t mode) {
@@ -372,10 +373,10 @@ huxerui::View SplitActionButton(
             break;
         default: {
             // Body 固定头：类型选择行（扁平选择行，下标 = api::BodyKind，标签取
-            // draft.h 的唯一数组 kBodyTypeNames —— None 项显示 none，选中 = 主色
-            // 实心块，与 Auth 认证方式选择同源）；选中 JSON/XML 时下一行出现
-            // "格式化"按钮（左对齐；JSON 剥注释后 nlohmann dump(2)，XML 标签缩进
-            // 换行），其余类型整行不渲染。固定在滚动区外，滚动时仍可见。
+            // draft.h 的唯一数组 kBodyTypeNames —— None 项显示 none；无卡片边框、
+            // 选中项底部下划线，与 Auth 认证方式选择同源）；选中 JSON/XML 时下一行
+            // 出现"格式化"按钮（左对齐；JSON 剥注释后 nlohmann dump(2)，XML 标签
+            // 缩进换行），其余类型整行不渲染。固定在滚动区外，滚动时仍可见。
             std::vector<huxerui::View> bodyFixed{
                 FlatSelectRow(
                     std::vector<std::string>(kBodyTypeNames.begin(), kBodyTypeNames.end()),
