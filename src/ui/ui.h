@@ -401,14 +401,24 @@ huxerui::View TrailingActionGroup(std::vector<huxerui::View> actions);
 // 只封装已有的菜单触发回调，由调用方在 onClick 里自己 UsePopup/ShowPopupMenu，
 // 本组件不引入新菜单数据模型。enabled=false 时点击空转、外观降透明。
 huxerui::View OverflowButton(std::function<void()> onOpenMenu, bool enabled = true);
-// 扁平选择行：横向纯文本选项，无外框、无卡片分段。选中项 = 主色文字 + 底部 2pt
-// 主色下划线（未选中同高透明占位，无布局跳动），非选中为次级文字色；"选择中"
-// （hover/press）走普通按钮那套叠加填充，与选中态互不混淆。请求页 Auth 认证方式
-// 与 Body 类型两级选择共用；semanticsPrefix 拼在每项可访问名称前（如"请求体类型 "）。
-// onChanged 传选中下标。
+// 扁平选择行的选中外观：
+// - Underline：选中项 = 主色文字 + 底部 2pt 下划线（未选中同高透明占位，无布局
+//   跳动）——用于分区切换条这类"标签"语义。
+// - Framed：选中项 = 主色文字 + 整项 1pt 主色圆角描边（未选中透明描边，几何不变）
+//   ——用于分区内部的二级选项，选中的是一个"按钮"而不是标签。
+enum class FlatSelectStyle {
+    Underline,
+    Framed,
+};
+
+// 扁平选择行：横向纯文本选项，无外框、无卡片分段；非选中为次级文字色，"选择中"
+// （hover/press）走普通按钮那套叠加填充，与选中态互不混淆。请求页分区切换条与
+// 其二级选择（Auth 认证方式 / Body 类型）共用，仅选中外观按 style 区分；
+// semanticsPrefix 拼在每项可访问名称前（如"请求体类型 "）。onChanged 传选中下标。
 huxerui::View FlatSelectRow(std::vector<std::string> labels, std::size_t selected,
                             std::function<void(std::size_t)> onChanged,
-                            std::string semanticsPrefix);
+                            std::string semanticsPrefix,
+                            FlatSelectStyle style = FlatSelectStyle::Underline);
 
 // 大型自适应输入表面的语义状态（island-structure-theme.md §5.2）。tone 只改变
 // 描边/提示色，**不改变整体几何**（圆角、内边距、高度在任意 tone 下完全一致）。

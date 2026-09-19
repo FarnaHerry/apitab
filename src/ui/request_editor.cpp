@@ -279,11 +279,16 @@ huxerui::View SplitActionButton(
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
 
-    // 分区切换条固定在滚动区外。与分区内部的二级选择行（Auth 认证方式 / Body 类型）
-    // 同款外观：无卡片边框，选中项 = 主色文字 + 底部下划线，hover/press 才出填充。
-    huxerui::View sectionTabs = FlatSelectRow(
-        {"Auth", "Params", "Headers", "Cookies", "Body", "设置"}, section.Get(),
-        [section](std::size_t i) { section = i; }, "请求分区 ");
+    // 分区切换条固定在滚动区外；上下各一条 1pt 分隔线把它与名称行/内容区分开。
+    // 选中态是标签式的底部下划线（FlatSelectStyle::Underline）。
+    huxerui::View sectionTabs = huxerui::Column {
+        huxerui::Divider(),
+        FlatSelectRow({"Auth", "Params", "Headers", "Cookies", "Body", "设置"},
+                      section.Get(), [section](std::size_t i) { section = i; },
+                      "请求分区 ", FlatSelectStyle::Underline),
+        huxerui::Divider(),
+    }.With(huxerui::Spacing(theme.spacing.extra_small),
+           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     // sectionFixed：分区各自的固定头（仅 Body 有：类型选择行 + 条件渲染的格式化行）；
     // sectionContent：普通内容进入 ScrollView；KV 表自身包含 VirtualList，不能再
     // 套滚动容器，否则会失去有界视口并产生嵌套滚动竞争。
@@ -292,8 +297,7 @@ huxerui::View SplitActionButton(
     bool sectionOwnsScroll = false;
     switch (section.Get()) {
         case 0:
-            // 认证方式选择与 Body 类型选择共用同一套扁平选择行（无卡片边框，
-            // 选中项底部下划线；hover/press 才是按钮式填充）。
+            // 认证方式选择：二级选项用"选中 = 整项主色描边"（FlatSelectStyle::Framed）。
             sectionContent = huxerui::Column {
                 FlatSelectRow({"无认证", "Bearer Token", "API Key"}, authMode.Get(),
                               [authMode, drafts, index](std::size_t mode) {
@@ -302,7 +306,7 @@ huxerui::View SplitActionButton(
                                       SetAuthValue(d, mode, {});
                                   });
                               },
-                              "认证方式 "),
+                              "认证方式 ", FlatSelectStyle::Framed),
                 authMode.Get() == 0
                     ? huxerui::Text("请求不会附加认证信息。", huxerui::TextRole::Body)
                           .With(huxerui::Foreground(theme.colors.on_surface_variant))
@@ -373,11 +377,11 @@ huxerui::View SplitActionButton(
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
             break;
         default: {
-            // Body 固定头：类型选择行（扁平选择行，下标 = api::BodyKind，标签取
-            // draft.h 的唯一数组 kBodyTypeNames —— None 项显示 none；无卡片边框、
-            // 选中项底部下划线，与 Auth 认证方式选择同源）；选中 JSON/XML 时下一行
-            // 出现"格式化"按钮（左对齐；JSON 剥注释后 nlohmann dump(2)，XML 标签
-            // 缩进换行），其余类型整行不渲染。固定在滚动区外，滚动时仍可见。
+            // Body 固定头：类型选择行（二级选项，选中 = 整项主色描边；下标 =
+            // api::BodyKind，标签取 draft.h 的唯一数组 kBodyTypeNames —— None 项
+            // 显示 none）；选中 JSON/XML 时下一行出现"格式化"按钮（左对齐；JSON
+            // 剥注释后 nlohmann dump(2)，XML 标签缩进换行），其余类型整行不渲染。
+            // 固定在滚动区外，滚动时仍可见。
             std::vector<huxerui::View> bodyFixed{
                 FlatSelectRow(
                     std::vector<std::string>(kBodyTypeNames.begin(), kBodyTypeNames.end()),
@@ -386,7 +390,7 @@ huxerui::View SplitActionButton(
                         MutateDraft(drafts, index,
                                     [kind](RequestDraft& d) { d.bodyKindIndex = kind; });
                     },
-                    "请求体类型 "),
+                    "请求体类型 ", FlatSelectStyle::Framed),
             };
             if (snapshot.bodyKindIndex == 1 || snapshot.bodyKindIndex == 5) {
                 bodyFixed.push_back(huxerui::Row {

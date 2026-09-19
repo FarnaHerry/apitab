@@ -343,15 +343,18 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
               huxerui::Foreground(theme.colors.on_surface_variant));
 }
 
-// 扁平选择行（契约见 ui.h）：横向排布的纯文本选项，无外框、无卡片分段——选中项 =
-// 主色文字 + 底部 2pt 主色下划线（未选中用同高透明占位，布局不跳动），其余项为
-// 次级文字色。hover/press 用普通按钮那套叠加反馈（常态透明、指针进入/按下才出
-// 圆角填充），所以"选中"只由下划线表达，"选择中"由填充表达，两者互不混淆。
+// 扁平选择行（契约见 ui.h）：横向排布的纯文本选项，无外框、无卡片分段。选中外观由
+// style 决定——Underline = 主色文字 + 底部 2pt 主色下划线（未选中用同高透明占位，
+// 布局不跳动）；Framed = 主色文字 + 整项 1pt 主色圆角描边（未选中用透明描边，几何
+// 不变）。两者都靠"选择中"（hover/press）的普通按钮式叠加填充与选中态区分：常态
+// 透明，指针进入出 8% 圆角填充、按下 14%。
 // 每项自带 Focusable + Button 语义，键盘可 Tab 聚焦、Enter/Space 激活。
 [[huxerui::composable]] huxerui::View FlatSelectRow(
     std::vector<std::string> labels, std::size_t selected,
-    std::function<void(std::size_t)> onChanged, std::string semanticsPrefix) {
+    std::function<void(std::size_t)> onChanged, std::string semanticsPrefix,
+    FlatSelectStyle style) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool framed = style == FlatSelectStyle::Framed;
     huxerui::Color hoverFill = theme.colors.on_surface;
     hoverFill.alpha = 0.08F;
     huxerui::Color pressFill = theme.colors.on_surface;
@@ -362,27 +365,46 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
         .press = huxerui::IndicationLayer{
             .fill = huxerui::VisualFill{huxerui::Brush{pressFill}}},
     };
+    // 描边式选中项比下划线式多留一点内边距，框住文字后才不显得局促。
+    const huxerui::EdgeInsets itemPadding =
+        framed ? huxerui::EdgeInsets::Symmetric(10.0F, 5.0F)
+               : huxerui::EdgeInsets::Symmetric(8.0F, 4.0F);
     std::vector<huxerui::View> items;
     items.reserve(labels.size());
     for (std::size_t i = 0; i < labels.size(); ++i) {
         const bool active = selected == i;
         const std::string label = labels[i];
-        items.push_back(
-            huxerui::Column {
+        const huxerui::Color labelColor =
+            active ? theme.colors.primary : theme.colors.on_surface_variant;
+        huxerui::View content;
+        if (framed) {
+            content = huxerui::Row {
                 huxerui::Text(label, huxerui::TextRole::Label)
-                    .With(huxerui::Foreground(active ? theme.colors.primary
-                                                     : theme.colors.on_surface_variant)),
+                    .With(huxerui::Foreground(labelColor)),
+            }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+        } else {
+            content = huxerui::Column {
+                huxerui::Text(label, huxerui::TextRole::Label)
+                    .With(huxerui::Foreground(labelColor)),
                 // 两态同高的短线：选中显示主色，未选中透明占位，无布局跳动。
                 huxerui::Row{}
                     .With(huxerui::Frame{.height = 2.0F},
                           active ? huxerui::Background(theme.colors.primary)
                                  : huxerui::Background(huxerui::Color::Transparent()),
                           huxerui::CornerRadius(theme.shapes.full)),
-            }
-                .With(huxerui::Spacing(3.0F),
-                      huxerui::Padding(huxerui::EdgeInsets::Symmetric(8.0F, 4.0F)),
+            }.With(huxerui::Spacing(3.0F),
+                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+        }
+        items.push_back(
+            std::move(content)
+                .With(huxerui::Padding(itemPadding),
+                      // 未选中用透明描边（宽度恒为 1pt）保住几何，避免选中时整项
+                      // 尺寸跳动；Underline 模式恒为透明，不画框。
+                      huxerui::Border(framed && active ? theme.colors.primary
+                                                       : huxerui::Color::Transparent(),
+                                      1.0F),
                       huxerui::CornerRadius(theme.shapes.small),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                       indication,
                       huxerui::Focusable(true),
                       huxerui::Semantics{.role = huxerui::SemanticRole::Button,
