@@ -611,7 +611,7 @@ inline constexpr float kKvCheckColumnWidth = 24.0F;
 huxerui::View KvColumnCheckbox(bool checked, std::function<void(bool)> onChanged);
 // 表头全选框：勾选态 = 全部数据行已启用（部分启用视觉为未勾选、无障碍语义为
 // Mixed）；点击回调拿到目标状态（未全选 → 全部启用，已全选 → 全部取消），由调用方
-// 落到每行。rowCount == 0（只有虚拟空行）时退化为同宽空白占位，不提供全选交互。
+// 落到每行。rowCount == 0（只有虚拟空行）时仍渲染复选框（保持表头列几何）但禁用。
 huxerui::View KvSelectAllCheckbox(std::size_t enabledCount, std::size_t rowCount,
                                   std::function<void(bool)> onChanged);
 

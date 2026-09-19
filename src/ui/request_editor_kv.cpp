@@ -322,21 +322,24 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
 // 表头全选框（契约见 ui.h）：全选态由调用方按数据行统计给出；点击回调直接透传
 // Checkbox 的目标状态（全选 → 取消，否则 → 全选）。部分启用只改无障碍语义，
 // 视觉仍是未勾选（Checkbox 没有三态外观）。
+// 没有数据行（表里只有虚拟空行）时仍然渲染复选框：表头列几何与有行时一致，
+// 用户不会以为"这个表没有全选"；此时禁用（灰）并保持未勾选，没有可全选的对象。
 [[huxerui::composable]] huxerui::View KvSelectAllCheckbox(
     std::size_t enabledCount, std::size_t rowCount, std::function<void(bool)> onChanged) {
-    if (rowCount == 0) {
-        // 只有虚拟空行：占住列宽，不提供全选交互。
-        return huxerui::Row{}.With(huxerui::Frame{.width = kKvCheckColumnWidth});
+    const bool empty = rowCount == 0;
+    const bool all = !empty && enabledCount == rowCount;
+    huxerui::SemanticCheckedState state = huxerui::SemanticCheckedState::Unchecked;
+    if (all) {
+        state = huxerui::SemanticCheckedState::Checked;
+    } else if (!empty && enabledCount > 0) {
+        state = huxerui::SemanticCheckedState::Mixed;
     }
-    const bool all = enabledCount == rowCount;
-    return KvColumnCheckbox(all, std::move(onChanged))
-        .With(huxerui::Tooltip("全选 / 取消全选"),
-              huxerui::Semantics{
-                  .label = "全选",
-                  .checked = all ? huxerui::SemanticCheckedState::Checked
-                                 : enabledCount == 0
-                                       ? huxerui::SemanticCheckedState::Unchecked
-                                       : huxerui::SemanticCheckedState::Mixed});
+    return KvColumnCheckbox(all, [onChanged = std::move(onChanged)](bool checked) {
+               if (onChanged) onChanged(checked);
+           })
+        .With(huxerui::Enabled(!empty),
+              huxerui::Tooltip(empty ? "暂无可全选的行" : "全选 / 取消全选"),
+              huxerui::Semantics{.label = "全选", .checked = state});
 }
 
 // KV 编辑表：StateList 作为虚拟列表的数据源。列表只保留可视区附近的行作用域，
