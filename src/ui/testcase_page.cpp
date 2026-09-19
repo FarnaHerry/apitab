@@ -451,13 +451,23 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
 
             // 断言子表：虚拟空行物化 + 删除图标仅真实行（照抄 KvTable 语义）。
             // 列宽与数据行同源：首列 kKvCheckColumnWidth、尾部动作列 kAssertActionWidth
-            // （否则表头与数据行逐列错位）。
+            // （否则表头与数据行逐列错位）。首列表头 = 全选框，点击统一启用/取消
+            // 本用例的全部断言（行数来自草稿，不依赖列表虚拟化）。
             // 尾部动作槽 = AppIconButton 的默认档（28pt），真实行与虚拟占位同宽。
             const auto kAssertActionWidth =
                 huxerui::Frame{.width = 28.0F, .height = 28.0F};
+            std::size_t enabledAsserts = 0;
+            for (const KvRow& row : c.asserts) {
+                if (row.enabled) ++enabledAsserts;
+            }
             card.push_back(huxerui::Row {
-                huxerui::Text("", huxerui::TextRole::Label)
-                    .With(huxerui::Frame{.width = kKvCheckColumnWidth}),
+                huxerui::View{KvSelectAllCheckbox(
+                    enabledAsserts, c.asserts.size(),
+                    [ci, rows = c.asserts, setCaseAsserts](bool enabled) {
+                        std::vector<KvRow> updated = rows;
+                        for (KvRow& row : updated) row.enabled = enabled;
+                        setCaseAsserts(ci, std::move(updated));
+                    })},
                 huxerui::Text("JSON 路径", huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
                 huxerui::Text("期望值", huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
                 huxerui::Row{}.With(kAssertActionWidth),
@@ -482,7 +492,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                 };
                 card.push_back(
                     huxerui::Row {
-                        KvEnabledCheckbox(row.enabled, [row, i, applyRow](bool checked) {
+                        KvColumnCheckbox(row.enabled, [row, i, applyRow](bool checked) {
                             KvRow updated = row;
                             updated.enabled = checked;
                             applyRow(i, std::move(updated));

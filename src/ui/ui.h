@@ -582,14 +582,20 @@ struct KvTableOptions {
     bool show_batch_edit = true;
 };
 
-// 通用列表首列（启用勾选）的固定列宽。表头用同宽空白占位、数据行用
-// KvEnabledCheckbox，两侧必须共用这一个常量才能逐列对齐——Material 主题的
+// 通用列表首列（启用勾选）的固定列宽。表头用同宽占位/全选框、数据行用
+// KvColumnCheckbox，两侧必须共用这一个常量才能逐列对齐——Material 主题的
 // Checkbox 命中区默认 48pt，直接用会把数据行整体右移（Headers/Params/Cookies/
 // 表单字段/环境变量/断言子表都是这套列表）。
 inline constexpr float kKvCheckColumnWidth = 24.0F;
-// 列表首列的启用勾选：把 Checkbox 交互尺寸压到 kKvCheckColumnWidth（视觉仍是
-// 主题的方框，空标签时水平居中），避免默认命中区撑破列宽契约。
-huxerui::View KvEnabledCheckbox(bool enabled, std::function<void(bool)> onChanged);
+// 列表首列的勾选框（行内启用勾选与表头全选共用）：把 Checkbox 交互尺寸压到
+// kKvCheckColumnWidth（视觉仍是主题的方框，空标签时水平居中），避免默认命中区
+// 撑破列宽契约。回调收到的是点击后的目标状态。
+huxerui::View KvColumnCheckbox(bool checked, std::function<void(bool)> onChanged);
+// 表头全选框：勾选态 = 全部数据行已启用（部分启用视觉为未勾选、无障碍语义为
+// Mixed）；点击回调拿到目标状态（未全选 → 全部启用，已全选 → 全部取消），由调用方
+// 落到每行。rowCount == 0（只有虚拟空行）时退化为同宽空白占位，不提供全选交互。
+huxerui::View KvSelectAllCheckbox(std::size_t enabledCount, std::size_t rowCount,
+                                  std::function<void(bool)> onChanged);
 
 // 直接以 HuxerUI StateList 作为控件数据源，适用于页面内独立维护的可编辑大表。
 // 与 vector 版本相比不会在每次重组时复制整份列表；onChanged 在 StateList 已更新后触发。

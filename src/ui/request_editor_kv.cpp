@@ -306,17 +306,37 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
     return {rows.begin(), rows.end()};
 }
 
-// 列表首列的启用勾选（契约见 ui.h）：Checkbox 的命中/指示层尺寸压到列宽常量，
-// 空标签时框架把方框水平居中，于是表头占位与数据行共用 kKvCheckColumnWidth。
-[[huxerui::composable]] huxerui::View KvEnabledCheckbox(
-    bool enabled, std::function<void(bool)> onChanged) {
+// 列表首列勾选框（契约见 ui.h）：命中/指示层尺寸压到列宽常量，空标签时框架把
+// 方框水平居中，于是表头（全选框或占位）与数据行共用 kKvCheckColumnWidth。
+[[huxerui::composable]] huxerui::View KvColumnCheckbox(
+    bool checked, std::function<void(bool)> onChanged) {
     huxerui::CheckboxStyle style = huxerui::UseEnvironment<huxerui::CheckboxStyle>();
     style.minimum_interactive_size = kKvCheckColumnWidth;
     style.state_layer_size = kKvCheckColumnWidth;
     return huxerui::ProvideEnvironment(
-        style, huxerui::View{huxerui::Checkbox(enabled)
+        style, huxerui::View{huxerui::Checkbox(checked)
                                  .OnChanged(std::move(onChanged))
                                  .With(huxerui::Frame{.width = kKvCheckColumnWidth})});
+}
+
+// 表头全选框（契约见 ui.h）：全选态由调用方按数据行统计给出；点击回调直接透传
+// Checkbox 的目标状态（全选 → 取消，否则 → 全选）。部分启用只改无障碍语义，
+// 视觉仍是未勾选（Checkbox 没有三态外观）。
+[[huxerui::composable]] huxerui::View KvSelectAllCheckbox(
+    std::size_t enabledCount, std::size_t rowCount, std::function<void(bool)> onChanged) {
+    if (rowCount == 0) {
+        // 只有虚拟空行：占住列宽，不提供全选交互。
+        return huxerui::Row{}.With(huxerui::Frame{.width = kKvCheckColumnWidth});
+    }
+    const bool all = enabledCount == rowCount;
+    return KvColumnCheckbox(all, std::move(onChanged))
+        .With(huxerui::Tooltip("全选 / 取消全选"),
+              huxerui::Semantics{
+                  .label = "全选",
+                  .checked = all ? huxerui::SemanticCheckedState::Checked
+                                 : enabledCount == 0
+                                       ? huxerui::SemanticCheckedState::Unchecked
+                                       : huxerui::SemanticCheckedState::Mixed});
 }
 
 // KV 编辑表：StateList 作为虚拟列表的数据源。列表只保留可视区附近的行作用域，
@@ -338,11 +358,22 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
     // 表头与数据行共用同一套宽度约定：首列勾选框固定 kKvCheckColumnWidth，
     // 键/值/备注自适应拉伸，类型列固定 72pt，尾部动作列固定 88pt。任何一列
     // 只在一侧写死宽度都会让整行与表头错位（首列尤甚），新增列必须两处同源。
+    // 首列表头 = 全选框：读一遍数据行统计启用数，点击把全部行设成同一状态
+    // （读 StateList 会订阅整表，行内勾选后表头勾选态随之刷新）。
+    std::size_t enabledRows = 0;
+    for (const KvRow& row : stateRows) {
+        if (row.enabled) ++enabledRows;
+    }
+    const std::size_t rowCount = stateRows.Size();
     const auto typeWidth = huxerui::Frame{.width = 72.0F};
     const auto actionWidth = huxerui::Frame{.width = 88.0F};
     std::vector<huxerui::View> header{
-        huxerui::Text("", huxerui::TextRole::Label)
-            .With(huxerui::Frame{.width = kKvCheckColumnWidth}),
+        huxerui::View{KvSelectAllCheckbox(
+            enabledRows, rowCount, [stateRows, commitRows](bool enabled) {
+                std::vector<KvRow> rows = SnapshotKvRows(stateRows);
+                for (KvRow& row : rows) row.enabled = enabled;
+                commitRows(std::move(rows));
+            })},
         huxerui::Text(keyLabel, huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
         huxerui::Text(valueLabel, huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
     };
@@ -384,7 +415,7 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
             commitRows(std::move(copy));
         };
         std::vector<huxerui::View> rowViews{
-                KvEnabledCheckbox(row.enabled, [row, i, applyRow](bool checked) {
+                KvColumnCheckbox(row.enabled, [row, i, applyRow](bool checked) {
                     KvRow updated = row;
                     updated.enabled = checked;
                     applyRow(i, std::move(updated));
