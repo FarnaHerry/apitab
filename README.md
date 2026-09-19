@@ -57,6 +57,13 @@ cmake -S . -B build-sdk -G Ninja -DAPITAB_HUXERUI_FORCE_SDK=ON
 cmake --build build-sdk --target apitab
 ```
 
+开发约定：每次修改（代码、CMake、资源或生成输入）完成后，必须重新执行完整构建，
+并确认 `apitab` 目标编译、链接成功，该次修改才算完成；仅通过静态检查或部分编译不算：
+
+```bash
+cmake --build build --target apitab --parallel $(nproc)
+```
+
 ## 测试
 
 ```bash

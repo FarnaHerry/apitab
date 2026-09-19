@@ -213,8 +213,9 @@ ctest --test-dir build             # 冒烟测试（test_smoke）
 ./run.sh                           # 启动 GUI（切到仓库根 + INTEL_FORCE_PROBE=1）
 ```
 
-- **修改完成后的构建闭环（强制）**：每次代码、CMake、资源或生成输入修改完成后，
-  必须重新执行与改动相符的构建，并确保 `apitab` 目标完成**编译和链接**；仅生成 hcg
+- **修改完成后的构建闭环（强制）**：每次修改完成后必须重新编译——完成任何代码、
+  CMake、资源或生成输入修改后，必须重新执行与改动相符的构建，
+  并确保 `apitab` 目标完成**编译和链接**；仅生成 hcg
   文件、仅编译单个 `.o`、或只跑静态检查均不能视为完成。通常执行
   `cmake --build build --target apitab --parallel $(nproc)`；构建系统需要重配时先执行
   `cmake -B build -G Ninja`，确保使用 Ninja 生成器。
