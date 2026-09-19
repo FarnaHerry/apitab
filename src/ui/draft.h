@@ -26,9 +26,10 @@ inline constexpr std::array<std::string_view, 20> kMethodNames{
     "CONNECT", "TRACE",  "QUERY",  "PURGE",   "PROPFIND", "PROPPATCH",
     "MKCOL",   "COPY",   "MOVE",   "LOCK",    "UNLOCK", "REPORT", "SEARCH"};
 
-// 下标与 api::BodyKind 一一对应（None=0 … GraphQL=6）。
+// 下标与 api::BodyKind 一一对应（None=0 … GraphQL=6）；None 显示为 none，
+// 与 CLI 的 bodyKind 名称（src/cli.cpp bodyKindName）一致。
 inline constexpr std::array<std::string_view, 7> kBodyTypeNames{
-    "无", "JSON", "Text", "Form URL-Encoded", "Form-Data", "XML", "GraphQL"};
+    "none", "JSON", "Text", "Form URL-Encoded", "Form-Data", "XML", "GraphQL"};
 
 // 受控 KV 行：TextField 保留完整 TextEditingValue。type/remark 对应
 // api::KeyValue 的同名字段（类型说明 / 备注，仅记录与展示，不参与发送逻辑）。

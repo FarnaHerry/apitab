@@ -450,11 +450,17 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
             };
 
             // 断言子表：虚拟空行物化 + 删除图标仅真实行（照抄 KvTable 语义）。
+            // 列宽与数据行同源：首列 kKvCheckColumnWidth、尾部动作列 kAssertActionWidth
+            // （否则表头与数据行逐列错位）。
+            // 尾部动作槽 = AppIconButton 的默认档（28pt），真实行与虚拟占位同宽。
+            const auto kAssertActionWidth =
+                huxerui::Frame{.width = 28.0F, .height = 28.0F};
             card.push_back(huxerui::Row {
-                huxerui::Text("", huxerui::TextRole::Label).With(huxerui::Frame{.width = 24.0F}),
+                huxerui::Text("", huxerui::TextRole::Label)
+                    .With(huxerui::Frame{.width = kKvCheckColumnWidth}),
                 huxerui::Text("JSON 路径", huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
                 huxerui::Text("期望值", huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
-                huxerui::Text("", huxerui::TextRole::Label),
+                huxerui::Row{}.With(kAssertActionWidth),
             }
                                .With(huxerui::Spacing(theme.spacing.small),
                                      huxerui::Foreground(theme.colors.on_surface_variant)));
@@ -476,12 +482,11 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                 };
                 card.push_back(
                     huxerui::Row {
-                        huxerui::Checkbox(row.enabled)
-                            .OnChanged([row, i, applyRow](bool checked) {
-                                KvRow updated = row;
-                                updated.enabled = checked;
-                                applyRow(i, std::move(updated));
-                            }),
+                        KvEnabledCheckbox(row.enabled, [row, i, applyRow](bool checked) {
+                            KvRow updated = row;
+                            updated.enabled = checked;
+                            applyRow(i, std::move(updated));
+                        }),
                         huxerui::TextField(row.key)
                             .Placeholder("data.items[0].id")
                             .Variant(huxerui::TextFieldVariant::Standard)
@@ -501,8 +506,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                             })
                             .With(huxerui::Grow(1.0F)),
                         phantom
-                            ? huxerui::View{huxerui::Row{}.With(
-                                  huxerui::Frame{.width = 28.0F, .height = 28.0F})}
+                            ? huxerui::View{huxerui::Row{}.With(kAssertActionWidth)}
                             : AppIconButton(app::images::close, "删除断言",
                                   [tasks, rows = c.asserts, i, ci, setCaseAsserts] {
                                       // 删除会移除本按钮所在行：推迟出指针事件路径。

@@ -306,6 +306,19 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
     return {rows.begin(), rows.end()};
 }
 
+// 列表首列的启用勾选（契约见 ui.h）：Checkbox 的命中/指示层尺寸压到列宽常量，
+// 空标签时框架把方框水平居中，于是表头占位与数据行共用 kKvCheckColumnWidth。
+[[huxerui::composable]] huxerui::View KvEnabledCheckbox(
+    bool enabled, std::function<void(bool)> onChanged) {
+    huxerui::CheckboxStyle style = huxerui::UseEnvironment<huxerui::CheckboxStyle>();
+    style.minimum_interactive_size = kKvCheckColumnWidth;
+    style.state_layer_size = kKvCheckColumnWidth;
+    return huxerui::ProvideEnvironment(
+        style, huxerui::View{huxerui::Checkbox(enabled)
+                                 .OnChanged(std::move(onChanged))
+                                 .With(huxerui::Frame{.width = kKvCheckColumnWidth})});
+}
+
 // KV 编辑表：StateList 作为虚拟列表的数据源。列表只保留可视区附近的行作用域，
 // 末尾额外保留一个虚拟空行；页面若直接持有 StateList，不再在每次重组时复制整表。
 [[huxerui::composable]] huxerui::View KvTableStateList(
@@ -322,12 +335,14 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
             stateRows.PushBack(updated[i]);
         if (onChanged) onChanged();
     };
-    // 表头与数据行共用同一套宽度约定：勾选框约 24pt，键/值/备注自适应拉伸，
-    // 类型列固定 72pt。
+    // 表头与数据行共用同一套宽度约定：首列勾选框固定 kKvCheckColumnWidth，
+    // 键/值/备注自适应拉伸，类型列固定 72pt，尾部动作列固定 88pt。任何一列
+    // 只在一侧写死宽度都会让整行与表头错位（首列尤甚），新增列必须两处同源。
     const auto typeWidth = huxerui::Frame{.width = 72.0F};
     const auto actionWidth = huxerui::Frame{.width = 88.0F};
     std::vector<huxerui::View> header{
-        huxerui::Text("", huxerui::TextRole::Label).With(huxerui::Frame{.width = 24.0F}),
+        huxerui::Text("", huxerui::TextRole::Label)
+            .With(huxerui::Frame{.width = kKvCheckColumnWidth}),
         huxerui::Text(keyLabel, huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
         huxerui::Text(valueLabel, huxerui::TextRole::Label).With(huxerui::Grow(1.0F)),
     };
@@ -369,7 +384,7 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
             commitRows(std::move(copy));
         };
         std::vector<huxerui::View> rowViews{
-                huxerui::Checkbox(row.enabled).OnChanged([row, i, applyRow](bool checked) {
+                KvEnabledCheckbox(row.enabled, [row, i, applyRow](bool checked) {
                     KvRow updated = row;
                     updated.enabled = checked;
                     applyRow(i, std::move(updated));
@@ -406,8 +421,7 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
                 }).With(huxerui::Grow(1.0F)));
         }
         rowViews.push_back(phantom
-                    ? huxerui::View{huxerui::Row{}.With(
-                          huxerui::Frame{.width = 88.0F, .height = 28.0F})}
+                    ? huxerui::View{huxerui::Row{}.With(actionWidth)}
                     : AppIconButton(app::images::close, "删除此行", [tasks, stateRows, i, commitRows] {
                         // 删除会移除本按钮所在行：推迟出指针事件路径
                         tasks.Launch([=]() -> huxerui::Task<void> {

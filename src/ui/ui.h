@@ -582,6 +582,15 @@ struct KvTableOptions {
     bool show_batch_edit = true;
 };
 
+// 通用列表首列（启用勾选）的固定列宽。表头用同宽空白占位、数据行用
+// KvEnabledCheckbox，两侧必须共用这一个常量才能逐列对齐——Material 主题的
+// Checkbox 命中区默认 48pt，直接用会把数据行整体右移（Headers/Params/Cookies/
+// 表单字段/环境变量/断言子表都是这套列表）。
+inline constexpr float kKvCheckColumnWidth = 24.0F;
+// 列表首列的启用勾选：把 Checkbox 交互尺寸压到 kKvCheckColumnWidth（视觉仍是
+// 主题的方框，空标签时水平居中），避免默认命中区撑破列宽契约。
+huxerui::View KvEnabledCheckbox(bool enabled, std::function<void(bool)> onChanged);
+
 // 直接以 HuxerUI StateList 作为控件数据源，适用于页面内独立维护的可编辑大表。
 // 与 vector 版本相比不会在每次重组时复制整份列表；onChanged 在 StateList 已更新后触发。
 huxerui::View KvTableStateList(

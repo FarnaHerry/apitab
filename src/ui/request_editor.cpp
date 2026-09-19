@@ -369,12 +369,11 @@ huxerui::View SplitActionButton(
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
             break;
         default: {
-            // Body 固定头：类型选择行（横向普通列表，下标 = api::BodyKind）；
-            // 选中 JSON/XML 时下一行出现"格式化"按钮（左对齐；JSON 剥注释后
+            // Body 固定头：类型选择行（横向普通列表，下标 = api::BodyKind，标签取
+            // draft.h 的唯一数组 kBodyTypeNames —— None 项显示 none）；选中
+            // JSON/XML 时下一行出现"格式化"按钮（左对齐；JSON 剥注释后
             // nlohmann dump(2)，XML 标签缩进换行），其余类型整行不渲染。
             // 固定在滚动区外，滚动时仍可见。
-            constexpr std::array<const char*, 7> kBodyKindLabels{
-                "无", "JSON", "Text", "Form URL-Encoded", "Form-Data", "XML", "GraphQL"};
             huxerui::Color kindHover = theme.colors.on_surface;
             kindHover.alpha = 0.06F;
             huxerui::Color kindPress = theme.colors.on_surface;
@@ -385,12 +384,13 @@ huxerui::View SplitActionButton(
             kindIndication.press = huxerui::IndicationLayer{
                 .fill = huxerui::VisualFill{huxerui::Brush{kindPress}}};
             std::vector<huxerui::View> kindItems;
-            kindItems.reserve(kBodyKindLabels.size());
-            for (std::size_t kind = 0; kind < kBodyKindLabels.size(); ++kind) {
+            kindItems.reserve(kBodyTypeNames.size());
+            for (std::size_t kind = 0; kind < kBodyTypeNames.size(); ++kind) {
                 const bool selected = snapshot.bodyKindIndex == kind;
+                const std::string kindLabel{kBodyTypeNames[kind]};
                 kindItems.push_back(
                     huxerui::Column {
-                        huxerui::Text(kBodyKindLabels[kind], huxerui::TextRole::Label)
+                        huxerui::Text(kBodyTypeNames[kind], huxerui::TextRole::Label)
                             .With(huxerui::Foreground(selected ? theme.colors.primary
                                                                : theme.colors.on_surface_variant)),
                         // 两态同高的短线：选中显示主色，未选中透明占位，无布局跳动。
@@ -409,7 +409,7 @@ huxerui::View SplitActionButton(
                               huxerui::Focusable(true),
                               huxerui::Semantics{
                                   .role = huxerui::SemanticRole::Button,
-                                  .label = "请求体类型 " + std::string(kBodyKindLabels[kind])})
+                                  .label = "请求体类型 " + kindLabel})
                         .OnClick([drafts, index, kind] {
                             MutateDraft(drafts, index,
                                         [kind](RequestDraft& d) { d.bodyKindIndex = kind; });
