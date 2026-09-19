@@ -378,11 +378,13 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
             active ? theme.colors.primary : theme.colors.on_surface_variant;
         huxerui::View content;
         if (framed) {
+            // 内容行不得设非 Start 的 MainAlign：流式布局里 MainAlign 会 claim 可用
+            // 宽度上限，按钮宽度就不再由文字决定（曾导致一个按钮占满整行，见
+            // CLAUDE.md 的"行宽自适应"约定）。行内容天然等于文字宽度。
             content = huxerui::Row {
                 huxerui::Text(label, huxerui::TextRole::Label)
                     .With(huxerui::Foreground(labelColor)),
-            }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+            }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
         } else {
             content = huxerui::Column {
                 huxerui::Text(label, huxerui::TextRole::Label)
