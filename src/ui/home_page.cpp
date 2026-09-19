@@ -25,39 +25,6 @@ namespace apitab::ui {
 
 namespace {
 
-// 首页品牌入口：把设计稿里的 apitab 标记落到真实工作台中，作为组织/项目
-// 两个业务岛屿之前的轻量欢迎卡。品牌只承担欢迎和定位，不给整个工作区染色。
-[[huxerui::composable]] huxerui::View BrandIntro() {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    return huxerui::Row {
-        huxerui::Row{}
-            .With(huxerui::Frame{.width = 3.0F, .height = 42.0F},
-                  huxerui::Background(theme.colors.primary),
-                  huxerui::CornerRadius(theme.shapes.full)),
-        huxerui::Row{BrandMark(30.0F)}
-            .With(huxerui::Frame{.width = 46.0F, .height = 46.0F},
-                  huxerui::Background(theme.colors.surface_container_low),
-                  huxerui::CornerRadius(theme.shapes.medium),
-                  huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-        huxerui::Column {
-            BrandWordmark(20.0F),
-            huxerui::Text("让每一次请求都清澈可见", huxerui::TextRole::Body)
-                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-            huxerui::Text("One Tab For a Brighter Connection", huxerui::TextRole::Label)
-                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-        }
-            .With(huxerui::Spacing(theme.spacing.extra_small), huxerui::Grow(1.0F)),
-        huxerui::Text("API 工作台", huxerui::TextRole::Label)
-            .With(huxerui::Foreground(theme.colors.primary)),
-    }
-        .With(huxerui::Padding(theme.spacing.medium),
-              huxerui::Spacing(theme.spacing.medium),
-              huxerui::Background(theme.colors.surface),
-              huxerui::CornerRadius(theme.shapes.large), huxerui::Frame{.min_height = 82.0F},
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
-}
-
 // 组织列表行（P1-A2 布局契约：[前置区] [主内容 Grow] [尾部信息] [固定动作区]）：
 // 组织行无前置图标与尾部元信息——主内容 = 组织名（左对齐、Grow 撑开），尾部 =
 // TrailingActionGroup 固定动作区（32pt 槽位整列等宽，窗口宽度变化时右缘不抖动）。
@@ -392,7 +359,6 @@ namespace {
     // 维持左右双岛。不用外层 ScrollView（其内容宽度无界会让 Row 收缩漂移）。
     if (compact) {
         return huxerui::Column {
-                   BrandIntro(),
                    std::move(orgIsland).With(huxerui::Frame{.max_height = 220.0F}),
                    std::move(projectIsland),
                }
@@ -400,7 +366,6 @@ namespace {
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
     return huxerui::Column {
-        BrandIntro(),
         huxerui::Row {std::move(orgIsland), std::move(projectIsland)}
             .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
