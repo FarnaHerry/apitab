@@ -279,10 +279,11 @@ huxerui::View SplitActionButton(
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
 
-    // 分区切换条固定在滚动区外。
-    huxerui::View sectionTabs = huxerui::View{huxerui::SegmentedButton(
-        {"Auth", "Params", "Headers", "Cookies", "Body", "设置"}, section)
-                                      .OnChanged([section](std::size_t i) { section = i; })};
+    // 分区切换条固定在滚动区外。与分区内部的二级选择行（Auth 认证方式 / Body 类型）
+    // 同款外观：无卡片边框，选中项 = 主色文字 + 底部下划线，hover/press 才出填充。
+    huxerui::View sectionTabs = FlatSelectRow(
+        {"Auth", "Params", "Headers", "Cookies", "Body", "设置"}, section.Get(),
+        [section](std::size_t i) { section = i; }, "请求分区 ");
     // sectionFixed：分区各自的固定头（仅 Body 有：类型选择行 + 条件渲染的格式化行）；
     // sectionContent：普通内容进入 ScrollView；KV 表自身包含 VirtualList，不能再
     // 套滚动容器，否则会失去有界视口并产生嵌套滚动竞争。
