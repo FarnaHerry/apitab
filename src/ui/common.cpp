@@ -203,9 +203,9 @@ public:
         const float dy = 0.35F * (sine - cosine);
         paint.StrokePath(circle, huxerui::LinearGradient{
             .start = {0.5F - dx, 0.5F - dy}, .end = {0.5F + dx, 0.5F + dy},
-            .stops = {{0.0F, huxerui::Color::Rgb(67, 211, 220)},
-                      {0.6F, huxerui::Color::Rgb(67, 211, 220)},
-                      {1.0F, huxerui::Color::Rgb(125, 232, 237)}},
+            .stops = {{0.0F, huxerui::Color::Rgb(72, 214, 232)},
+                      {0.6F, huxerui::Color::Rgb(72, 214, 232)},
+                      {1.0F, huxerui::Color::Rgb(159, 147, 232)}},
         }, huxerui::StrokeStyle{.width = value_.width});
     }
 
