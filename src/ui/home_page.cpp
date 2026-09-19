@@ -36,8 +36,7 @@ namespace {
                   huxerui::CornerRadius(theme.shapes.full)),
         huxerui::Row{BrandMark(30.0F)}
             .With(huxerui::Frame{.width = 46.0F, .height = 46.0F},
-                  huxerui::Background(theme.colors.surface),
-                  huxerui::Border(theme.colors.outline, 1.0F),
+                  huxerui::Background(theme.colors.surface_container_low),
                   huxerui::CornerRadius(theme.shapes.medium),
                   huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
@@ -55,7 +54,6 @@ namespace {
         .With(huxerui::Padding(theme.spacing.medium),
               huxerui::Spacing(theme.spacing.medium),
               huxerui::Background(theme.colors.surface),
-              huxerui::Border(theme.colors.outline, 1.0F),
               huxerui::CornerRadius(theme.shapes.large), huxerui::Frame{.min_height = 82.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
@@ -129,7 +127,12 @@ namespace {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
     auto tasks = huxerui::UseTaskScope();
+    auto hovered = huxerui::UseState(false);
+    auto focused = huxerui::UseState(false);
     const bool is_open = activeProject.Get() == project.id;
+    // 嵌套卡常态不描边（岛已靠底色分层，卡再画线会双框）；悬停/聚焦才出线
+    // 提示可点。只换颜色，几何与内边距两态一致，避免悬停时内容抖动。
+    const bool highlight = hovered.Get() || focused.Get();
     return huxerui::Column {
         huxerui::Text(project.name, huxerui::TextRole::Title)
             .With(huxerui::Foreground(is_open ? theme.colors.primary
@@ -137,8 +140,11 @@ namespace {
     }
         .With(huxerui::Frame{.width = 200.0F, .height = 96.0F},
               huxerui::Padding(theme.spacing.medium), huxerui::Spacing(4.0F),
-              huxerui::Background(theme.colors.surface_container),
-              huxerui::Border(theme.colors.outline, 1.0F),
+              huxerui::Background(highlight ? theme.colors.surface_container_high
+                                            : theme.colors.surface_container),
+              huxerui::Border(highlight ? theme.colors.outline
+                                        : huxerui::Color::Transparent(),
+                              1.0F),
               huxerui::CornerRadius(theme.shapes.medium),
               // 键盘/语义（P1-B0.4，§13.6 键盘要求）：卡片可聚焦 + Button 语义，
               // 键盘 Tab 后 Enter/Space 打开项目（模式同 settings_page 左分类行）。
@@ -163,7 +169,15 @@ namespace {
                 // AppRoot 的 onOpenProject 完成；同一推迟任务内执行，重组无中间帧。
                 onOpenProject(project.id);
             });
-        });
+        })
+        .On<huxerui::ViewEvents::Hover>([hovered](const huxerui::HoverEvent& e) {
+            if (e.type == huxerui::HoverEventType::Enter)
+                hovered = true;
+            else if (e.type == huxerui::HoverEventType::Leave)
+                hovered = false;
+        })
+        .On<huxerui::ViewEvents::FocusChanged>(
+            [focused](bool value) { focused = value; });
 }
 
 // 领域 store 返回的是一次性快照；用稳定 Key 让数据快照变化时重建子作用域，
@@ -298,7 +312,6 @@ namespace {
             .With(huxerui::Padding(theme.spacing.medium),
                   huxerui::Spacing(theme.spacing.small),
                   huxerui::Background(theme.colors.surface_container_low),
-                  huxerui::Border(theme.colors.outline, 1.0F),
                   huxerui::CornerRadius(theme.shapes.large), huxerui::Frame{.width = 240.0F},
                   huxerui::Frame{.min_width = 200.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -371,7 +384,6 @@ namespace {
             .With(huxerui::Padding(theme.spacing.large),
                   huxerui::Spacing(theme.spacing.medium),
                   huxerui::Background(theme.colors.surface_container_low),
-                  huxerui::Border(theme.colors.outline, 1.0F),
                   huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
                   huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));

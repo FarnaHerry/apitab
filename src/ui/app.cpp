@@ -73,7 +73,8 @@ namespace {
 // TopTabDisplayKey / ProjectTabDragPayload / TopTab / TopTabStrip / LogoBadge 见 title_bar.cpp。
 
 // apitab 水母品牌主题：颜色先落到语义 token，再由 typed style 统一消费。
-// 这组值对应参考图的浅色/深色设计板；页面不应再直接散落品牌色。
+// 深色板为石墨中性色 + 青色品牌点缀（大面积不再铺蓝，靠表面明度分层）；
+// 浅色板对应参考图设计板。页面不应再直接散落品牌色。
 huxerui::ThemeSpec OceanDarkThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
     spec.typography = huxerui::TypographyScheme{
@@ -102,23 +103,23 @@ huxerui::ThemeSpec OceanDarkThemeSpec() {
     spec.colors.on_primary = huxerui::Color::Rgb(7, 30, 35);
     spec.colors.primary_container = huxerui::Color::Rgb(21, 52, 61);  // #15343D
     spec.colors.on_primary_container = huxerui::Color::Rgb(234, 247, 248);
-    spec.colors.secondary = huxerui::Color::Rgb(157, 187, 192);       // #9DBBC0
-    spec.colors.on_secondary = huxerui::Color::Rgb(7, 21, 27);
-    spec.colors.secondary_container = huxerui::Color::Rgb(16, 42, 51); // #102A33
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(234, 247, 248);
+    spec.colors.secondary = huxerui::Color::Rgb(154, 166, 174);       // #9AA6AE
+    spec.colors.on_secondary = huxerui::Color::Rgb(16, 20, 24);
+    spec.colors.secondary_container = huxerui::Color::Rgb(30, 36, 42); // #1E242A
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(227, 232, 235);
     spec.colors.tertiary_container = huxerui::Color::Rgb(26, 63, 74);
     spec.colors.on_tertiary_container = huxerui::Color::Rgb(191, 239, 242);
-    spec.colors.background = huxerui::Color::Rgb(7, 21, 27);         // #07151B
-    spec.colors.surface = huxerui::Color::Rgb(12, 32, 40);            // #0C2028
-    spec.colors.surface_container_low = huxerui::Color::Rgb(16, 42, 51); // #102A33
-    spec.colors.surface_container = huxerui::Color::Rgb(21, 52, 61); // #15343D
-    spec.colors.surface_container_high = huxerui::Color::Rgb(26, 62, 72);
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(21, 52, 61); // elevated
-    spec.colors.on_surface = huxerui::Color::Rgb(234, 247, 248);     // #EAF7F8
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(157, 187, 192);
-    spec.colors.outline = huxerui::Color::Rgb(33, 67, 75);            // #21434B
-    spec.colors.inverse_surface = huxerui::Color::Rgb(234, 247, 248);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(7, 21, 27);
+    spec.colors.background = huxerui::Color::Rgb(16, 20, 24);         // #101418
+    spec.colors.surface = huxerui::Color::Rgb(23, 28, 33);            // #171C21
+    spec.colors.surface_container_low = huxerui::Color::Rgb(30, 36, 42); // #1E242A
+    spec.colors.surface_container = huxerui::Color::Rgb(38, 45, 52);  // #262D34
+    spec.colors.surface_container_high = huxerui::Color::Rgb(46, 54, 62); // #2E363E
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(54, 63, 71); // #363F47
+    spec.colors.on_surface = huxerui::Color::Rgb(227, 232, 235);      // #E3E8EB
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(154, 166, 174); // #9AA6AE
+    spec.colors.outline = huxerui::Color::Rgb(65, 74, 82);            // #414A52
+    spec.colors.inverse_surface = huxerui::Color::Rgb(227, 232, 235);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(16, 20, 24);
     spec.colors.error = huxerui::Color::Rgb(255, 142, 134);
     spec.interactions.focus_ring = huxerui::FocusRing{spec.colors.primary, 2.0F, 2.0F};
     return spec;
@@ -518,9 +519,9 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     });
 
     // 初始值在 UseState 之前算好（组合体内不写 State）：
-    // 主题模式 0=跟随系统 1=深色 2=浅色，未保存偏好时默认深色（深海蓝底）。
-    int initialThemeMode = 1;
-    if (firstComposition && sessionPreference("theme_mode") == "0") initialThemeMode = 0;
+    // 主题模式 0=跟随系统 1=深色 2=浅色，未保存偏好时默认跟随系统。
+    int initialThemeMode = 0;
+    if (firstComposition && sessionPreference("theme_mode") == "1") initialThemeMode = 1;
     if (firstComposition && sessionPreference("theme_mode") == "2") initialThemeMode = 2;
     // 关闭行为：0=每次询问 1=直接关闭 2=最小化到托盘
     int initialCloseBehavior = 0;

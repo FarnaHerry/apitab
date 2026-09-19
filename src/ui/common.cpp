@@ -53,6 +53,8 @@ namespace apitab::ui {
 }
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
+    huxerui::Color outline_hair = theme.colors.outline;
+    outline_hair.alpha *= 0.5F;
     return IslandTheme{
         .page_gap = theme.spacing.medium,
         // 一级岛与请求页/主页一致使用 medium 内边距；设置页不能另起一套更厚卡片。
@@ -76,6 +78,7 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .active = theme.colors.surface_container_high,
         .overlay = theme.colors.surface_container_highest,
         .outline_soft = theme.colors.outline,
+        .outline_hair = outline_hair,
     };
 }
 
@@ -949,9 +952,10 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     return huxerui::Row {
         std::move(trigger),
         std::move(baseSegment),
-        // 分隔线：父 Row 交叉轴 Stretch 拉满全高。
+        // 分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用半透明档，
+        // 弱于输入框描边等交互线。
         huxerui::Column{}.With(huxerui::Frame{.width = 1.0F},
-                               huxerui::Background(theme.colors.outline)),
+                               huxerui::Background(islands.outline_hair)),
         huxerui::ProvideEnvironment(
             urlStyle,
             huxerui::View{std::move(urlField).With(huxerui::Grow(1.0F))}),

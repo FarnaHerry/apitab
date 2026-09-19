@@ -447,9 +447,9 @@ struct DraftTabDragPayload {
             .With(huxerui::ClipChildren(), huxerui::Grow(1.0F)),
         huxerui::Row {
             std::move(envTrigger),
-            // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高。
+            // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用半透明档。
             huxerui::Column{}.With(huxerui::Frame{.width = 1.0F},
-                                   huxerui::Background(theme.colors.outline)),
+                                   huxerui::Background(islands.outline_hair)),
             std::move(envSettingsTrigger),
         }
             .With(huxerui::Spacing(0.0F),

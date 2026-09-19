@@ -125,6 +125,9 @@ struct IslandTheme {
     huxerui::Color active;
     huxerui::Color overlay;
     huxerui::Color outline_soft;
+    // outline_soft 的半透明档：仅供组合栏内部竖分隔线等纯装饰线，
+    // 让装饰线视觉上弱于输入框描边等交互线。
+    huxerui::Color outline_hair;
 };
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);

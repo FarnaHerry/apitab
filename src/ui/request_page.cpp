@@ -29,6 +29,11 @@ namespace apitab::ui {
     std::string title, std::string description, int kind, std::function<void(int)> onSelected) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
+    auto hovered = huxerui::UseState(false);
+    auto focused = huxerui::UseState(false);
+    // 入口卡常态安静（仅底色分层），悬停/聚焦才出线提示可点；
+    // 只换颜色，几何与内边距两态一致，避免悬停时内容抖动。
+    const bool highlight = hovered.Get() || focused.Get();
     return huxerui::Column {
         huxerui::Text(title, huxerui::TextRole::Title).Align(huxerui::TextAlign::Center),
         huxerui::Text(std::move(description), huxerui::TextRole::Body)
@@ -37,16 +42,26 @@ namespace apitab::ui {
     }
         .With(huxerui::Spacing(theme.spacing.small),
               huxerui::Frame{.width = 220.0F, .height = 128.0F},
-              huxerui::Background(islands.raised),
+              huxerui::Background(highlight ? islands.active : islands.raised),
               huxerui::CornerRadius(islands.large_control_radius),
-              huxerui::Border(islands.outline_soft, 1.0F),
+              huxerui::Border(highlight ? islands.outline_soft
+                                        : huxerui::Color::Transparent(),
+                              1.0F),
               huxerui::ClipChildren(), huxerui::Padding(theme.spacing.medium),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
               huxerui::Focusable(true),
               huxerui::Semantics{.role = huxerui::SemanticRole::Button,
                                   .label = "新建" + title})
-        .OnClick([onSelected = std::move(onSelected), kind] { onSelected(kind); });
+        .OnClick([onSelected = std::move(onSelected), kind] { onSelected(kind); })
+        .On<huxerui::ViewEvents::Hover>([hovered](const huxerui::HoverEvent& e) {
+            if (e.type == huxerui::HoverEventType::Enter)
+                hovered = true;
+            else if (e.type == huxerui::HoverEventType::Leave)
+                hovered = false;
+        })
+        .On<huxerui::ViewEvents::FocusChanged>(
+            [focused](bool value) { focused = value; });
 }
 
 [[huxerui::composable]] huxerui::View NewRequestChooser(std::function<void(int)> onSelected) {
