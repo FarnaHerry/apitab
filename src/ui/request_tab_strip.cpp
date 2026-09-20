@@ -436,15 +436,19 @@ struct DraftTabDragPayload {
             .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 
     return huxerui::Row {
-        // 标签 chips 占满剩余宽度（Grow 把环境区推到最右），溢出裁剪。
-        // Stack 包裹：拖动时覆盖层克隆叠在 chips 之上（绘制最上层）。
-        huxerui::Stack {
+        // 标签 chips 占满剩余宽度（Grow 把环境区推到最右）。打开草稿多到放不下时
+        // 不再直接裁掉，而是横向滚动（与标题栏项目标签条同一套做法：ScrollView +
+        // ScrollBar，溢出可滚到、条数多时不再够不到被裁的标签）。
+        // Stack 包裹：拖动时覆盖层克隆叠在 chips 之上（绘制最上层），并随
+        // ScrollView 一起滚动（Offset 只平移绘制，布局原点仍在内容坐标系）。
+        huxerui::ScrollView(huxerui::Stack {
             huxerui::Row(std::move(chips))
                 .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             std::move(overlayChip),
-        }
-            .With(huxerui::ClipChildren(), huxerui::Grow(1.0F)),
+        })
+            .ScrollAxis(huxerui::Axis::Horizontal)
+            .With(huxerui::ScrollBar{}, huxerui::ClipChildren(), huxerui::Grow(1.0F)),
         huxerui::Row {
             std::move(envTrigger),
             // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用半透明档。
