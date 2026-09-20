@@ -427,9 +427,12 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
 // TopTabStrip 已移至 title_bar.cpp（P1-C2）
 
 
-// 左列：图标侧边栏（选中态用实心图标变体，悬停显示文字提示）。
-// 侧栏不做岛、直接落在海面（窗口背景）上，选中项只用实心图标变体和左侧指示条
-// 强调；WebSocket/TCP 已并入请求页标签，不再单列。
+// 左列：图标侧边栏（选中态用实心图标变体 + 药丸底色，悬停显示文字提示）。
+// 侧栏不做岛、直接落在海面（窗口背景）上；选中强调只有图标变体与药丸底色——
+// 原先的左侧 3pt 指示条既是多余的第三条选中线索，又会占掉行内水平空间、把图标
+// 从药丸中心推开，已删除。每个图标都在自己的按钮里双向居中：外层 Row 与
+// IconButton 同为 40pt（无多余兄弟节点），CrossAlign(Center) 负责纵向。
+// WebSocket/TCP 已并入请求页标签，不再单列。
 [[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
@@ -454,11 +457,6 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
         const huxerui::ImageResource& icon = selected ? item.icon_selected : item.icon;
         buttons.push_back(
             huxerui::Row{
-                huxerui::Row{}
-                    .With(huxerui::Frame{.width = 3.0F, .height = 20.0F},
-                          huxerui::Background(selected ? theme.colors.primary
-                                                        : huxerui::Color::Transparent()),
-                          huxerui::CornerRadius(theme.shapes.full)),
                 huxerui::IconButton(icon, item.tooltip)
                     .OnClick([tasks, navPage, page] {
                         // 切页会卸载内容子树：推迟出指针事件路径
@@ -472,7 +470,6 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
                       huxerui::Background(selected ? theme.colors.primary_container
                                                     : huxerui::Color::Transparent()),
                       huxerui::CornerRadius(theme.shapes.small),
-                      huxerui::Spacing(2.0F),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
                 .With(huxerui::Tooltip(item.tooltip)));
     }
