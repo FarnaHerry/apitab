@@ -67,6 +67,33 @@ struct DraftTabDragPayload {
                     .With(huxerui::Frame{.min_width = 52.0F}),
                 huxerui::Text(name, huxerui::TextRole::Body)
                     .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
+                // 行内关闭动作：与 chips 上的 ✕ 同一行为（关掉这个草稿；关的是当前
+                // 标签则顺延到相邻标签，关的是前面的标签则当前标签下标跟着前移）。
+                // 删除会卸载本行 → 推迟出指针事件路径；弹层不关，可连续关多个。
+                AppIconButton(app::images::close, "关闭标签页",
+                              [tasks, drafts, activeTab, uid = all[i].uid] {
+                                  tasks.Launch([drafts, activeTab, uid]() -> huxerui::Task<void> {
+                                      co_await huxerui::Delay(std::chrono::duration<double>{0});
+                                      std::vector<RequestDraft> copy = drafts.Get();
+                                      for (std::size_t k = 0; k < copy.size(); ++k) {
+                                          if (copy[k].uid != uid) continue;
+                                          const std::size_t active = activeTab.Get();
+                                          copy.erase(copy.begin() + static_cast<long>(k));
+                                          drafts = copy;
+                                          if (copy.empty())
+                                              activeTab = 0;
+                                          else if (k == active)
+                                              activeTab = std::min(k, copy.size() - 1);
+                                          else if (k < active)
+                                              activeTab = active - 1;
+                                          break;
+                                      }
+                                  });
+                              },
+                              AppIconButtonShape::Bare, 24.0F)
+                    // 行内 ✕ 不进焦点序：弹层里 12 行就是 12 个焦点停靠点，
+                    // 键盘用户用行本身切换即可，关闭动作仍可用鼠标点。
+                    .With(huxerui::Focusable(false)),
             }
                 .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::Background(active ? theme.colors.surface_container_highest
@@ -122,13 +149,12 @@ struct DraftTabDragPayload {
 // 标签条溢出入口：内容宽度超出视口时才出现的"无尾下箭头"。只在本作用域读
 // ScrollController 的度量（Metrics() 会订阅该状态）——滚动时 offset 变化只重组
 // 这个小作用域，不会牵动整条标签条；点开是带搜索的标签页选择弹层。
+// 溢出选择入口："无尾下箭头" + 可搜索标签弹层。只在末尾动作组固定到行右缘
+// （= 标签放不下）时由 TabTrailingProbe 渲染，所以自身不再判断溢出。
 [[huxerui::composable]] huxerui::View TabOverflowButton(
-    huxerui::ScrollController controller, huxerui::State<std::vector<RequestDraft>> drafts,
-    huxerui::State<std::size_t> activeTab, huxerui::State<bool> newTabOpen,
-    huxerui::TaskScope tasks) {
+    huxerui::State<std::vector<RequestDraft>> drafts, huxerui::State<std::size_t> activeTab,
+    huxerui::State<bool> newTabOpen, huxerui::TaskScope tasks) {
     auto popup = huxerui::UsePopup();
-    const huxerui::ScrollMetrics metrics = controller.Metrics();
-    if (metrics.content_extent <= metrics.viewport_extent + 1.0F) return huxerui::Row{};
     return AppIconButton(
                app::images::chevron_down, "全部标签页",
                [popup, drafts, activeTab, newTabOpen, tasks] {
@@ -141,6 +167,50 @@ struct DraftTabDragPayload {
                },
                AppIconButtonShape::Bare)
         .With(popup.Anchor());
+}
+
+// 末尾动作组（＋ / ⌄）落位探针：读 ScrollController 度量判断"标签 + 动作组"
+// 是否放得下——放不下就在可滚区外渲染动作组（＝固定在行右缘），否则渲染空占位
+// （动作组已经内联在 chips 末尾，视觉上跟着最后一个标签）。判定结果回写 pinned。
+// 判定式在两种落位下都自洽：内联时 content 含动作组、viewport 是整条；固定时
+// content 不含、viewport 已扣掉动作组——`content > viewport` 恒等于"放不下"，
+// 切换落位不会来回抖。写入推迟出组合期（State 等值写入本身是 no-op）。
+[[huxerui::composable]] huxerui::View TabTrailingProbe(
+    huxerui::ScrollController controller, huxerui::State<bool> pinned,
+    huxerui::View group) {
+    const huxerui::ScrollMetrics metrics = controller.Metrics();
+    const bool overflow = metrics.content_extent > metrics.viewport_extent;
+    // 回写落位必须在组合期之外：Lifecycle 在帧提交后运行，且只在 overflow 变化时
+    // 重跑（State 等值写入本身也是 no-op）。
+    huxerui::Lifecycle([pinned, overflow] { pinned = overflow; }, overflow);
+    return pinned.Get() ? std::move(group) : huxerui::View{huxerui::Row{}};
+}
+
+// 悬停滚动指示条：内容溢出且悬停标签条时，在标签行底部画一条自绘横向滚动条。
+// 框架 ScrollBar 只在滚动活动时淡入、空闲即隐（hover 看不见），这里显式跟随
+// hover。它是可滚内容里的 paint-only 覆盖层（Offset 只平移绘制），所以 x 要加上
+// 当前 offset 才是相对视口的位置；滚动时只重组本作用域，不牵动整条标签条。
+[[huxerui::composable]] huxerui::View TabScrollIndicator(huxerui::ScrollController controller,
+                                                          huxerui::State<bool> hovered) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const huxerui::ScrollMetrics metrics = controller.Metrics();
+    if (!hovered.Get() || metrics.content_extent <= metrics.viewport_extent + 1.0F ||
+        metrics.content_extent <= 0.0F)
+        return huxerui::Row{};
+    const float track = std::max(0.0F, metrics.viewport_extent - 4.0F);
+    const float bar = std::clamp(metrics.viewport_extent * metrics.viewport_extent /
+                                     metrics.content_extent,
+                                 24.0F, track);
+    const float progress = metrics.maximum_offset > 0.0F
+                               ? std::clamp(metrics.offset / metrics.maximum_offset, 0.0F, 1.0F)
+                               : 0.0F;
+    huxerui::Color thumb = theme.colors.on_surface_variant;
+    thumb.alpha = 0.55F;
+    return huxerui::Row{}.With(
+        huxerui::Frame{.width = bar, .height = 3.0F},
+        huxerui::Background(thumb), huxerui::CornerRadius(theme.shapes.full),
+        huxerui::Offset(huxerui::Point{
+            metrics.offset + 2.0F + (track - bar) * progress, 23.0F}));
 }
 
 // 右岛顶部内部标签条：每个打开的草稿一个标签（点击切换 / 关闭图标），末尾加号图标新建；
@@ -178,13 +248,19 @@ struct DraftTabDragPayload {
     auto slideCell = huxerui::UseState(std::make_shared<SlideCell>());
     auto slideTick = huxerui::UseState<std::uint64_t>(0);
     (void)slideTick.Get(); // 订阅：tween 每步 bump 触发重组
-    // 标签条横向滚动控制器：ScrollView 用它做溢出滚动，TabOverflowButton 用它
-    // 判断"内容是否超出视口"来决定要不要出现选择入口。
+    // 标签条横向滚动控制器：ScrollView 用它做溢出滚动；TabTrailingProbe 用它判定
+    // "标签 + 末尾动作组"是否放得下，TabScrollIndicator 用它画悬停滚动条。
     auto tabsScroll = huxerui::UseScrollController();
+    // 悬停整条标签区（滚动指示条只在 hover 时显示）。
+    auto tabsHovered = huxerui::UseState(false);
+    // 末尾动作组（＋ / ⌄）的落位：false = 内联在最后一个标签之后；true = 溢出，
+    // 固定在可滚区右侧。由 TabTrailingProbe 按度量回写。
+    auto trailingPinned = huxerui::UseState(false);
     // 固定 chip 宽度：拖拽换位/边缘钳制需要已知步进，同 Chrome 固定宽标签。
     // 步进 = chip 宽 + 分隔竖线(1pt) + 两侧间距（竖线作为 Row 子节点占布局，
     // 用 Opacity 显隐避免悬停时回流抖动）。
-    constexpr float kChipDragWidth = 160.0F;
+    // 标签宽度：从 160 收到 140，同宽窗口能多放下的标签数（名称限宽同步收窄）。
+    constexpr float kChipDragWidth = 140.0F;
     const float chipStride = kChipDragWidth + 1.0F + 2.0F * theme.spacing.small;
     // 标签间分隔竖线：始终占布局（Opacity 显隐），相邻标签激活/悬停/被拖时
     // 隐藏；高度小于行高，上下留空隙不连通。
@@ -262,7 +338,7 @@ struct DraftTabDragPayload {
                     .Style(huxerui::TextStyle{.font = chipFont, .foreground = foreground})
                     .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
                           // 限宽给行尾关闭图标留位（固定宽 160：徽标+名称+关闭图标）。
-                          huxerui::Frame{.max_width = 100.0F},
+                          huxerui::Frame{.max_width = 80.0F},
                           huxerui::Indication{})
                     .OnClick([drafts, activeTab, newTabOpen, i] {
                         // 切换标签不卸载被点节点：同步写即可
@@ -418,8 +494,26 @@ struct DraftTabDragPayload {
                            [newTabHovered](const huxerui::HoverEvent& e) {
                                newTabHovered = e.type != huxerui::HoverEventType::Leave;
                            });
-    // "＋" 不再进 chips：它是固定入口，随标签滚走会让溢出时连新建都点不到；
-    // 由外层 Row 放在可滚区右侧（见下），紧跟其后是溢出时的"⌄"选择入口。
+    // "＋"（以及溢出时才出现的"⌄"）默认**跟在最后一个标签后面**（内联进可滚内容，
+    // 视觉上贴着标签列表）；只有"标签 + 动作组"真的放不下时，才移到可滚区外、固定
+    // 在行右缘，保证溢出状态下新建与选择入口始终可点。落位见 TabTrailingProbe
+    // （按 ScrollController 度量在小子作用域里判定并回写 pinned）。
+    const bool pinnedNow = trailingPinned.Get();
+    auto buildTrailingGroup = [&, newTabButton]() mutable {
+        return huxerui::Row {
+            newTabButton,
+            pinnedNow ? TabOverflowButton(drafts, activeTab, newTabOpen, tasks)
+                      : huxerui::View{huxerui::Row{}},
+        }
+            .With(huxerui::Spacing(theme.spacing.small),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+    };
+    huxerui::View pinnedGroup{};
+    if (pinnedNow) {
+        pinnedGroup = buildTrailingGroup();
+    } else {
+        chips.push_back(buildTrailingGroup());
+    }
 
     // 拖拽覆盖层：被拖 chip 的视觉克隆（纯展示，无事件/悬停 handler——命中
     // 测试穿透到下方静止 chip）。Stack 中最后声明 = 绘制最上层（充当
@@ -447,7 +541,7 @@ struct DraftTabDragPayload {
                         .Style(huxerui::TextStyle{.font = chipFont,
                                                   .foreground = overlayForeground})
                         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
-                              huxerui::Frame{.max_width = 100.0F}),
+                              huxerui::Frame{.max_width = 80.0F}),
                     // 与本体一致：关闭图标顶到右缘。
                     huxerui::Spacer{},
                     huxerui::Image(app::images::close)
@@ -558,21 +652,35 @@ struct DraftTabDragPayload {
 
     return huxerui::Row {
         // 标签 chips 占满剩余宽度（Grow 把环境区推到最右）。打开草稿多到放不下时
-        // 不再直接裁掉，而是横向滚动（与标题栏项目标签条同一套做法：ScrollView +
-        // ScrollBar，溢出可滚到、条数多时不再够不到被裁的标签）。
-        // Stack 包裹：拖动时覆盖层克隆叠在 chips 之上（绘制最上层），并随
-        // ScrollView 一起滚动（Offset 只平移绘制，布局原点仍在内容坐标系）。
+        // 不再直接裁掉，而是横向滚动（与标题栏项目标签条同一套做法）。
+        // Stack 包裹：拖动覆盖层克隆与悬停滚动指示条叠在 chips 之上（后声明 = 绘制
+        // 最上层），并随 ScrollView 一起滚动（Offset 只平移绘制，布局原点仍在内容
+        // 坐标系——所以指示条的 x 还要加上当前 offset 才能钉在视口里）。
         huxerui::ScrollView(huxerui::Stack {
             huxerui::Row(std::move(chips))
                 .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             std::move(overlayChip),
+            TabScrollIndicator(tabsScroll, tabsHovered),
         })
             .ScrollAxis(huxerui::Axis::Horizontal)
             .Controller(tabsScroll)
-            .With(huxerui::ScrollBar{}, huxerui::ClipChildren(), huxerui::Grow(1.0F)),
-        std::move(newTabButton),
-        TabOverflowButton(tabsScroll, drafts, activeTab, newTabOpen, tasks),
+            // 竖向滚轮映射成横向滚动（框架只按轴分配 delta_x/delta_y，横向容器
+            // 收不到竖向滚轮）：滚轮向下 = 列表向右移动，向上 = 向左。
+            .On<huxerui::ViewEvents::ScrollInput>(
+                [tabsScroll](const huxerui::ScrollInputEvent& event) {
+                    const float delta = event.delta_x != 0.0F ? event.delta_x : -event.delta_y;
+                    if (delta == 0.0F) return false;
+                    tabsScroll.ScrollBy(delta);
+                    return true; // 消费掉：不再穿透到页面垂直滚动
+                })
+            // 悬停整条标签区时显示自绘横向滚动指示条（框架 ScrollBar 只在滚动时
+            // 淡入、空闲即隐，hover 看不见；这里显式跟随 hover）。
+            .On<huxerui::ViewEvents::Hover>([tabsHovered](const huxerui::HoverEvent& event) {
+                tabsHovered = event.type != huxerui::HoverEventType::Leave;
+            })
+            .With(huxerui::ClipChildren(), huxerui::Grow(1.0F)),
+        TabTrailingProbe(tabsScroll, trailingPinned, std::move(pinnedGroup)),
         huxerui::Row {
             std::move(envTrigger),
             // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用半透明档。
