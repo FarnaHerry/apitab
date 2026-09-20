@@ -1,7 +1,0 @@
-<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- 选中态：齿轮轮廓加粗（与侧栏其他选中图标同一套"变粗"语言）。 -->
-  <path d="M19.1 13.2c.1-.4.1-.8.1-1.2s0-.8-.1-1.2l1.8-1.4-1.7-2.9-2.1.8c-.6-.5-1.2-.8-1.9-1L14.9 4h-3.4l-.3 2.3c-.7.2-1.3.5-1.9 1l-2.1-.8-1.7 2.9 1.8 1.4c-.1.4-.1.8-.1 1.2s0 .8.1 1.2l-1.8 1.4 1.7 2.9 2.1-.8c.6.5 1.2.8 1.9 1l.3 2.3h3.4l.3-2.3c.7-.2 1.3-.5 1.9-1l2.1.8 1.7-2.9-1.8-1.4Z"
-        fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
-        stroke-linejoin="round"/>
-  <circle cx="12" cy="12" r="2.4" fill="none" stroke="currentColor" stroke-width="2.4"/>
-</svg>

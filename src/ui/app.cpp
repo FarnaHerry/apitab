@@ -444,8 +444,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
         Item{app::images::request, app::images::request_selected, "请求", pages::kRequest},
         Item{app::images::loadtest, app::images::loadtest_selected, "压测", pages::kLoad},
         Item{app::images::history, app::images::history_selected, "历史记录", pages::kHistory},
-        Item{app::images::project_settings, app::images::project_settings_selected, "项目设置",
-             pages::kProjectSettings},
+        Item{app::images::gear, app::images::gear_selected, "项目设置", pages::kProjectSettings},
     };
 
     std::vector<huxerui::View> buttons;
