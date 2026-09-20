@@ -709,8 +709,9 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
                 menuEntries.push_back(huxerui::MenuSection{});
                 menuEntries.push_back(
                     huxerui::MenuItem("退出", [application] { application.Quit(); }));
-                // SystemTray 当前只接受可解析为 ImageAsset 的栅格资源；tray.png
-                // 已替换为新的水母图标，不能直接传 SVG 的 VectorAsset。
+                // SystemTray 当前只接受可解析为 ImageAsset 的栅格资源；tray.png/@2x/@3x
+                // 是水母徽标的光栅版本（由 resources/images/apitab_tray.svg 生成），
+                // 不能直接传 SVG 的 VectorAsset。
                 tray.Show(app::images::tray,
                           huxerui::SystemTrayOptions{
                               .tooltip = "apitab — API 测试与压测",
