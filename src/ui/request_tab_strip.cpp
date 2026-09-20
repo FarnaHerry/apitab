@@ -318,39 +318,25 @@ struct DraftTabDragPayload {
         const std::string chipBadge = DraftKindBadge(snapshot[i]);
         chips.push_back(
             huxerui::Row {
-                // 类型徽标：HTTP 显示方法名，WS/TCP 显示类型缩写。显式空
-                // Indication：整 chip 的悬停反馈由外层 fill 承担，压掉内层默认高亮。
+                // 类型徽标：HTTP 显示方法名，WS/TCP 显示类型缩写。
                 // 徽标按 MethodColor 统一色表逐方法着色。
+                // 徽标与名称都只是普通标签：切换绑定统一挂在外层整 chip 上（见下），
+                // 内层不再各自持有点击目标，悬停反馈也就只由外层 fill 承担。
                 huxerui::Text(chipBadge, huxerui::TextRole::Label)
                     .Style(huxerui::TextStyle{
                         .font = badgeFont,
                         .foreground = MethodColor(theme, chipBadge)})
-                    .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(2.0F, 2.0F)),
-                          huxerui::Indication{})
-                    .OnClick([drafts, activeTab, newTabOpen, i] {
-                        // 切换标签不卸载被点节点：同步写即可
-                        if (i < drafts.Get().size()) {
-                            activeTab = i;
-                            newTabOpen = false;
-                        }
-                    }),
+                    .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(2.0F, 2.0F))),
                 huxerui::Text(DraftDisplayName(snapshot[i]), huxerui::TextRole::Label)
                     .Style(huxerui::TextStyle{.font = chipFont, .foreground = foreground})
                     .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
                           // 限宽给行尾关闭图标留位（固定宽 160：徽标+名称+关闭图标）。
-                          huxerui::Frame{.max_width = 80.0F},
-                          huxerui::Indication{})
-                    .OnClick([drafts, activeTab, newTabOpen, i] {
-                        // 切换标签不卸载被点节点：同步写即可
-                        if (i < drafts.Get().size()) {
-                            activeTab = i;
-                            newTabOpen = false;
-                        }
-                    }),
+                          huxerui::Frame{.max_width = 80.0F}),
                 // 弹性占位把关闭图标顶到固定宽 chip 的右缘（Spacer 自带 Grow(1)）。
                 huxerui::Spacer{},
                 // 关闭钮：常驻、透明占位，悬停才显示（Opacity 只改绘制不动结构，
-                // 避免悬停重组换子节点类型引起抖动）。透明时点击空转。
+                // 避免悬停重组换子节点类型引起抖动）。透明时 enabled=false、不是
+                // 命中目标，点在这里落到外层整 chip 热区 = 切换本标签。
                 AppIconButton(app::images::close, "关闭请求标签", [tasks, drafts, activeTab, i] {
                         // 关闭会卸载本按钮所在标签：推迟出指针事件路径
                         tasks.Launch([=]() -> huxerui::Task<void> {
@@ -370,6 +356,10 @@ struct DraftTabDragPayload {
                       huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)),
                       huxerui::Frame{.width = kChipDragWidth, .height = 28.0F},
                       huxerui::ClipChildren(),
+                      // 外层压掉默认 Indication：整 chip 现在自身是点击目标，若不压掉
+                      // 会在 fill 之上再叠一层框架默认悬停/按压高亮；本标签的
+                      // 悬停/激活反馈只由上面的 fill（Background）承担。
+                      huxerui::Indication{},
                       // 拖动时本体变透明占位：保留布局槽位与拖拽会话，
                       // 视觉由覆盖层克隆接管。
                       huxerui::Opacity(dragUid.Get() == snapshot[i].uid ? 0.0F : 1.0F),
@@ -380,11 +370,23 @@ struct DraftTabDragPayload {
                                         static_cast<std::int64_t>(snapshot[i].uid)),
                           0.0F}),
                       // 标签拖拽换位：限水平轴（axis=Horizontal，竖向移动不进入
-                      // 拖拽），与内层徽标/文字的点击切换按阈值分胜负；无悬浮
+                      // 拖拽），与整 chip 的点击切换按阈值分胜负；无悬浮
                       // 拖影。请求级标签不支持拖出成独立窗口。
                       huxerui::DragSource(
                           DraftTabDragPayload{snapshot[i].uid},
                           huxerui::DragGesture{.axis = huxerui::Axis::Horizontal}))
+                // 整标签热区：只有行尾 ✕ 保留自己的特殊含义（关闭本标签），其余位置
+                // ——标签名与 ✕ 之间的弹性空白 Spacer、左右内边距、徽标与名称本身
+                // ——一律算作点击整个标签页，直接切换。与 title_bar.cpp 的 TopTab
+                // 外层兜底同一套做法（最深绑定生效：点 ✕ 命中按钮自己的处理器，
+                // 不会再触发切换；✕ 未悬停时 enabled=false，点击落到这里 = 切换）。
+                .OnClick([drafts, activeTab, newTabOpen, i] {
+                    // 切换标签不卸载被点节点：同步写即可
+                    if (i < drafts.Get().size()) {
+                        activeTab = i;
+                        newTabOpen = false;
+                    }
+                })
                 // 悬停显隐关闭图标：Enter 记 uid，Leave 时仅当仍是本 chip 才清空
                 // （防跨 chip 误清）。只写 hoveredChip，不做重活。
                 .On<huxerui::ViewEvents::Hover>(
