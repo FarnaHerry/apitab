@@ -26,6 +26,123 @@ struct DraftTabDragPayload {
     std::uint64_t uid = 0;
 };
 
+// 标签页选择弹层（"⌄"下拉）：顶部搜索框 + 过滤后的标签列表，行样式与 chips 对齐
+// （方法徽标按 MethodColor 着色 + 草稿名），当前标签高亮。选中后关层并切换标签：
+// 关层会卸载被点的行节点，所以 activeTab 的写入必须推迟出指针事件路径（约定 6）；
+// 任务派给标签条自己的 TaskScope —— 弹层作用域随关层销毁，不能用它。
+[[huxerui::composable]] huxerui::View TabPickerContent(
+    huxerui::PopupContext ctx, huxerui::State<std::vector<RequestDraft>> drafts,
+    huxerui::State<std::size_t> activeTab, huxerui::State<bool> newTabOpen,
+    huxerui::TaskScope tasks) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const huxerui::MenuStyle menuStyle = huxerui::UseEnvironment<huxerui::MenuStyle>();
+    const huxerui::Font badgeFont =
+        huxerui::Font::Monospace(font_size::kCaption).WithWeight(huxerui::FontWeight::SemiBold);
+    auto query = huxerui::UseState(huxerui::TextEditingValue::FromText(""));
+    const auto lower = [](std::string text) {
+        std::ranges::transform(text, text.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return text;
+    };
+    const std::string needle = lower(query.Get().text);
+    const auto matches = [&needle, &lower](const std::string& text) {
+        return needle.empty() || lower(text).find(needle) != std::string::npos;
+    };
+
+    const std::vector<RequestDraft> all = drafts.Get();
+    const std::size_t activeIndex =
+        all.empty() ? 0 : std::min(activeTab.Get(), all.size() - 1);
+    std::vector<huxerui::View> rows;
+    rows.reserve(all.size());
+    for (std::size_t i = 0; i < all.size(); ++i) {
+        const std::string badge = DraftKindBadge(all[i]);
+        const std::string name = DraftDisplayName(all[i]);
+        if (!matches(name) && !matches(badge)) continue;
+        const bool active = !newTabOpen.Get() && i == activeIndex;
+        rows.push_back(
+            huxerui::Row {
+                huxerui::Text(badge, huxerui::TextRole::Label)
+                    .Style(huxerui::TextStyle{.font = badgeFont,
+                                              .foreground = MethodColor(theme, badge)})
+                    .With(huxerui::Frame{.min_width = 52.0F}),
+                huxerui::Text(name, huxerui::TextRole::Body)
+                    .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
+            }
+                .With(huxerui::Spacing(theme.spacing.small),
+                      huxerui::Background(active ? theme.colors.surface_container_highest
+                                                 : huxerui::Color::Transparent()),
+                      huxerui::CornerRadius(menuStyle.corner_radii.top_left / 2.0F),
+                      huxerui::Padding(menuStyle.item_padding),
+                      huxerui::Frame{.min_height = menuStyle.minimum_item_height},
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                      menuStyle.item_indication)
+                .OnClick([ctx, tasks, drafts, activeTab, newTabOpen, uid = all[i].uid] {
+                    ctx.Dismiss(); // 关层会卸载本行：activeTab 写入推迟出指针事件路径
+                    tasks.Launch([drafts, activeTab, newTabOpen, uid]() -> huxerui::Task<void> {
+                        co_await huxerui::Delay(std::chrono::duration<double>{0});
+                        const std::vector<RequestDraft> now = drafts.Get();
+                        for (std::size_t k = 0; k < now.size(); ++k) {
+                            if (now[k].uid != uid) continue;
+                            activeTab = k;
+                            newTabOpen = false;
+                            break;
+                        }
+                    });
+                })
+                .Key(static_cast<std::int64_t>(all[i].uid)));
+    }
+    huxerui::View list =
+        rows.empty()
+            ? huxerui::View{huxerui::Text("没有匹配的标签页", huxerui::TextRole::Label)
+                                .With(huxerui::Foreground(theme.colors.on_surface_variant),
+                                      huxerui::Padding(10.0F))}
+            : huxerui::View{huxerui::ScrollView{
+                  huxerui::Column(std::move(rows)).With(
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
+                                 .With(huxerui::ScrollBar(),
+                                       huxerui::Frame{.max_height = 300.0F})};
+    // 固定宽：弹层测量上限≈视口宽，行内 Grow 会把宽度顶到上限（见 CLAUDE.md
+    // "行宽自适应"），所以这里给内容一个明确的宽度上界。
+    return huxerui::Column {
+        huxerui::TextField(query)
+            .Placeholder("搜索标签页")
+            .Variant(huxerui::TextFieldVariant::Outlined)
+            .OnChanged([query](const huxerui::TextEditingValue& value) { query = value; }),
+        std::move(list),
+    }
+        .With(huxerui::Spacing(theme.spacing.small),
+              huxerui::Frame{.width = 260.0F},
+              huxerui::Background(menuStyle.background),
+              huxerui::CornerRadius(menuStyle.corner_radii.top_left),
+              huxerui::Padding(menuStyle.content_padding),
+              huxerui::ClipChildren(),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
+// 标签条溢出入口：内容宽度超出视口时才出现的"无尾下箭头"。只在本作用域读
+// ScrollController 的度量（Metrics() 会订阅该状态）——滚动时 offset 变化只重组
+// 这个小作用域，不会牵动整条标签条；点开是带搜索的标签页选择弹层。
+[[huxerui::composable]] huxerui::View TabOverflowButton(
+    huxerui::ScrollController controller, huxerui::State<std::vector<RequestDraft>> drafts,
+    huxerui::State<std::size_t> activeTab, huxerui::State<bool> newTabOpen,
+    huxerui::TaskScope tasks) {
+    auto popup = huxerui::UsePopup();
+    const huxerui::ScrollMetrics metrics = controller.Metrics();
+    if (metrics.content_extent <= metrics.viewport_extent + 1.0F) return huxerui::Row{};
+    return AppIconButton(
+               app::images::chevron_down, "全部标签页",
+               [popup, drafts, activeTab, newTabOpen, tasks] {
+                   popup.Show(
+                       [drafts, activeTab, newTabOpen, tasks](huxerui::PopupContext ctx) {
+                           return TabPickerContent(ctx, drafts, activeTab, newTabOpen, tasks);
+                       },
+                       huxerui::PopupOptions{.placement = {huxerui::AnchorSide::Below,
+                                                           huxerui::AnchorAlignment::End}});
+               },
+               AppIconButtonShape::Bare)
+        .With(popup.Anchor());
+}
+
 // 右岛顶部内部标签条：每个打开的草稿一个标签（点击切换 / 关闭图标），末尾加号图标新建；
 // 最右侧为环境选择 + 菜单图标合并控件（"无" + 当前项目环境，选中 = currentEnvId；菜单图标打开
 // 环境配置弹窗）。envVersion 由 RequestPage 持有：环境 CRUD 后 bump，本条按它重读 store。
@@ -61,6 +178,9 @@ struct DraftTabDragPayload {
     auto slideCell = huxerui::UseState(std::make_shared<SlideCell>());
     auto slideTick = huxerui::UseState<std::uint64_t>(0);
     (void)slideTick.Get(); // 订阅：tween 每步 bump 触发重组
+    // 标签条横向滚动控制器：ScrollView 用它做溢出滚动，TabOverflowButton 用它
+    // 判断"内容是否超出视口"来决定要不要出现选择入口。
+    auto tabsScroll = huxerui::UseScrollController();
     // 固定 chip 宽度：拖拽换位/边缘钳制需要已知步进，同 Chrome 固定宽标签。
     // 步进 = chip 宽 + 分隔竖线(1pt) + 两侧间距（竖线作为 Row 子节点占布局，
     // 用 Opacity 显隐避免悬停时回流抖动）。
@@ -298,7 +418,8 @@ struct DraftTabDragPayload {
                            [newTabHovered](const huxerui::HoverEvent& e) {
                                newTabHovered = e.type != huxerui::HoverEventType::Leave;
                            });
-    chips.push_back(std::move(newTabButton));
+    // "＋" 不再进 chips：它是固定入口，随标签滚走会让溢出时连新建都点不到；
+    // 由外层 Row 放在可滚区右侧（见下），紧跟其后是溢出时的"⌄"选择入口。
 
     // 拖拽覆盖层：被拖 chip 的视觉克隆（纯展示，无事件/悬停 handler——命中
     // 测试穿透到下方静止 chip）。Stack 中最后声明 = 绘制最上层（充当
@@ -448,7 +569,10 @@ struct DraftTabDragPayload {
             std::move(overlayChip),
         })
             .ScrollAxis(huxerui::Axis::Horizontal)
+            .Controller(tabsScroll)
             .With(huxerui::ScrollBar{}, huxerui::ClipChildren(), huxerui::Grow(1.0F)),
+        std::move(newTabButton),
+        TabOverflowButton(tabsScroll, drafts, activeTab, newTabOpen, tasks),
         huxerui::Row {
             std::move(envTrigger),
             // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用半透明档。
