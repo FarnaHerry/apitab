@@ -99,27 +99,32 @@ huxerui::ThemeSpec OceanDarkThemeSpec() {
     spec.motion.fast = 0.16;
     spec.motion.normal = 0.20;
     spec.motion.slow = 0.30;
-    spec.colors.primary = huxerui::Color::Rgb(67, 211, 220);          // #43D3DC
-    spec.colors.on_primary = huxerui::Color::Rgb(7, 30, 35);
-    spec.colors.primary_container = huxerui::Color::Rgb(21, 52, 61);  // #15343D
-    spec.colors.on_primary_container = huxerui::Color::Rgb(234, 247, 248);
-    spec.colors.secondary = huxerui::Color::Rgb(154, 166, 174);       // #9AA6AE
-    spec.colors.on_secondary = huxerui::Color::Rgb(16, 20, 24);
-    spec.colors.secondary_container = huxerui::Color::Rgb(30, 36, 42); // #1E242A
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(227, 232, 235);
-    spec.colors.tertiary_container = huxerui::Color::Rgb(26, 63, 74);
+    // 语义色：品牌青（primary 系）不动，中性色按"海面 → 岛底 → 容器 low/…/highest"
+    // 重建**单调明度阶梯**：深色主题每级 +8 左右明度（越高越亮），浅色主题每级
+    // 反向加深（越高越暗）。海面与岛、岛与卡、卡与控件之间都留出可分辨的差值，
+    // 不再是"整片同色、深浅看不出层次"。
+    spec.colors.primary = huxerui::Color::Rgb(67, 211, 220);          // #43D3DC（品牌主色）
+    spec.colors.on_primary = huxerui::Color::Rgb(6, 37, 42);
+    spec.colors.primary_container = huxerui::Color::Rgb(16, 64, 74);  // #10404A（选中/品牌容器）
+    spec.colors.on_primary_container = huxerui::Color::Rgb(207, 243, 246);
+    spec.colors.secondary = huxerui::Color::Rgb(159, 176, 186);
+    spec.colors.on_secondary = huxerui::Color::Rgb(9, 14, 19);
+    spec.colors.secondary_container = huxerui::Color::Rgb(29, 39, 49);
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(220, 230, 235);
+    spec.colors.tertiary_container = huxerui::Color::Rgb(18, 59, 69);
     spec.colors.on_tertiary_container = huxerui::Color::Rgb(191, 239, 242);
-    spec.colors.background = huxerui::Color::Rgb(16, 20, 24);         // #101418
-    spec.colors.surface = huxerui::Color::Rgb(23, 28, 33);            // #171C21
-    spec.colors.surface_container_low = huxerui::Color::Rgb(30, 36, 42); // #1E242A
-    spec.colors.surface_container = huxerui::Color::Rgb(38, 45, 52);  // #262D34
-    spec.colors.surface_container_high = huxerui::Color::Rgb(46, 54, 62); // #2E363E
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(54, 63, 71); // #363F47
-    spec.colors.on_surface = huxerui::Color::Rgb(227, 232, 235);      // #E3E8EB
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(154, 166, 174); // #9AA6AE
-    spec.colors.outline = huxerui::Color::Rgb(65, 74, 82);            // #414A52
-    spec.colors.inverse_surface = huxerui::Color::Rgb(227, 232, 235);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(16, 20, 24);
+    spec.colors.background = huxerui::Color::Rgb(7, 11, 16);          // 海面（最深）
+    spec.colors.surface = huxerui::Color::Rgb(17, 25, 34);            // 岛底
+    spec.colors.surface_container_low = huxerui::Color::Rgb(25, 36, 47);
+    spec.colors.surface_container = huxerui::Color::Rgb(31, 43, 54);
+    spec.colors.surface_container_high = huxerui::Color::Rgb(40, 54, 67);
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(51, 66, 80);
+    spec.colors.on_surface = huxerui::Color::Rgb(232, 239, 243);
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(166, 182, 193);
+    spec.colors.outline = huxerui::Color::Rgb(74, 90, 103);
+    spec.colors.inverse_surface = huxerui::Color::Rgb(232, 239, 243);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(9, 14, 19);
+    spec.colors.scrim = huxerui::Color::Rgb(0, 0, 0, 0.55F);
     spec.colors.error = huxerui::Color::Rgb(255, 142, 134);
     spec.interactions.focus_ring = huxerui::FocusRing{spec.colors.primary, 2.0F, 2.0F};
     return spec;
@@ -149,27 +154,31 @@ huxerui::ThemeSpec OceanLightThemeSpec() {
     spec.motion.fast = 0.16;
     spec.motion.normal = 0.20;
     spec.motion.slow = 0.30;
-    spec.colors.primary = huxerui::Color::Rgb(40, 184, 199);          // #28B8C7
-    spec.colors.on_primary = huxerui::Color::Rgb(7, 52, 58);
+    // 语义色：品牌青（primary 系）不动。原浅色板的容器层级是自相矛盾的
+    // （container 比 low 亮、highest 又是纯白），这里改成单调阶梯：海面带青调压深、
+    // 岛底纯白、容器越高越深，页面层次一眼可分。
+    spec.colors.primary = huxerui::Color::Rgb(40, 184, 199);          // #28B8C7（品牌主色）
+    spec.colors.on_primary = huxerui::Color::Rgb(6, 51, 58);
     spec.colors.primary_container = huxerui::Color::Rgb(205, 239, 242); // #CDEFF2
-    spec.colors.on_primary_container = huxerui::Color::Rgb(24, 52, 58);
-    spec.colors.secondary = huxerui::Color::Rgb(96, 122, 128);       // #607A80
+    spec.colors.on_primary_container = huxerui::Color::Rgb(14, 58, 66);
+    spec.colors.secondary = huxerui::Color::Rgb(92, 123, 131);
     spec.colors.on_secondary = huxerui::Color::White();
-    spec.colors.secondary_container = huxerui::Color::Rgb(239, 249, 250); // #EFF9FA
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(24, 52, 58);
-    spec.colors.tertiary_container = huxerui::Color::Rgb(224, 246, 247);
-    spec.colors.on_tertiary_container = huxerui::Color::Rgb(35, 82, 90);
-    spec.colors.background = huxerui::Color::Rgb(247, 252, 253);     // #F7FCFD
-    spec.colors.surface = huxerui::Color::White();                    // #FFFFFF
-    spec.colors.surface_container_low = huxerui::Color::Rgb(239, 249, 250); // #EFF9FA
-    spec.colors.surface_container = huxerui::Color::Rgb(244, 250, 251);
-    spec.colors.surface_container_high = huxerui::Color::Rgb(230, 246, 247);
-    spec.colors.surface_container_highest = huxerui::Color::White();
-    spec.colors.on_surface = huxerui::Color::Rgb(24, 52, 58);         // #18343A
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(96, 122, 128);
-    spec.colors.outline = huxerui::Color::Rgb(217, 234, 236);         // #D9EAEC
-    spec.colors.inverse_surface = huxerui::Color::Rgb(24, 52, 58);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(247, 252, 253);
+    spec.colors.secondary_container = huxerui::Color::Rgb(220, 239, 242);
+    spec.colors.on_secondary_container = huxerui::Color::Rgb(18, 58, 66);
+    spec.colors.tertiary_container = huxerui::Color::Rgb(214, 238, 241);
+    spec.colors.on_tertiary_container = huxerui::Color::Rgb(23, 81, 92);
+    spec.colors.background = huxerui::Color::Rgb(220, 234, 238);      // 海面（带青调，明显深于岛）
+    spec.colors.surface = huxerui::Color::White();                    // 岛底（纯白）
+    spec.colors.surface_container_low = huxerui::Color::Rgb(243, 250, 251);
+    spec.colors.surface_container = huxerui::Color::Rgb(233, 244, 246);
+    spec.colors.surface_container_high = huxerui::Color::Rgb(222, 238, 241);
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(210, 231, 235);
+    spec.colors.on_surface = huxerui::Color::Rgb(16, 50, 58);
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(70, 98, 106);
+    spec.colors.outline = huxerui::Color::Rgb(183, 211, 216);
+    spec.colors.inverse_surface = huxerui::Color::Rgb(16, 50, 58);
+    spec.colors.inverse_on_surface = huxerui::Color::Rgb(243, 250, 251);
+    spec.colors.scrim = huxerui::Color::Rgb(6, 32, 38, 0.42F);
     spec.colors.error = huxerui::Color::Rgb(190, 65, 78);
     spec.interactions.focus_ring = huxerui::FocusRing{spec.colors.primary, 2.0F, 2.0F};
     return spec;
