@@ -149,8 +149,8 @@ struct DraftTabDragPayload {
 // 标签条溢出入口：内容宽度超出视口时才出现的"无尾下箭头"。只在本作用域读
 // ScrollController 的度量（Metrics() 会订阅该状态）——滚动时 offset 变化只重组
 // 这个小作用域，不会牵动整条标签条；点开是带搜索的标签页选择弹层。
-// 溢出选择入口："无尾下箭头" + 可搜索标签弹层。只在末尾动作组固定到行右缘
-// （= 标签放不下）时由 TabTrailingProbe 渲染，所以自身不再判断溢出。
+// 标签选择入口："无尾下箭头" + 可搜索标签弹层。常驻：与"＋"一起跟在最后一个
+// 标签后面，标签放不下时整个动作组被 TabTrailingProbe 移到行右缘固定。
 [[huxerui::composable]] huxerui::View TabOverflowButton(
     huxerui::State<std::vector<RequestDraft>> drafts, huxerui::State<std::size_t> activeTab,
     huxerui::State<bool> newTabOpen, huxerui::TaskScope tasks) {
@@ -494,7 +494,7 @@ struct DraftTabDragPayload {
                            [newTabHovered](const huxerui::HoverEvent& e) {
                                newTabHovered = e.type != huxerui::HoverEventType::Leave;
                            });
-    // "＋"（以及溢出时才出现的"⌄"）默认**跟在最后一个标签后面**（内联进可滚内容，
+    // "＋"与"⌄"都常驻，默认**跟在最后一个标签后面**（内联进可滚内容，
     // 视觉上贴着标签列表）；只有"标签 + 动作组"真的放不下时，才移到可滚区外、固定
     // 在行右缘，保证溢出状态下新建与选择入口始终可点。落位见 TabTrailingProbe
     // （按 ScrollController 度量在小子作用域里判定并回写 pinned）。
@@ -502,8 +502,7 @@ struct DraftTabDragPayload {
     auto buildTrailingGroup = [&, newTabButton]() mutable {
         return huxerui::Row {
             newTabButton,
-            pinnedNow ? TabOverflowButton(drafts, activeTab, newTabOpen, tasks)
-                      : huxerui::View{huxerui::Row{}},
+            TabOverflowButton(drafts, activeTab, newTabOpen, tasks),
         }
             .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
@@ -630,7 +629,8 @@ struct DraftTabDragPayload {
             .With(huxerui::Frame{.width = 136.0F, .height = islands.control_height},
                   huxerui::ClipChildren()));
 
-    // 菜单图标：环境配置弹窗（自定义内容层，DialogFactory）。P1-A4 收口：原
+    // 齿轮图标：环境配置弹窗（自定义内容层，DialogFactory）——配置入口统一用
+    // 齿轮识别（与项目设置/全局设置一致）。P1-A4 收口：原
     // Text+Padding 热区不足 28pt 且无语义标签/Tooltip，迁为统一 Bare
     // AppIconButton——semanticLabel"环境配置"兼作可访问名称与 Tooltip，hover/
     // press indication 覆盖整个 28×28 命中区。外包垂直居中容器：外层 Row 交叉
@@ -638,7 +638,7 @@ struct DraftTabDragPayload {
     // 28×28 命中区与方形 hover 底。
     huxerui::View envSettingsTrigger =
         huxerui::Row {
-            AppIconButton(app::images::menu, "环境配置",
+            AppIconButton(app::images::gear, "环境配置",
                           [dialog, envVersion] {
                               dialog.Show(
                                   [envVersion](huxerui::DialogContext ctx) -> huxerui::View {
