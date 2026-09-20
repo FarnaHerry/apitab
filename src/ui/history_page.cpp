@@ -13,6 +13,7 @@
 
 import apitab.db;
 import apitab.store.requests;
+import apitab.utils;
 
 namespace apitab::ui {
 
@@ -30,42 +31,45 @@ constexpr float kPageSizeSelectWidth = 80.0F;
 // 故整列表决定不放动作区；各行尾部信息右对齐规则一致（URL 区 Grow 撑开把
 // 尾部信息推到行右缘），行间不跳动。URL 过长时在主内容区内自然换行/截断
 // （Grow 给出有界宽度 + ClipChildren 兜底），不会把尾部信息挤出可视区。
-// 行底色/圆角维持现状（surface_container + small 圆角），本工作包只动布局、
-// 不动配色体系；行内无焦点件，列表焦点序不受影响。
+// 行样式：与通用表格一致——**不做卡片**（无底色、无圆角），行与行之间用 1pt
+// 分隔线切分，行内容左右与页头对齐（列表本身已在岛内，再套一层卡片会重复分层）。
 [[huxerui::composable]] huxerui::View HistoryRow(const db::HistoryEntry& entry) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const std::string status = entry.error.empty() ? std::to_string(entry.status) : "ERR";
+    huxerui::View content;
     if (huxerui::UseViewportClass() == huxerui::ViewportClass::Compact) {
-        return huxerui::Column {
-                   huxerui::Row {
-                       huxerui::Text(entry.method, huxerui::TextRole::Body),
-                       huxerui::Text(std::format("{} · {}", status, entry.durationMs),
-                                     huxerui::TextRole::Body)
-                           .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-                   }.With(huxerui::Spacing(theme.spacing.small),
-                          huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
-                   huxerui::Text(entry.url, huxerui::TextRole::Body),
-               }
-            .With(huxerui::Spacing(4.0F), huxerui::Padding(theme.spacing.medium),
-                  huxerui::Background(theme.colors.surface_container),
-                  huxerui::CornerRadius(theme.shapes.small));
+        content = huxerui::Column {
+            huxerui::Row {
+                huxerui::Text(entry.method, huxerui::TextRole::Body),
+                huxerui::Text(status + " · " + formatMs(entry.durationMs),
+                              huxerui::TextRole::Body)
+                    .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+            }.With(huxerui::Spacing(theme.spacing.small),
+                   huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
+            huxerui::Text(entry.url, huxerui::TextRole::Body)
+                .With(huxerui::ClipChildren()),
+        }.With(huxerui::Spacing(theme.spacing.extra_small),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    } else {
+        content = huxerui::Row {
+            // 前置区：HTTP 方法。
+            huxerui::Text(entry.method, huxerui::TextRole::Body),
+            // 主内容：URL，Grow 撑开（有界宽度内自然换行，ClipChildren 兜底截断）。
+            huxerui::Text(entry.url, huxerui::TextRole::Body)
+                .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
+            // 尾部信息：状态码 · 耗时，整体右对齐、次级色调。
+            huxerui::Text(status + " · " + formatMs(entry.durationMs),
+                          huxerui::TextRole::Body)
+                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+        }.With(huxerui::Spacing(theme.spacing.small),
+               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
     }
-    return huxerui::Row {
-        // 前置区：HTTP 方法。
-        huxerui::Text(entry.method, huxerui::TextRole::Body),
-        // 主内容：URL，Grow 撑开（有界宽度内自然换行，ClipChildren 兜底截断）。
-        huxerui::Text(entry.url, huxerui::TextRole::Body)
-            .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
-        // 尾部信息：状态码 · 耗时，整体右对齐、次级色调。
-        huxerui::Text(std::format("{} · {}", status, entry.durationMs), huxerui::TextRole::Body)
-            .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-    }
-        .With(huxerui::Spacing(theme.spacing.small),
-              huxerui::Padding(theme.spacing.medium),
-              // 条目在岛（container_low）之上，用高一层级的容器底保持可见层次。
-              huxerui::Background(theme.colors.surface_container),
-              huxerui::CornerRadius(theme.shapes.small),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
+    // 行首一条分隔线：整列看起来就是表格（含列表顶边），行间不再有卡片间隙。
+    return huxerui::Column {
+        huxerui::Divider(),
+        std::move(content).With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
+            0.0F, theme.spacing.small))),
+    }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
 // 分页结果使用官方 StateList 作为 VirtualList 数据源。分页/清空通过 Key 让本作用域
@@ -77,15 +81,24 @@ constexpr float kPageSizeSelectWidth = 80.0F;
         return huxerui::Column{
             huxerui::Text("暂无历史记录", huxerui::TextRole::Body)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-        };
+        }
+            .With(huxerui::Grow(1.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
-    return huxerui::VirtualList{
-        entries, [](const db::HistoryEntry& entry) {
-            return HistoryRow(entry).Key(entry.id);
-        }}
-        .EstimatedItemExtent(56.0F)
-        .CacheExtent(160.0F)
-        .With(huxerui::ScrollBar(), huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
+    // 列表底部再补一条分隔线收口，与分页栏分开（表格语义：上下都有框线）。
+    return huxerui::Column {
+        huxerui::VirtualList{
+            entries, [](const db::HistoryEntry& entry) {
+                return HistoryRow(entry).Key(entry.id);
+            }}
+            .EstimatedItemExtent(compact ? 64.0F : 40.0F)
+            .CacheExtent(160.0F)
+            .With(huxerui::ScrollBar(), huxerui::Grow(1.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+        huxerui::Divider(),
+    }
+        .With(huxerui::Grow(1.0F), huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 } // namespace
 
