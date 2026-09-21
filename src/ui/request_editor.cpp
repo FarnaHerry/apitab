@@ -104,6 +104,7 @@ inline api::RequestSpec SpecFromDraft(const RequestDraft& draft) {
     api::RequestSpec spec;
     spec.method = std::string{kMethodNames.at(draft.methodIndex)};
     spec.url = draft.url.text;
+    spec.groupId = draft.groupId; // 目录即路由：finalizeSpec 按它拼目录 Path 链
     spec.followRedirects = draft.followRedirects;
     for (const KvRow& row : draft.params)
         if (row.enabled && !row.key.text.empty()) spec.params.push_back(ToKeyValue(row));
@@ -243,8 +244,7 @@ huxerui::View SplitActionButton(
         };
 
     std::vector<huxerui::View> children;
-    // 当前环境的基础 URL（操作栏 baseUrl 显示段与文档页组合 URL 用；无环境/为空时
-    // 显示段不渲染）。
+    // 当前环境的基础 URL（文档页组合 URL 用；无环境/为空时为空串）。
     std::string envBaseUrl;
     if (const db::Environment* env = g_requests.findEnvironment(g_requests.currentEnvId()))
         envBaseUrl = env->baseUrl;
@@ -497,6 +497,8 @@ huxerui::View SplitActionButton(
 
         db::SavedRequest saved;
         saved.id = draft.savedId; // 0 = 新建；非 0 = 更新原集合项
+        // 分组必须显式带回：db 的 UPDATE 含 group_id=?，漏带会把请求搬回根目录。
+        saved.groupId = draft.groupId;
         saved.name = draft.name.text;
         api::RequestSpec spec = SpecFromDraft(draft);
         saved.method = spec.method;
@@ -588,7 +590,11 @@ huxerui::View SplitActionButton(
                                    ? "URL 不能包含 ?，请在下方 Params 输入参数"
                                    : "URL 参数已移到下方 Params");
                 },
-                std::move(envBaseUrl),
+                // 只读前缀段 = 当前环境 baseUrl + 本请求所属目录的 Path 链（逐级
+                // 累加）：与输入框里的路径拼起来就是最终发送的 URL，目录增加的
+                // 路由因此可见（输入以 http:// 之类的 scheme 开头时该段弱化、也
+                // 不参与拼接，规则见 MethodUrlBar 与 finalizeSpec）。
+                g_requests.urlPrefix(snapshot.groupId, g_requests.currentEnvId()),
                 "https://api.example.com/v1/resource",
                 [section, toast](const huxerui::KeyEvent& event) {
                     // KeyIntercept 在 TextField 的文本编辑器之前执行，直接吞掉

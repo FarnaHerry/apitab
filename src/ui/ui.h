@@ -555,7 +555,7 @@ huxerui::View MethodUrlBar(std::vector<std::string> methods, std::size_t methodI
                            std::function<void(std::size_t)> onMethodChanged,
                            huxerui::TextEditingValue url,
                            std::function<void(const huxerui::TextEditingValue&)> onUrlChanged,
-                           std::string baseUrl, std::string placeholder,
+                           std::string urlPrefix, std::string placeholder,
                            std::function<bool(const huxerui::KeyEvent&)> onUrlKeyIntercept = {});
 
 // home_page.cpp — 主页（顶级 Home 标签内容，全宽无侧栏）。onOpenProject 由 AppRoot

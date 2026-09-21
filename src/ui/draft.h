@@ -93,6 +93,9 @@ inline std::uint64_t NextDraftUid() {
 struct RequestDraft {
     std::uint64_t uid = NextDraftUid();
     std::int64_t savedId = 0;
+    // 所属接口目录（0 = 未分组）：URL 行的只读前缀段与发送时的目录 Path 拼接
+    //（目录即路由）都要它。从集合树打开时由 DraftFromSaved 带入，新建草稿恒 0。
+    std::int64_t groupId = 0;
     int kind = 0; // 0=HTTP 1=WebSocket 2=TCP（对应 api::RequestKind::Http/WebSocket/Tcp）；
                   // 3=gRPC（仅 UI 占位草稿，不落库——api::RequestKind 无此值）
     huxerui::TextEditingValue name; // 标签名 / 保存名

@@ -70,6 +70,9 @@ export struct BodyContent {
 export struct RequestSpec {
     std::string method = "GET";
     std::string url;
+    // 所属接口目录（0 = 未分组）。引擎不解释它：store 的 finalizeSpec 用它拼目录
+    // Path 前缀（"目录即路由"，嵌套目录逐级累加），交给引擎时 URL 已定型。
+    std::int64_t groupId = 0;
     std::vector<KeyValue> params;    // query 参数（拼进 URL）
     std::vector<KeyValue> headers;
     std::vector<KeyValue> cookies;

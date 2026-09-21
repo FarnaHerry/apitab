@@ -63,6 +63,7 @@ MockDraft MockFromDb(const db::RequestMock& m) {
 RequestDraft DraftFromSaved(const db::SavedRequest& saved) {
     RequestDraft draft;
     draft.savedId = saved.id;
+    draft.groupId = saved.groupId; // 目录即路由：草稿要记住自己在哪个目录下
     draft.kind = static_cast<int>(saved.kind);
     if (draft.kind < 0 || draft.kind > 2) draft.kind = 0; // 防御：未知类型按 HTTP 打开
     draft.name = huxerui::TextEditingValue{saved.name};

@@ -26,6 +26,16 @@ std::string lowerAscii(std::string s) {
     return s;
 }
 
+// URL 分段拼接：去掉段首 '/' 与已有末尾 '/'，非空时用一个 '/' 连接。
+// composeUrl / urlPrefix 共用，保证"前缀段显示"与"实际拼接"永远同规则。
+void appendUrlSegment(std::string& url, std::string_view segment) {
+    while (!segment.empty() && segment.front() == '/') segment.remove_prefix(1);
+    while (!url.empty() && url.back() == '/') url.pop_back();
+    if (segment.empty()) return;
+    if (!url.empty()) url += '/';
+    url += segment;
+}
+
 // ---- Set-Cookie 解析（响应 Cookie 归集到项目 Cookie 用）----
 // 项目 Cookie 的模型是项目级 name/value（没有 domain/path 维度），所以这里只取名字
 // 与值；属性段仅用来判定"这次响应是不是在删掉这个 Cookie"。
@@ -400,7 +410,7 @@ public:
         });
     }
 
-    // 组装最终 URL：baseUrl + groupUrlPrefix + path
+    // 组装最终 URL：baseUrl + 目录 Path 链 + path
     std::string composeUrl(const std::string& path, std::int64_t groupId,
                            std::int64_t envId) const {
         const std::string cleanPath = trim(path);
@@ -411,18 +421,43 @@ public:
         if (const db::Environment* e = findEnvironment(envId)) {
             url = trim(e->baseUrl);
         }
-        auto appendSegment = [&](std::string_view segment) {
-            while (!segment.empty() && segment.front() == '/') segment.remove_prefix(1);
-            while (!url.empty() && url.back() == '/') url.pop_back();
-            if (segment.empty()) return;
-            if (!url.empty()) url += '/';
-            url += segment;
-        };
-        if (const db::Group* g = findGroup(groupId); g && g->mode == db::GroupMode::Path) {
-            appendSegment(groupPathValue(*g));
-        }
-        appendSegment(cleanPath);
+        appendUrlSegment(url, groupPathChain(groupId));
+        appendUrlSegment(url, cleanPath);
         return url;
+    }
+
+    // 最终 URL 的前缀部分（当前环境 baseUrl + 目录 Path 链），不含请求自己的路径。
+    // URL 行的只读前缀段用它显示"拼接结果的前半截"（输入框里是后半截），这样目录
+    // 增加的路由是看得见的、不用猜。带 URI scheme 的输入不参与拼接，调用方按
+    // hasUriScheme 弱化/隐藏（与 composeUrl、finalizeSpec 同一条规则）。
+    std::string urlPrefix(std::int64_t groupId, std::int64_t envId) const {
+        std::string prefix;
+        if (const db::Environment* e = findEnvironment(envId)) prefix = trim(e->baseUrl);
+        appendUrlSegment(prefix, groupPathChain(groupId));
+        return prefix;
+    }
+
+    // 从根到该目录的 Path 链（只取 Path 模式目录的 path；Name 模式目录不贡献路由），
+    // 用 '/' 连接。嵌套目录逐级累加：api(P) > v1(P) → "api/v1"。
+    std::string groupPathChain(std::int64_t groupId) const {
+        std::vector<std::string> segments;
+        std::int64_t cursor = groupId;
+        // 环保护：脏数据（parent 指回自己/互指）不至于死循环。
+        for (std::size_t guard = 0; cursor != 0 && guard < 64; ++guard) {
+            const db::Group* g = findGroup(cursor);
+            if (!g) break;
+            if (g->mode == db::GroupMode::Path) {
+                const std::string value = groupPathValue(*g);
+                if (!value.empty()) segments.push_back(value);
+            }
+            cursor = g->parentId;
+        }
+        std::string chain;
+        for (auto it = segments.rbegin(); it != segments.rend(); ++it) { // 根 → 叶
+            if (!chain.empty()) chain += '/';
+            chain += *it;
+        }
+        return chain;
     }
 
     // 把一组名字段（如 {"api","v1"}）拼成 Path 分组的路径字符串。
@@ -442,16 +477,6 @@ public:
             }
         }
         return 0;
-    }
-
-    // 查分组的所有祖先路径（从根到叶）。如分组 "api/v1" → [{"api"},{"api","v1"}]。
-    // 供 URL 拼接：拼接 = "/" + groupPath(ancestors[0]) + ... + "/" + name。
-    // 这里简化：只取第一层 Path 分组的路径（忽略嵌套），因为目前只支持单层 Path。
-    std::string groupUrlPrefix(std::int64_t groupId) const {
-        if (const db::Group* g = findGroup(groupId); g && g->mode == db::GroupMode::Path) {
-            return "/" + groupPathValue(*g);  // "api/v1" → "/api/v1"
-        }
-        return {};
     }
 
     // Path 分组的实际 URL 前缀：path 列空时回落 name（兼容旧数据）。
@@ -643,10 +668,11 @@ public:
             }
             finalSpec.body = substituteEnvVars(finalSpec.body, vars);
         }
-        // 基础 URL 拼接：输入（变量替换后）无 URI scheme 且当前环境配置了
-        // baseUrl 时拼上前缀（composeUrl 内部分段去重斜杠；请求页草稿没有分组
-        // 概念，groupId 传 0 跳过 Path 分组）。带 scheme 的完整 URL 原样保留。
-        finalSpec.url = composeUrl(finalSpec.url, 0, currentEnvId_);
+        // 基础 URL 拼接：输入（变量替换后）无 URI scheme 时按 baseUrl + 目录 Path
+        // 链 + 路径组装（composeUrl 内部分段去重斜杠）；带 scheme 的完整 URL 原样
+        // 保留、不再叠加任何前缀（"目录即路由"也一并失效）。目录取自需求规格的
+        // groupId（GUI 从草稿、CLI 从集合项带入）。
+        finalSpec.url = composeUrl(finalSpec.url, finalSpec.groupId, currentEnvId_);
         std::vector<std::pair<std::string, std::string>> enabled;
         for (const auto& p : finalSpec.params) {
             if (p.enabled && !p.key.empty()) enabled.emplace_back(p.key, p.value);

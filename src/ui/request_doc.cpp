@@ -18,9 +18,10 @@ namespace apitab::ui {
                                                      const std::string& envBaseUrl) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const std::string method = std::string{kMethodNames[snapshot.methodIndex]};
-    // 组合 URL 与发送逻辑同规则：输入自带 URI scheme 原样，否则拼当前环境 baseUrl。
-    const std::string fullUrl =
-        g_requests.composeUrl(snapshot.url.text, 0, g_requests.currentEnvId());
+    // 组合 URL 与发送逻辑同规则：输入自带 URI scheme 原样，否则拼当前环境 baseUrl
+    // 与所属目录的 Path 链（目录即路由，逐级累加）。
+    const std::string fullUrl = g_requests.composeUrl(
+        snapshot.url.text, snapshot.groupId, g_requests.currentEnvId());
 
     std::vector<huxerui::View> sections;
     sections.push_back(huxerui::Text(DraftDisplayName(snapshot), huxerui::TextRole::Title));

@@ -929,7 +929,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     std::vector<std::string> methods, std::size_t methodIndex,
     std::function<void(std::size_t)> onMethodChanged, huxerui::TextEditingValue url,
     std::function<void(const huxerui::TextEditingValue&)> onUrlChanged,
-    std::string baseUrl, std::string placeholder,
+    std::string urlPrefix, std::string placeholder,
     std::function<bool(const huxerui::KeyEvent&)> onUrlKeyIntercept) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
@@ -1000,14 +1000,15 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
             });
     trigger = std::move(trigger).With(popup.Anchor());
 
-    // baseUrl 显示区：当前环境基础 URL（灰色只读、max_width 截断）。输入框自带
-    // URI scheme 时以输入为准（finalizeSpec 不拼接）→ 该段半透明弱化提示；
-    // baseUrl 为空（无环境/未配置）时整段不渲染。
+    // 前缀显示区：当前环境 baseUrl + 目录 Path 链（灰色只读、max_width 截断），
+    // 与输入框里的路径共同构成"最终会发送的 URL"——目录增加的路由因此可见，
+    // 不用猜。输入框自带 URI scheme 时以输入为准（finalizeSpec 完全不拼接）→
+    // 该段半透明弱化提示；前缀为空（无环境且无 Path 目录）时整段不渲染。
     huxerui::View baseSegment = huxerui::Row{};
-    if (!baseUrl.empty()) {
+    if (!urlPrefix.empty()) {
         const bool overridden = hasUriScheme(trim(url.text));
         baseSegment = huxerui::Row {
-            huxerui::Text(baseUrl, huxerui::TextRole::Label)
+            huxerui::Text(urlPrefix, huxerui::TextRole::Label)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant)),
         }
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(8.0F, 0.0F)),

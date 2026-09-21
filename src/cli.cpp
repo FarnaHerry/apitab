@@ -428,6 +428,7 @@ api::RequestSpec specFromSaved(const db::SavedRequest& saved) {
         if (kv.enabled && !kv.key.empty()) spec.params.push_back(kv);
     for (const api::KeyValue& kv : saved.headers)
         if (kv.enabled && !kv.key.empty()) spec.headers.push_back(kv);
+    spec.groupId = saved.groupId; // 目录即路由：finalizeSpec 按它拼目录 Path 链
     for (const api::KeyValue& kv : saved.cookies)
         if (kv.enabled && !kv.key.empty()) spec.cookies.push_back(kv);
     spec.bodyKind = saved.bodyKind;

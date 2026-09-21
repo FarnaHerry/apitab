@@ -34,7 +34,7 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。不启动
 | `projects [--org ID]` | 列出项目（默认当前组织） | `apitab --cli projects --org 1` |
 | `requests [--org ID] [--project ID]` | 列出项目内请求（ID/方法/名称/URL/分组/更新时间；首行标注项目+环境上下文） | `apitab --cli requests --project 5` |
 | `show <请求ID> [--project ID]` | 单请求全字段：params/headers/cookies/body（含表单字段）/测试用例/Mock 配置 | `apitab --cli show 14 --project 5` |
-| `send <请求ID> [--project ID] [--env ID\|名字] [--json]` | 组装→finalizeSpec（环境变量替换+baseUrl 拼接+合并全局 Cookie/公共头+全局超时/代理）→curl 引擎发送→10ms 轮询取回（120s 兜底），成功落历史并把响应 `Set-Cookie` 归集进项目 Cookie | `apitab --cli send 14 --project 5 --json` |
+| `send <请求ID> [--project ID] [--env ID\|名字] [--json]` | 组装→finalizeSpec（环境变量替换+baseUrl 与目录 Path 链拼接+合并全局 Cookie/公共头+全局超时/代理）→curl 引擎发送→10ms 轮询取回（120s 兜底），成功落历史并把响应 `Set-Cookie` 归集进项目 Cookie | `apitab --cli send 14 --project 5 --json` |
 | `history [--limit N]` | 最近发送历史（默认 20 条，最新在前：ID/时间/方法/状态/耗时/大小/URL/错误/关联请求） | `apitab --cli history --limit 5` |
 
 ### send 的要点
@@ -71,6 +71,11 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。不启动
 
 - `src/cli.cpp`（普通 C++ TU）+ `platform/*/main.cpp` 的 `--cli` 分支：
   `argv[1]=="--cli"` → `apitab::cli::run()`，GUI 路径零变化。
+- **目录即路由**：`finalizeSpec` 用 `RequestSpec.groupId`（CLI 从集合项的 `group_id` 带入）
+  经 `composeUrl` 拼 `baseUrl + 目录 Path 链 + 路径`，Path 模式目录逐级累加
+  （`api(P) > v1(P)` → `/api/v1`），Name 模式目录不贡献路由；输入带 URI scheme 时
+  前缀全部失效、原样直发。URL 行只读前缀段（`urlPrefix`）与拼接共用同一套分段规则，
+  所以界面上看到的前缀就是实际会发送的前缀。
 - 复用 `g_requests` 领域单例：构造即打开 SQLite 并持有 curl 引擎（常驻工作线程）。
   CLI 无事件循环，主线程 `sleep(10ms)` 轮询 `takeResponse`（结果槽内部加锁，跨线程
   取用安全；契约见 `src/curl_engine.cppm` 注释）。
