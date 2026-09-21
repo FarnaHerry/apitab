@@ -383,194 +383,11 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                 .tone = AppMenuTone::DangerHover}};
     };
 
-    // 请求行（叶子）：TreeView 负责层级缩进、选择和激活；行本身保留菜单与拖拽。
-    auto requestRow = [&](const db::SavedRequest& r) -> huxerui::View {
-        const std::int64_t id = r.id;
-        // 徽标：非 HTTP 的已保存请求显示类型缩写（防御；现存数据基本都是 HTTP）。
-        const std::string badge = r.kind == api::RequestKind::WebSocket ? "WS"
-                                  : r.kind == api::RequestKind::Tcp     ? "TCP"
-                                                                        : r.method;
-        return huxerui::Row {
-            // 打开区：徽标 + 名称占满行宽；点击挂在整行 Row 上（见下方 .OnClick），
-            // 更多按钮是最深命中节点、点击不冒泡，仍只触发它自己。
-            huxerui::Row {
-                huxerui::Text(badge, huxerui::TextRole::Label)
-                    .Style(huxerui::TextStyle{
-                        .font = methodFont,
-                        // 徽标按 MethodColor 统一色表逐方法着色。
-                        .foreground = MethodColor(theme, badge)})
-                    .With(huxerui::Frame{.min_width = 32.0F}),
-                huxerui::Text(r.name.empty() ? "（未命名）" : r.name,
-                              huxerui::TextRole::Body),
-            }
-                .With(huxerui::Spacing(theme.spacing.extra_small),
-                      huxerui::Grow(1.0F), huxerui::ClipChildren()),
-            // 行尾更多菜单（悬停显隐；重命名/删除）。锚点在按钮自己的 composable
-            // 作用域里（一个 LayerAnchor 只能挂一个 View，见 RowMenuButton）。
-            RowMenuButton(hoveredRow.Get() == id, requestEntries(r)),
-        }
-            .With(huxerui::Spacing(0.0F),
-                  huxerui::Padding(huxerui::EdgeInsets{
-                      .top = 4.0F, .right = 6.0F, .bottom = 4.0F,
-                      .left = 6.0F}),
-                  // 默认无底色，被选中（活跃标签对应行）或悬停（含悬停更多按钮，
-                  // Hover 事件通道非独占）才显示容器底。
-                  huxerui::Background(id == activeSavedId || hoveredRow.Get() == id
-                                          ? theme.colors.surface_container
-                                          : huxerui::Color::Transparent()),
-                  huxerui::CornerRadius(theme.shapes.small),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-                  // 行自身压掉默认 Indication：悬停反馈由手工底色承担，避免叠加。
-                  huxerui::Indication{})
-            // 点击整行 = 打开/激活对应标签：挂整行让默认 Indication 的悬停/按压
-            // 高亮覆盖整条长条（语义同分组行）。
-            .OnClick([drafts, activeTab, id] {
-                // 已打开则激活，否则新建标签；左岛不卸载，同步写即可。
-                std::vector<RequestDraft> copy = drafts.Get();
-                for (std::size_t i = 0; i < copy.size(); ++i) {
-                    if (copy[i].savedId == id) {
-                        activeTab = i;
-                        return;
-                    }
-                }
-                if (const db::SavedRequest* found = g_requests.find(id)) {
-                    copy.push_back(DraftFromSaved(*found));
-                    drafts = copy;
-                    activeTab = copy.size() - 1;
-                }
-            })
-            // 拖拽源：鼠标按下即拖（默认距离阈值），与点击按阈值分胜负——桌面端
-            // 滚动走滚轮，ScrollView 不与鼠标拖拽抢指针。preview 工厂给出拖影：
-            // 拖到分组行 = 移入该分组；拖到列表空白 = 移出分组（根投放区见下）。
-            .With(huxerui::DragSource(
-                RequestDragPayload{id},
-                [badge, name = r.name, bg = theme.colors.surface_container_high,
-                 fg = theme.colors.on_surface,
-                 accent = MethodColor(theme, badge)] {
-                    return huxerui::Row {
-                        huxerui::Text(badge, huxerui::TextRole::Label)
-                            .Style(huxerui::TextStyle{
-                                .font = huxerui::Font::Monospace(font_size::kCaption)
-                                            .WithWeight(huxerui::FontWeight::SemiBold),
-                                .foreground = accent}),
-                        huxerui::Text(name.empty() ? "（未命名）" : name,
-                                      huxerui::TextRole::Body),
-                    }
-                        .With(huxerui::Spacing(6.0F), huxerui::Padding(6.0F),
-                              huxerui::Background(bg), huxerui::Foreground(fg),
-                              huxerui::CornerRadius(6.0F));
-                }))
-            // 悬停显隐更多按钮：Enter 记行 key，Leave 时仅当仍是本行才清空（防跨行
-            // 误清）。只写 hoveredRow；悬停重组靠稳定 Key 保留挂载节点（见下）。
-            .On<huxerui::ViewEvents::Hover>([hoveredRow, id](const huxerui::HoverEvent& e) {
-                if (e.type == huxerui::HoverEventType::Enter)
-                    hoveredRow = id;
-                else if (e.type == huxerui::HoverEventType::Leave && hoveredRow.Get() == id)
-                    hoveredRow = 0;
-            })
-            // 右键菜单：条目同更多按钮，跟随点击位置弹出；挂在行最外层容器上，
-            // 命中链最深绑定生效，分组内嵌套的请求行仍弹本菜单。
-            .On<huxerui::ViewEvents::ContextMenuRequested>(
-                [ctxMenu, requestEntries, r](huxerui::Point pos) {
-                    ShowAppMenuAt(ctxMenu, pos, requestEntries(r));
-                })
-            // 稳定 Key：悬停重组（整张列表重建 rows）时按 Key 保留挂载节点
-            // 与其扩展实例，避免节点替换引起的 hover 抖动。
-            .Key(id);
-    };
-
-    // 接口目录行（内部节点）：TreeView 绘制 disclosure 并处理展开；行保留菜单与拖放。
-    auto groupRow = [&](const db::Group& g) -> huxerui::View {
-        return huxerui::Row {
-                   huxerui::Text(g.name, huxerui::TextRole::Body)
-                       .With(huxerui::ClipChildren(), huxerui::Grow(1.0F)),
-                   // 行尾更多菜单（悬停显隐；编辑/删除接口目录）。锚点在按钮自己的
-                   // composable 作用域里（一个 LayerAnchor 只能挂一个 View）。
-                   RowMenuButton(hoveredRow.Get() == -g.id, groupEntries(g)),
-               }
-                   .With(huxerui::Spacing(theme.spacing.extra_small),
-                         huxerui::Padding(huxerui::EdgeInsets{
-                             .top = 4.0F, .right = 6.0F, .bottom = 4.0F,
-                             .left = 6.0F}),
-                         // 悬停（含悬停更多按钮，同请求行）显示容器底。
-                         huxerui::Background(hoveredRow.Get() == -g.id
-                                                 ? theme.colors.surface_container
-                                                 : huxerui::Color::Transparent()),
-                         huxerui::CornerRadius(theme.shapes.small),
-                         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-                         // 行自身压掉默认 Indication：悬停反馈由手工底色承担。
-                         huxerui::Indication{})
-                   // 分组既是拖拽源（拖到别的分组 = 变其子分组），也是投放目标
-                   // （接受请求/分组落入）。自身投放被谓词拒绝；成环由 store
-                   // 环检测兜底（toast 报错）。落盘统一推迟出指针事件路径。
-                   // 鼠标按下即拖 + 拖影 preview，理由同请求行。
-                   .With(huxerui::DragSource(
-                             GroupDragPayload{g.id},
-                             [name = g.name, bg = theme.colors.surface_container_high,
-                              fg = theme.colors.on_surface] {
-                                 return huxerui::Row {
-                                     huxerui::Image(app::images::chevron_down)
-                                         .Fit(huxerui::ImageFit::Contain)
-                                         .Tint(fg)
-                                         .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
-                                     huxerui::Text(name.empty() ? "（未命名）" : name,
-                                                   huxerui::TextRole::Body),
-                                 }
-                                     .With(huxerui::Spacing(4.0F), huxerui::Padding(6.0F),
-                                           huxerui::Background(bg), huxerui::Foreground(fg),
-                                           huxerui::CornerRadius(6.0F));
-                             }),
-                         huxerui::DropTarget::Accepts<RequestDragPayload>(),
-                         huxerui::DropTarget::Accepts<GroupDragPayload>(
-                             [gid = g.id](const GroupDragPayload& p) { return p.groupId != gid; }))
-                   .On<huxerui::DropEvents<RequestDragPayload>::Dropped>(
-                       [tasks, toast, listVersion, gid = g.id](const RequestDragPayload& p,
-                                                               const huxerui::DropEvent&) {
-                           tasks.Launch([=]() -> huxerui::Task<void> {
-                               co_await huxerui::Delay(std::chrono::duration<double>{0});
-                               if (const std::string err =
-                                       g_requests.moveToGroup(p.requestId, gid);
-                                   !err.empty()) {
-                                   toast.Show("移动失败: " + err);
-                                   co_return;
-                               }
-                               listVersion = listVersion.Get() + 1;
-                           });
-                       })
-                   .On<huxerui::DropEvents<GroupDragPayload>::Dropped>(
-                       [tasks, toast, listVersion, gid = g.id](const GroupDragPayload& p,
-                                                               const huxerui::DropEvent&) {
-                           tasks.Launch([=]() -> huxerui::Task<void> {
-                               co_await huxerui::Delay(std::chrono::duration<double>{0});
-                               if (const std::string err = g_requests.moveGroup(p.groupId, gid);
-                                   !err.empty()) {
-                                   toast.Show("移动失败: " + err);
-                                   co_return;
-                               }
-                               listVersion = listVersion.Get() + 1;
-                           });
-                       })
-                   // 悬停显隐更多按钮：理由同请求行（Enter 记 -g.id，Leave 条件清空）。
-                   .On<huxerui::ViewEvents::Hover>(
-                       [hoveredRow, key = -g.id](const huxerui::HoverEvent& e) {
-                           if (e.type == huxerui::HoverEventType::Enter)
-                               hoveredRow = key;
-                           else if (e.type == huxerui::HoverEventType::Leave &&
-                                    hoveredRow.Get() == key)
-                               hoveredRow = 0;
-                       })
-                   // 右键菜单：条目同更多按钮，跟随点击位置弹出（理由同请求行）。
-                   .On<huxerui::ViewEvents::ContextMenuRequested>(
-                       [ctxMenu, groupEntries, g](huxerui::Point pos) {
-                           ShowAppMenuAt(ctxMenu, pos, groupEntries(g));
-                       })
-                   // 稳定 Key：理由同请求行（悬停重组时保留节点与其扩展实例）。
-                   // 取负与请求行 Key 区分。
-                   .Key(-g.id);
-    };
-
-    // TreeView 负责虚拟化、层级缩进、展开状态及键盘/无障碍树语义；行仍为原有的
-    // 请求/分组视图，因此拖拽 payload、投放和菜单行为完全保留。
+    // TreeView 负责虚拟化、层级缩进、展开状态及键盘/无障碍树语义；行内容由下面的
+    // 工厂按节点重建——每行都要有行尾 ⋮ 动作组与右键菜单（两者共用同一份条目）。
+    // TreeView 官方测试保证"行内嵌套按钮的点击不会选中/激活该行"
+    //（tests/runtime/tree.cpp: "TreeView keeps nested button taps out of row activation"），
+    // 所以点 ⋮ 只弹菜单，不会顺带把该请求打开。
     const std::vector<RequestTreeNodePtr> treeRoots = BuildRequestTree(saved, groups, 0);
     const huxerui::TreeViewStyle treeStyle{
         .background = huxerui::Color::Transparent(),
@@ -603,16 +420,35 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
     };
     huxerui::View requestTree = huxerui::TreeView<RequestTreeNodePtr>(
         treeRoots,
-        // TreeView 延迟调用此工厂，不能捕获本 composable 的 Toast/Popup/Task handle。
-        // 只以节点自有数据和稳定 payload 构造行；受控操作由 TreeView 事件完成。
-        [listVersion](const RequestTreeNodePtr& node) -> huxerui::View {
+        // 行工厂：TreeView 会在每个可见行的自身作用域里调用它，所以这里可以取
+        // UseTheme，也可以调用 RowMenuButton 这样的 composable（框架自带的 tree
+        // 测试就在行工厂里用 UseState/Button）。捕获一律按值拿 handle/lambda：
+        // 工厂可能被 TreeView 在后续帧复用，引用本 composable 的局部量会悬空。
+        [listVersion, hoveredRow, ctxMenu, requestEntries, groupEntries](
+            const RequestTreeNodePtr& node) -> huxerui::View {
+            const huxerui::ThemeSpec& rowTheme = huxerui::UseTheme();
             if (node->group) {
-                const std::int64_t groupId = node->group->id;
-                const std::string name = node->group->name;
-                return huxerui::Row{huxerui::Text(name, huxerui::TextRole::Body)
-                                         .With(huxerui::Grow(1.0F), huxerui::ClipChildren())}
-                    .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
+                // 按值复制节点数据：右键/⋮ 的菜单条目要活过本次组合。
+                const db::Group group = *node->group;
+                const std::int64_t groupId = group.id;
+                const std::string name = group.name;
+                const bool hovered = hoveredRow.Get() == -groupId;
+                return huxerui::Row{
+                           huxerui::Text(name, huxerui::TextRole::Body)
+                               .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
+                           // 行尾动作组：目前只有一个 ⋮，后续要加动作往这里加即可。
+                           TrailingActionGroup(
+                               {RowMenuButton(hovered, groupEntries(group))}),
+                       }
+                    .With(huxerui::Spacing(rowTheme.spacing.extra_small),
+                          huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
                           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                          // 悬停底色（选中底色由 TreeView 的 selected_background 画，
+                          // 同色不冲突）；行自身压掉默认 Indication 避免叠加。
+                          huxerui::Background(hovered ? rowTheme.colors.surface_container
+                                                      : huxerui::Color::Transparent()),
+                          huxerui::CornerRadius(rowTheme.shapes.small),
+                          huxerui::Indication{},
                           huxerui::DragSource(GroupDragPayload{groupId}, [name] {
                               return huxerui::Text(name.empty() ? "（未命名）" : name,
                                                     huxerui::TextRole::Body)
@@ -635,26 +471,66 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                             if (g_requests.moveGroup(payload.groupId, groupId).empty())
                                 listVersion = listVersion.Get() + 1;
                         })
+                    // 悬停显隐 ⋮：Leave 仅当仍是本行才清空，防跨行误清。
+                    .On<huxerui::ViewEvents::Hover>(
+                        [hoveredRow, key = -groupId](const huxerui::HoverEvent& event) {
+                            if (event.type == huxerui::HoverEventType::Enter)
+                                hoveredRow = key;
+                            else if (event.type == huxerui::HoverEventType::Leave &&
+                                     hoveredRow.Get() == key)
+                                hoveredRow = 0;
+                        })
+                    // 右键菜单：条目与 ⋮ 完全一致，跟随指针位置弹出。
+                    .On<huxerui::ViewEvents::ContextMenuRequested>(
+                        [ctxMenu, groupEntries, group](huxerui::Point position) {
+                            ShowAppMenuAt(ctxMenu, position, groupEntries(group));
+                        })
                     .Key(-groupId);
             }
-            const std::int64_t requestId = node->request->id;
-            const std::string name = node->request->name;
-            const std::string badge = node->request->kind == api::RequestKind::WebSocket ? "WS"
-                                      : node->request->kind == api::RequestKind::Tcp     ? "TCP"
-                                                                                         : node->request->method;
+            // 按值复制节点数据：右键/⋮ 的菜单条目要活过本次组合。
+            const db::SavedRequest request = *node->request;
+            const std::int64_t requestId = request.id;
+            const std::string name = request.name;
+            const std::string badge = request.kind == api::RequestKind::WebSocket ? "WS"
+                                      : request.kind == api::RequestKind::Tcp     ? "TCP"
+                                                                                  : request.method;
+            const bool hovered = hoveredRow.Get() == requestId;
             return huxerui::Row{
                        huxerui::Text(badge, huxerui::TextRole::Label)
                            .With(huxerui::Frame{.min_width = 32.0F}),
                        huxerui::Text(name.empty() ? "（未命名）" : name, huxerui::TextRole::Body)
                            .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
+                       // 行尾动作组：目前只有一个 ⋮（重命名/删除），后续加动作往里加。
+                       TrailingActionGroup(
+                           {RowMenuButton(hovered, requestEntries(request))}),
                    }
-                .With(huxerui::Spacing(6.0F), huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
+                .With(huxerui::Spacing(rowTheme.spacing.extra_small),
+                      huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 4.0F)),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                      // 悬停底色（选中底色由 TreeView 画，同色不冲突）。
+                      huxerui::Background(hovered ? rowTheme.colors.surface_container
+                                                  : huxerui::Color::Transparent()),
+                      huxerui::CornerRadius(rowTheme.shapes.small),
+                      huxerui::Indication{},
                       huxerui::DragSource(RequestDragPayload{requestId}, [badge, name] {
                           return huxerui::Text(badge + " " + (name.empty() ? "（未命名）" : name),
                                                 huxerui::TextRole::Body)
                               .With(huxerui::Padding(6.0F));
                       }))
+                // 悬停显隐 ⋮：Leave 仅当仍是本行才清空，防跨行误清。
+                .On<huxerui::ViewEvents::Hover>(
+                    [hoveredRow, key = requestId](const huxerui::HoverEvent& event) {
+                        if (event.type == huxerui::HoverEventType::Enter)
+                            hoveredRow = key;
+                        else if (event.type == huxerui::HoverEventType::Leave &&
+                                 hoveredRow.Get() == key)
+                            hoveredRow = 0;
+                    })
+                // 右键菜单：条目与 ⋮ 完全一致，跟随指针位置弹出。
+                .On<huxerui::ViewEvents::ContextMenuRequested>(
+                    [ctxMenu, requestEntries, request](huxerui::Point position) {
+                        ShowAppMenuAt(ctxMenu, position, requestEntries(request));
+                    })
                 .Key(requestId);
         },
         [collapsed, activeSavedId](const RequestTreeNodePtr& node) -> huxerui::TreeItemInfo {
