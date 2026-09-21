@@ -308,10 +308,19 @@ private:
             headerList = curl_slist_append(headerList, line.c_str());
         }
 
-        for (const auto& cookie : spec.cookies) {
-            if (!cookie.enabled || cookie.key.empty()) continue;
-            const std::string line = cookie.key + "=" + cookie.value;
-            headerList = curl_slist_append(headerList, ("Cookie: " + line).c_str());
+        // Cookie 必须只占一行、单个 "Cookie: a=1; b=2"（RFC 6265 §5.4）：逐个
+        // 追加成多条 "Cookie:" 头时 curl 会原样发多条，而服务端普遍只读第一条
+        // （Python http.server / 多数框架的 header get 语义），结果只有第一个
+        // Cookie 生效——项目 Cookie 一多就静默丢。
+        {
+            std::string cookieLine;
+            for (const auto& cookie : spec.cookies) {
+                if (!cookie.enabled || cookie.key.empty()) continue;
+                if (!cookieLine.empty()) cookieLine += "; ";
+                cookieLine += cookie.key + "=" + cookie.value;
+            }
+            if (!cookieLine.empty())
+                headerList = curl_slist_append(headerList, ("Cookie: " + cookieLine).c_str());
         }
         curl_easy_setopt(easy, CURLOPT_URL, spec.url.c_str());
         curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "http,https");

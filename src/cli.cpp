@@ -564,7 +564,9 @@ int cmdSend(const Options& opt) {
         err("发送超时（>120s 未取回结果），已请求取消");
         return 2;
     }
-    // 落历史（与 GUI 一致；写失败内部吞掉，不打断输出）。
+    // 响应 Cookie 归集进项目 Cookie + 落历史（与 GUI 一致；写失败内部吞掉，
+    // 不打断输出）。CLI 与 GUI 是两条独立发送路径，两边都要调。
+    g_requests.collectResponseCookies(view);
     g_requests.recordHistory(saved.id, final.method, final.url, view);
     if (!view.ok) {
         if (opt.json) {

@@ -26,6 +26,148 @@ std::string lowerAscii(std::string s) {
     return s;
 }
 
+// ---- Set-Cookie 解析（响应 Cookie 归集到项目 Cookie 用）----
+// 项目 Cookie 的模型是项目级 name/value（没有 domain/path 维度），所以这里只取名字
+// 与值；属性段仅用来判定"这次响应是不是在删掉这个 Cookie"。
+struct SetCookieField {
+    std::string name;
+    std::string value;
+    bool expired = false; // Max-Age<=0，或 Expires 已过期 → 应从项目 Cookie 删除
+};
+
+// RFC 1123 日期（"Sun, 06 Nov 1994 08:49:37 GMT"，末尾时区可省）以及 asctime 形式
+// （"Sun Nov  6 08:49:37 1994"）→ Unix 秒；解析失败返回 nullopt（按会话 Cookie
+// 处理，不删）。只服务 Expires 属性：用 chrono 日历类型换算，不依赖 timegm
+//（MSVC 没有）。
+std::optional<std::int64_t> parseHttpDate(std::string_view raw) {
+    std::string text{raw};
+    if (const std::size_t comma = text.find(','); comma != std::string::npos)
+        text.erase(0, comma + 1); // 去掉可选的 "Wdy," 前缀
+    std::vector<std::string> token;
+    for (std::size_t i = 0; i < text.size();) {
+        while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i]))) ++i;
+        const std::size_t start = i;
+        while (i < text.size() && !std::isspace(static_cast<unsigned char>(text[i]))) ++i;
+        if (i > start) token.push_back(text.substr(start, i - start));
+    }
+    static constexpr std::array<std::string_view, 12> kMonths{
+        "jan", "feb", "mar", "apr", "may", "jun",
+        "jul", "aug", "sep", "oct", "nov", "dec"};
+    const auto monthOf = [](std::string_view name) -> std::optional<unsigned> {
+        const std::string lower = lowerAscii(std::string{name});
+        const auto found = std::ranges::find(kMonths, std::string_view{lower});
+        if (found == kMonths.end()) return std::nullopt;
+        return static_cast<unsigned>(found - kMonths.begin()) + 1U;
+    };
+    const auto toInt = [](std::string_view s) -> std::optional<int> {
+        int value = 0;
+        const auto [end, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
+        if (ec != std::errc{} || end != s.data() + s.size()) return std::nullopt;
+        return value;
+    };
+    // 先找到月份 token（最多看前三个）：三种在野外出现的字段顺序——
+    //   asctime 带星期（"Thu Jan  1 00:00:00 1970"，日期补空格所以天数是两个空白）
+    //   asctime 不带星期（"Jan  1 00:00:00 1970"）
+    //   RFC 1123（"01 Jan 1970 00:00:00 GMT"，末尾时区可省）
+    // 用「月份在第几个 token」+「首个 token 是不是数字」区分，不要按 token 数量判断。
+    std::optional<unsigned> month;
+    std::size_t month_at = 0;
+    for (std::size_t i = 0; i < token.size() && i < 3; ++i) {
+        if (const std::optional<unsigned> found = monthOf(token[i])) {
+            month = found;
+            month_at = i;
+            break;
+        }
+    }
+    if (!month) return std::nullopt; // 也顺带挡掉不支持的 RFC 850 "01-Jan-70"
+    std::optional<int> day;
+    std::optional<int> year;
+    std::string_view clock;
+    if (month_at == 0) { // asctime（无星期）
+        if (token.size() < 4) return std::nullopt;
+        day = toInt(token[1]);
+        clock = token[2];
+        year = toInt(token[3]);
+    } else if (month_at == 1 && toInt(token[0]).has_value()) { // RFC 1123
+        if (token.size() < 4) return std::nullopt;
+        day = toInt(token[0]);
+        year = toInt(token[2]);
+        clock = token[3];
+    } else if (month_at == 1) { // asctime 带星期
+        if (token.size() < 5) return std::nullopt;
+        day = toInt(token[2]);
+        clock = token[3];
+        year = toInt(token[4]);
+    } else {
+        return std::nullopt;
+    }
+    if (!day || !year) return std::nullopt;
+    const std::size_t first = clock.find(':');
+    const std::size_t second =
+        first == std::string_view::npos ? std::string_view::npos : clock.find(':', first + 1);
+    if (first == std::string_view::npos || second == std::string_view::npos) return std::nullopt;
+    const std::optional<int> hour = toInt(clock.substr(0, first));
+    const std::optional<int> minute = toInt(clock.substr(first + 1, second - first - 1));
+    const std::optional<int> second_of_minute = toInt(clock.substr(second + 1));
+    if (!hour || !minute || !second_of_minute) return std::nullopt;
+    const std::chrono::year_month_day ymd{
+        std::chrono::year{*year}, std::chrono::month{*month},
+        std::chrono::day{static_cast<unsigned>(*day)}};
+    if (!ymd.ok()) return std::nullopt;
+    const auto point = std::chrono::sys_days{ymd} + std::chrono::hours{*hour} +
+                       std::chrono::minutes{*minute} + std::chrono::seconds{*second_of_minute};
+    return std::chrono::duration_cast<std::chrono::seconds>(point.time_since_epoch()).count();
+}
+
+// 抽出响应里的全部 Set-Cookie 字段（键大小写不敏感）。一行只当一个 Cookie：
+// Expires 里带逗号，按逗号拆多 Cookie 会把日期拆坏（RFC 6265 也禁止折叠）。
+std::vector<SetCookieField> parseSetCookies(const std::vector<api::KeyValue>& headers,
+                                           std::int64_t now) {
+    std::vector<SetCookieField> out;
+    for (const api::KeyValue& header : headers) {
+        if (lowerAscii(header.key) != "set-cookie") continue;
+        const std::string_view raw{header.value};
+        const std::size_t semi = raw.find(';');
+        const std::string_view pair = raw.substr(0, semi);
+        const std::size_t eq = pair.find('=');
+        if (eq == std::string_view::npos) continue; // 没有 '=' 不是合法 Cookie
+        SetCookieField field;
+        field.name = trim(std::string{pair.substr(0, eq)});
+        if (field.name.empty()) continue;
+        field.value = trim(std::string{pair.substr(eq + 1)});
+        if (field.value.size() >= 2 && field.value.front() == '"' && field.value.back() == '"')
+            field.value = field.value.substr(1, field.value.size() - 2); // 成对引号
+        // 属性段：Max-Age 优先于 Expires（RFC 6265 §4.1.2.2）
+        std::optional<std::int64_t> max_age;
+        std::optional<std::int64_t> expires_at;
+        std::string_view attr_text =
+            semi == std::string_view::npos ? std::string_view{} : raw.substr(semi + 1);
+        while (!attr_text.empty()) {
+            const std::size_t next = attr_text.find(';');
+            const std::string_view attr = attr_text.substr(0, next);
+            attr_text = next == std::string_view::npos ? std::string_view{}
+                                                       : attr_text.substr(next + 1);
+            const std::size_t attr_eq = attr.find('=');
+            if (attr_eq == std::string_view::npos) continue;
+            const std::string key = lowerAscii(trim(std::string{attr.substr(0, attr_eq)}));
+            const std::string value = trim(std::string{attr.substr(attr_eq + 1)});
+            if (key == "max-age") {
+                std::int64_t seconds = 0;
+                const auto [end, ec] =
+                    std::from_chars(value.data(), value.data() + value.size(), seconds);
+                if (ec == std::errc{} && end == value.data() + value.size()) max_age = seconds;
+            } else if (key == "expires") {
+                if (const std::optional<std::int64_t> parsed = parseHttpDate(value))
+                    expires_at = parsed;
+            }
+        }
+        if (max_age.has_value()) field.expired = *max_age <= 0;
+        else if (expires_at.has_value()) field.expired = *expires_at <= now;
+        out.push_back(std::move(field));
+    }
+    return out;
+}
+
 } // namespace
 
 export class RequestStore {
@@ -559,6 +701,53 @@ public:
         } catch (...) {
             // 历史写入失败不打断主流程
         }
+    }
+
+    // 响应 Cookie 归集：把响应里的 Set-Cookie 并入当前项目的项目 Cookie。
+    // 与 recordHistory 成对调用——响应回到 UI 线程后的收尾，GUI（request_editor.cpp）
+    // 与 CLI（cli.cpp）两条发送路径都要调（漏调的那条会静默丢掉响应 Cookie）。
+    // 语义：
+    //   - 同名（Cookie 名大小写敏感，RFC 6265）覆盖值；用户显式停用的条目保留停用，
+    //     不擅自打开（值取服务器最新的，启用与否是用户的选择）；
+    //   - 首次见到的 Cookie 写成启用；
+    //   - 删除语义（Max-Age<=0 或 Expires 已过期）删掉同名条目——登出流程靠它；
+    //   - 项目 Cookie 没有 domain/path 维度，任何响应返回的 Cookie 都进本项目列表，
+    //     并随本项目之后每次发送一起带上（既有模型，见 finalizeSpec）。
+    // 返回发生增/改/删的条数（供调用方记录/测试）；数据库异常吞掉，不打断请求主流程。
+    std::size_t collectResponseCookies(const api::ResponseView& result) {
+        const std::vector<SetCookieField> incoming = parseSetCookies(result.headers, nowUnix());
+        if (incoming.empty()) return 0;
+        std::size_t changed = 0;
+        try {
+            std::vector<db::GlobalCookie> stored = db_->listGlobalCookies(currentProjectId_);
+            for (const SetCookieField& field : incoming) {
+                const auto found = std::ranges::find_if(
+                    stored, [&](const db::GlobalCookie& c) { return c.name == field.name; });
+                if (field.expired) {
+                    if (found == stored.end()) continue;
+                    db_->deleteGlobalCookie(found->id, currentProjectId_);
+                    stored.erase(found);
+                    ++changed;
+                    continue;
+                }
+                if (found == stored.end()) {
+                    db::GlobalCookie fresh{.projectId = currentProjectId_,
+                                           .name = field.name,
+                                           .value = field.value,
+                                           .enabled = true};
+                    fresh.id = db_->saveGlobalCookie(fresh);
+                    stored.push_back(std::move(fresh));
+                    ++changed;
+                } else if (found->value != field.value) {
+                    found->value = field.value;
+                    db_->saveGlobalCookie(*found);
+                    ++changed;
+                }
+            }
+        } catch (...) {
+            // 归集失败不打断请求主流程（与 recordHistory 同策略）
+        }
+        return changed;
     }
 
     std::vector<db::HistoryEntry> history(int limit = 50) {

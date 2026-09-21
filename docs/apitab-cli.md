@@ -34,7 +34,7 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。不启动
 | `projects [--org ID]` | 列出项目（默认当前组织） | `apitab --cli projects --org 1` |
 | `requests [--org ID] [--project ID]` | 列出项目内请求（ID/方法/名称/URL/分组/更新时间；首行标注项目+环境上下文） | `apitab --cli requests --project 5` |
 | `show <请求ID> [--project ID]` | 单请求全字段：params/headers/cookies/body（含表单字段）/测试用例/Mock 配置 | `apitab --cli show 14 --project 5` |
-| `send <请求ID> [--project ID] [--env ID\|名字] [--json]` | 组装→finalizeSpec（环境变量替换+baseUrl 拼接+合并全局 Cookie/公共头+全局超时/代理）→curl 引擎发送→10ms 轮询取回（120s 兜底），成功落历史 | `apitab --cli send 14 --project 5 --json` |
+| `send <请求ID> [--project ID] [--env ID\|名字] [--json]` | 组装→finalizeSpec（环境变量替换+baseUrl 拼接+合并全局 Cookie/公共头+全局超时/代理）→curl 引擎发送→10ms 轮询取回（120s 兜底），成功落历史并把响应 `Set-Cookie` 归集进项目 Cookie | `apitab --cli send 14 --project 5 --json` |
 | `history [--limit N]` | 最近发送历史（默认 20 条，最新在前：ID/时间/方法/状态/耗时/大小/URL/错误/关联请求） | `apitab --cli history --limit 5` |
 
 ### send 的要点
@@ -74,4 +74,11 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。不启动
 - 复用 `g_requests` 领域单例：构造即打开 SQLite 并持有 curl 引擎（常驻工作线程）。
   CLI 无事件循环，主线程 `sleep(10ms)` 轮询 `takeResponse`（结果槽内部加锁，跨线程
   取用安全；契约见 `src/curl_engine.cppm` 注释）。
+- **响应 Cookie 归集**：`g_requests.collectResponseCookies(view)` 必须在每条发送路径
+  的收尾调用一次（CLI 在 `cli.cpp` 取回结果处、GUI 在 `request_editor.cpp` 取回结果
+  处，与 `recordHistory` 成对）。语义：同名（区分大小写）覆盖值、保留用户的启用/
+  停用选择、首次出现写成启用、`Max-Age<=0` 或 `Expires` 已过期则删除同名项；
+  只认第一段 `name=value`，属性段仅用于判过期。项目 Cookie 没有 domain/path 维度：
+  任何响应返回的 Cookie 都进本项目列表，并随本项目之后每次发送一起带上（合并进
+  单条 `Cookie:` 头，RFC 6265 §5.4，见 `src/curl_engine.cpp`）。
 - 项目上下文/退出码/`--json` 的输出形状改动时，同步本 skill 文档。

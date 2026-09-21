@@ -714,6 +714,9 @@ huxerui::View SplitActionButton(
                             return !g_requests.takeResponse(view);
                         });
                         if (seq != sendSeq.Get()) co_return; // 已取消/被新请求取代
+                        // 响应 Cookie 归集进项目 Cookie（同名覆盖、删除语义生效），
+                        // 再落历史。取消的请求在这里之前就 co_return 了，不会归集。
+                        g_requests.collectResponseCookies(view);
                         g_requests.recordHistory(requestId, finalSpec.method, finalSpec.url, view);
                         if (view.ok) {
                             responseBody = std::format("HTTP {} · {} · {} bytes\n\n{}", view.status,
