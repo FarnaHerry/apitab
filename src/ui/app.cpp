@@ -686,6 +686,16 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
         activateTopTabNow(TopTabId{TopTabKind::Project, id});
     };
 
+    // HomePage 删除项目回调（卡片菜单「删除」确认后，已在推迟语境）：先关掉该项目
+    // 已打开的顶级标签——CloseTopTab 负责 active/last_project 回退与领域清零，避免
+    // 留下指向已删项目的空标签——再从库里删（级联删其分组/请求/环境）。返回空串 =
+    // 成功，非空 = 错误消息（卡片 toast）。
+    std::function<std::string(std::int64_t)> onDeleteProject =
+        [closeTopTabNow](std::int64_t id) -> std::string {
+        closeTopTabNow(TopTabId{TopTabKind::Project, id});
+        return g_requests.deleteProject(id);
+    };
+
     const bool dark =
         themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
     // 注意：AppRoot 里的 UseTheme() 拿到的是 MaterialTheme provider 之上（应用外）
@@ -736,7 +746,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     // P1-B0.5 状态保活：顶级标签内容用 IndexedPages 保持所有页面挂载（设置↔项目切换不卸载，草稿保活）
     std::vector<huxerui::View> indexed;
     indexed.reserve(1 + tabs.Get().size() + (settingsOpen.Get() ? 1 : 0));
-    indexed.push_back(HomePage(onOpenProject, activeProject));
+    indexed.push_back(HomePage(onOpenProject, onDeleteProject, activeProject));
     std::unordered_map<std::int64_t, std::size_t> projIdx;
     for (std::int64_t id : tabs.Get()) {
         const std::size_t idx = indexed.size();

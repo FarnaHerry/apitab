@@ -563,7 +563,11 @@ huxerui::View MethodUrlBar(std::vector<std::string> methods, std::size_t methodI
 // active_project 持久化）后调用，内部完成顶级项目标签的新增/激活 + State 写回 +
 // open_projects 按需持久化（见 app.cpp AppRoot；调用方必须已在推迟语境，CLAUDE.md
 // 约定 6）。activeProject 仅用于 is_open 高亮（领域打开态）。
+// onDeleteProject：项目卡片菜单「删除」确认后调用（同样在推迟语境），由 AppRoot
+// 先关掉该项目已打开的顶级标签再删库——否则会留下指向已删项目的空标签；返回空串
+// 表示成功，非空为错误消息（卡片 toast）。
 huxerui::View HomePage(std::function<void(std::int64_t)> onOpenProject,
+                       std::function<std::string(std::int64_t)> onDeleteProject,
                        huxerui::State<std::int64_t> activeProject);
 
 huxerui::View LoginPage(huxerui::State<bool> loggedIn);

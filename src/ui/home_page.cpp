@@ -85,25 +85,163 @@ namespace {
         });
 }
 
+// 卡片行尾更多按钮：悬停（或聚焦）才显形，与请求页左岛行尾 ⋮ 同一语言。菜单锚点
+// 必须挂在独立 composable 作用域里（一个 LayerAnchor 只能挂一个 View），与
+// request_list.cpp 的 RowMenuButton 同源——那边是 TU 内实现，这里取最小版本；
+// 卡片的 ⋮ 在右上角，菜单右缘对齐按钮右缘，故用 AnchorAlignment::End。
+[[huxerui::composable]] huxerui::View CardMenuButton(bool visible,
+                                                     std::vector<AppMenuItem> items) {
+    auto popup = huxerui::UsePopup();
+    return OverflowButton([popup, items = std::move(items)] {
+              ShowAppMenu(popup, std::move(items),
+                          huxerui::PopupOptions{
+                              .placement = {huxerui::AnchorSide::Below,
+                                            huxerui::AnchorAlignment::End}});
+          }, visible)
+        .With(popup.Anchor(), huxerui::Opacity(visible ? 1.0F : 0.0F));
+}
+
 // 项目卡片：固定尺寸，Flow 内自动换行；点击打开 = 领域选择 + onOpenProject
 //（AppRoot：顶级项目标签新增/激活）。已打开的项目用主色名称标记（is_open 用
 // activeProject 领域打开态判定，原 ID/「点击打开」提示已按设计要求移除）。
+// 右上角 ⋮ 悬停显形，与卡片内任意位置右键共用同一份菜单（打开 / 重命名 / 删除）；
+// 删除要连该项目已打开的顶级标签一起收掉，所以交回 AppRoot 的 onDeleteProject。
 [[huxerui::composable]] huxerui::View ProjectCard(
     const db::Project& project, huxerui::State<std::int64_t> activeProject,
-    const std::function<void(std::int64_t)>& onOpenProject) {
+    const std::function<void(std::int64_t)>& onOpenProject,
+    const std::function<std::string(std::int64_t)>& onDeleteProject,
+    huxerui::State<int> refresh) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
     auto tasks = huxerui::UseTaskScope();
+    auto menu = huxerui::UsePopup();    // 右键菜单（ShowAt 不需要锚点，本卡片专用）
+    auto dialog = huxerui::UseDialog(); // 重命名 / 删除确认
+    auto renameName = huxerui::UseState(huxerui::TextEditingValue{});
     auto hovered = huxerui::UseState(false);
     auto focused = huxerui::UseState(false);
-    const bool is_open = activeProject.Get() == project.id;
+    const std::int64_t id = project.id;
+    const std::string name = project.name;
+    const bool is_open = activeProject.Get() == id;
     // 嵌套卡常态不描边（岛已靠底色分层，卡再画线会双框）；悬停/聚焦才出线
     // 提示可点。只换颜色，几何与内边距两态一致，避免悬停时内容抖动。
     const bool highlight = hovered.Get() || focused.Get();
+
+    // 打开项目：点击卡片与菜单「打开项目」同一路径。
+    auto openProject = [tasks, toast, onOpenProject, id] {
+        // 推迟出指针事件路径：本点击会切顶级标签（卸载本卡片子树），
+        // 在 pointer-up 处理中同步写 State 会触发框架段错误。
+        tasks.Launch([=]() -> huxerui::Task<void> {
+            co_await huxerui::Delay(std::chrono::duration<double>{0});
+            // 领域写入先行（§13.2 不变量 1：领域同步完成后才渲染项目工作区）。
+            if (const std::string err =
+                    g_requests.selectProjectInOrg(g_requests.currentOrgId(), id);
+                !err.empty()) {
+                toast.Show("打开失败: " + err);
+                co_return;
+            }
+            g_loadtest.setProject(id);
+            saveSessionPreference("active_project", std::to_string(id));
+            // 顶级标签新增/激活 + State 写回 + open_projects 按需持久化由
+            // AppRoot 的 onOpenProject 完成；同一推迟任务内执行，重组无中间帧。
+            onOpenProject(id);
+        });
+    };
+
+    // 重命名弹窗：与「新建项目」同款 DialogCard，预填当前名字。保存走
+    // renameProject（写库 + store 重载项目列表），成功后刷新本页卡片。
+    auto showRenameDialog = [dialog, tasks, toast, refresh, id, name, renameName] {
+        renameName = huxerui::TextEditingValue{name};
+        dialog.Show(
+            [tasks, toast, refresh, id, renameName](huxerui::DialogContext ctx)
+                -> huxerui::View {
+                return DialogCard(huxerui::Column {
+                    huxerui::Text("重命名项目", huxerui::TextRole::Title),
+                    huxerui::TextField(renameName)
+                        .Label("项目名称")
+                        .Variant(huxerui::TextFieldVariant::Outlined)
+                        .OnChanged([renameName](const huxerui::TextEditingValue& value) {
+                            renameName = value;
+                        }),
+                    huxerui::Row {
+                        huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
+                        huxerui::Button("保存")
+                            .OnClick([ctx, tasks, toast, refresh, id, renameName] {
+                                if (renameName.Get().text.empty()) {
+                                    toast.Show("项目名称不能为空");
+                                    return;
+                                }
+                                ctx.Dismiss();
+                                // 改名会换掉本页卡片：推迟出指针事件路径
+                                tasks.Launch([=]() -> huxerui::Task<void> {
+                                    co_await huxerui::Delay(
+                                        std::chrono::duration<double>{0});
+                                    if (const std::string err = g_requests.renameProject(
+                                            id, renameName.Get().text);
+                                        !err.empty()) {
+                                        toast.Show("重命名失败: " + err);
+                                        co_return;
+                                    }
+                                    refresh = refresh.Get() + 1;
+                                });
+                            }),
+                    }
+                        // 两端对齐：取消在左、保存在右；内容列 CrossAlign(Stretch)
+                        // 把按钮行拉到卡片整宽。
+                        .With(huxerui::Spacing(8.0F),
+                              huxerui::MainAlign(
+                                  huxerui::MainAxisAlignment::SpaceBetween)),
+                }
+                    .With(huxerui::Spacing(12.0F), huxerui::Frame{.width = 320.0F},
+                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
+            },
+            huxerui::DialogOptions{});
+    };
+
+    // 菜单条目：⋮ 与右键共用同一份（避免两处逻辑分叉）；删除走危险确认弹窗，
+    // 条目常态普通色、悬停显红（与请求树行菜单同一约定）。
+    auto entries = [openProject, showRenameDialog, dialog, tasks, toast, refresh,
+                    onDeleteProject, id, name]() -> std::vector<AppMenuItem> {
+        return std::vector<AppMenuItem>{
+            AppMenuItem{.label = "打开项目", .onClick = openProject},
+            AppMenuItem{.label = "重命名",
+                        .onClick = [showRenameDialog] { showRenameDialog(); }},
+            AppMenuItem{
+                .label = "删除",
+                .onClick = [dialog, tasks, toast, refresh, onDeleteProject, id, name] {
+                    // 删除前先弹危险确认框（确认按钮染红）；真正删库在确认回调里
+                    // 推迟出指针事件路径——关标签与删库都在 AppRoot 侧完成。
+                    ShowDangerConfirm(
+                        dialog, "删除项目",
+                        "确定删除项目「" + (name.empty() ? "未命名" : name) +
+                            "」吗？其下的接口目录与请求会一并删除，此操作不可恢复。",
+                        "删除", [tasks, toast, refresh, onDeleteProject, id] {
+                            tasks.Launch([=]() -> huxerui::Task<void> {
+                                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                                if (const std::string err = onDeleteProject(id);
+                                    !err.empty()) {
+                                    toast.Show("删除项目失败: " + err);
+                                    co_return;
+                                }
+                                refresh = refresh.Get() + 1;
+                            });
+                        });
+                },
+                .tone = AppMenuTone::DangerHover},
+        };
+    };
+
     return huxerui::Column {
-        huxerui::Text(project.name, huxerui::TextRole::Title)
-            .With(huxerui::Foreground(is_open ? theme.colors.primary
-                                              : theme.colors.on_surface)),
+        huxerui::Row {
+            huxerui::Text(name, huxerui::TextRole::Title)
+                .With(huxerui::Grow(1.0F), huxerui::ClipChildren(),
+                      huxerui::Foreground(is_open ? theme.colors.primary
+                                                  : theme.colors.on_surface)),
+            // 悬停（含悬停 ⋮ 自身，Hover 为 containment 语义）与键盘聚焦时显形；
+            // 不可见时 enabled=false 不参与命中，点卡片空白仍是打开项目。
+            CardMenuButton(highlight, entries()),
+        }
+            .With(huxerui::Spacing(4.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }
         .With(huxerui::Frame{.width = 200.0F, .height = 96.0F},
               huxerui::Padding(theme.spacing.medium), huxerui::Spacing(4.0F),
@@ -117,26 +255,14 @@ namespace {
               // 键盘 Tab 后 Enter/Space 打开项目（模式同 settings_page 左分类行）。
               huxerui::Focusable(true),
               huxerui::Semantics{.role = huxerui::SemanticRole::Button,
-                                 .label = "打开项目 " + project.name})
-        .OnClick([=] {
-            // 推迟出指针事件路径：本点击会切顶级标签（卸载本卡片子树），
-            // 在 pointer-up 处理中同步写 State 会触发框架段错误。
-            tasks.Launch([=]() -> huxerui::Task<void> {
-                co_await huxerui::Delay(std::chrono::duration<double>{0});
-                // 领域写入先行（§13.2 不变量 1：领域同步完成后才渲染项目工作区）。
-                if (const std::string err = g_requests.selectProjectInOrg(
-                        g_requests.currentOrgId(), project.id);
-                    !err.empty()) {
-                    toast.Show("打开失败: " + err);
-                    co_return;
-                }
-                g_loadtest.setProject(project.id);
-                saveSessionPreference("active_project", std::to_string(project.id));
-                // 顶级标签新增/激活 + State 写回 + open_projects 按需持久化由
-                // AppRoot 的 onOpenProject 完成；同一推迟任务内执行，重组无中间帧。
-                onOpenProject(project.id);
-            });
-        })
+                                 .label = "打开项目 " + name})
+        .OnClick(openProject)
+        // 卡片内任意位置右键 = 同一份菜单，跟随指针位置弹出（ShowAt 无需锚点）；
+        // 命中链最深绑定生效，右键点在 ⋮ 上也只弹这一个菜单。
+        .On<huxerui::ViewEvents::ContextMenuRequested>(
+            [menu, entries](huxerui::Point position) {
+                ShowAppMenuAt(menu, position, entries());
+            })
         .On<huxerui::ViewEvents::Hover>([hovered](const huxerui::HoverEvent& e) {
             if (e.type == huxerui::HoverEventType::Enter)
                 hovered = true;
@@ -171,7 +297,9 @@ namespace {
 
 [[huxerui::composable]] huxerui::View ProjectList(
     std::vector<db::Project> initial, huxerui::State<std::int64_t> activeProject,
-    const std::function<void(std::int64_t)>& onOpenProject) {
+    const std::function<void(std::int64_t)>& onOpenProject,
+    const std::function<std::string(std::int64_t)>& onDeleteProject,
+    huxerui::State<int> refresh) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const auto projects = huxerui::UseStateList(std::move(initial));
     if (projects.Empty()) {
@@ -180,8 +308,11 @@ namespace {
             .With(huxerui::Foreground(theme.colors.on_surface_variant));
     }
     return huxerui::VirtualGrid(
-               projects, [activeProject, onOpenProject](const db::Project& project) {
-            return ProjectCard(project, activeProject, onOpenProject).Key(project.id);
+               projects, [activeProject, onOpenProject, onDeleteProject,
+                          refresh](const db::Project& project) {
+            return ProjectCard(project, activeProject, onOpenProject, onDeleteProject,
+                               refresh)
+                .Key(project.id);
         })
         .Columns(huxerui::GridColumns::Adaptive(200.0F))
         .RowExtent(96.0F)
@@ -196,6 +327,7 @@ namespace {
 
 [[huxerui::composable]] huxerui::View HomePage(
     std::function<void(std::int64_t)> onOpenProject,
+    std::function<std::string(std::int64_t)> onDeleteProject,
     huxerui::State<std::int64_t> activeProject) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
@@ -344,7 +476,7 @@ namespace {
                 }, AppIconButtonShape::Circular, 28.0F, true),
             }
                 .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            ProjectList(projects, activeProject, onOpenProject)
+            ProjectList(projects, activeProject, onOpenProject, onDeleteProject, refresh)
                 .Key(refreshKey)
                 .With(huxerui::Grow(1.0F)),
         }
