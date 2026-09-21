@@ -916,11 +916,11 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
 
 // 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（统一无尾下箭头弹自绘下拉，
 // DELETE 常驻红；保持自绘而非官方 Select——Select 触发器自带描边外观，塞不进
-// 这个共用外框的组合栏），其后是当前环境 baseUrl 显示区（灰色只读、截断；
+// 这个共用外框的组合栏），其后是当前环境 baseUrl + 目录 Path 链显示区（灰色只读；
 // 输入框内容带 URI scheme 时以输入为准不拼接 → 该段半透明弱化），中间 1pt
 // 分隔线，右侧 URL 输入；整体共用一个描边圆角外框。外框圆角 = 几何令牌
 // large_control_radius（8pt）：请求 URL 行是高密度工具条，用紧凑的大圆角
-// 组合栏、不做 full capsule（§5.2）。方法触发器/baseUrl 段/分隔线/URL 输入共享
+// 组合栏、不做 full capsule（§5.2）。方法触发器/前缀段/分隔线/URL 输入共享
 // 同一外轮廓，内部不重复描边——URL 字段经 ProvideEnvironment 局部覆盖
 // TextFieldStyle：透明描边 + 零圆角，边框完全交给外框（TextField 无单实例样式
 // API，Environment 是最窄机制）；零圆角即与外框同心的极限（内层不再有独立
@@ -1000,19 +1000,76 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
             });
     trigger = std::move(trigger).With(popup.Anchor());
 
-    // 前缀显示区：当前环境 baseUrl + 目录 Path 链（灰色只读、max_width 截断），
-    // 与输入框里的路径共同构成"最终会发送的 URL"——目录增加的路由因此可见，
-    // 不用猜。输入框自带 URI scheme 时以输入为准（finalizeSpec 完全不拼接）→
-    // 该段半透明弱化提示；前缀为空（无环境且无 Path 目录）时整段不渲染。
+    // 前缀显示区（动态宽度）：当前环境 baseUrl + 目录 Path 链（灰色只读）。
+    // 长度不可预期（多级目录会一直累加），原来写死 max_width = 160 → 超长前缀在
+    // 框内自动换行（Text 默认 TextWrap::Word），把整条 URL 行撑高。现在按文本
+    // 实测宽度决定：放得下就用实际宽度，超出上限从尾部截断加省略号——始终单行、
+    // 行高固定，URL 输入框永远保留可输入宽度。宽度上限随视口档位放大（窗口越宽
+    // 显示越多）。输入框自带 URI scheme 时以输入为准（finalizeSpec 完全不拼接）→
+    // 该段半透明弱化提示。
     huxerui::View baseSegment = huxerui::Row{};
     if (!urlPrefix.empty()) {
         const bool overridden = hasUriScheme(trim(url.text));
+        const huxerui::ViewportClass viewport_class = huxerui::UseViewportClass();
+        const float prefix_cap = viewport_class == huxerui::ViewportClass::Compact ? 140.0F
+                                 : viewport_class == huxerui::ViewportClass::Medium ? 240.0F
+                                                                                    : 360.0F;
+        // 量宽度必须用与渲染完全一致的排版参数：TextRole::Label 的字号（框架
+        // DefaultTextStyle 对 Label 取 theme.typography.label_large）。
+        const huxerui::TextStyle prefix_style{
+            .font = huxerui::Font::System(theme.typography.label_large),
+            .foreground = theme.colors.on_surface_variant};
+        // 组合期取文本测量服务：只在本次组合里用完即弃（不存 State、不带进回调）。
+        huxerui::TextMeasurer& measurer = huxerui::UseTextMeasurer();
+        const huxerui::TextLayoutOptions no_wrap{.wrap = huxerui::TextWrap::NoWrap};
+        const auto width_of = [&measurer, &prefix_style, &no_wrap](std::string_view value) {
+            return measurer
+                .MeasureText(value, prefix_style, std::numeric_limits<float>::infinity(),
+                             no_wrap)
+                .size.width;
+        };
+        // 放得下就原样；放不下按 UTF-8 边界二分（保留头部 + 省略号）。可用宽度必须
+        // 扣掉本段左右各 8pt 内边距，再留 1pt 吸收栅格取整——只按 max_width 量会
+        // 差这 16pt 而照样换行（实测踩过）。
+        constexpr float kPrefixPadding = 8.0F;
+        const float fit_width = std::max(24.0F, prefix_cap - 2.0F * kPrefixPadding - 1.0F);
+        // 单行行高：同款样式按 NoWrap 量一次，作为本段的高度上限——即使上面的宽度
+        // 估算有任何偏差，行高也被钉死，绝不会把整条 URL 行撑高。
+        const float line_height =
+            measurer
+                .MeasureText(urlPrefix, prefix_style, std::numeric_limits<float>::infinity(),
+                             no_wrap)
+                .size.height;
+        std::string shown = urlPrefix;
+        if (width_of(shown) > fit_width) {
+            constexpr std::string_view kEllipsis = "…";
+            const float ellipsis_width = width_of(kEllipsis);
+            std::size_t low = 0;
+            std::size_t high = urlPrefix.size();
+            std::size_t fit = 0;
+            while (low < high) {
+                const std::size_t mid = (low + high + 1) / 2;
+                std::size_t cut = mid; // 回退到 UTF-8 首字节，别切断多字节序列
+                while (cut > 0 && cut < urlPrefix.size() &&
+                       (static_cast<unsigned char>(urlPrefix[cut]) & 0xC0U) == 0x80U)
+                    --cut;
+                if (width_of(std::string_view{urlPrefix}.substr(0, cut)) + ellipsis_width <=
+                    fit_width) {
+                    fit = cut;
+                    low = mid;
+                } else {
+                    high = mid - 1;
+                }
+            }
+            shown = urlPrefix.substr(0, fit) + std::string{kEllipsis};
+        }
         baseSegment = huxerui::Row {
-            huxerui::Text(urlPrefix, huxerui::TextRole::Label)
+            huxerui::Text(shown, huxerui::TextRole::Label)
                 .With(huxerui::Foreground(theme.colors.on_surface_variant)),
         }
-            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(8.0F, 0.0F)),
-                  huxerui::Frame{.max_width = 160.0F}, huxerui::ClipChildren(),
+            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(kPrefixPadding, 0.0F)),
+                  huxerui::Frame{.max_width = prefix_cap, .max_height = line_height},
+                  huxerui::ClipChildren(),
                   // 外层 Row 是 Stretch（为分隔线拉满全高），本段需自行垂直居中。
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                   huxerui::Opacity(overridden ? 0.4F : 1.0F));
