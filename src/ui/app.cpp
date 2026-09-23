@@ -1,5 +1,5 @@
 // app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 托盘）：
-//   标题栏（不做岛，直接落海面）：Logo(AT) + 顶级标签条（TopTabStrip：主页钉在最左、
+//   标题栏（不做岛，直接落海面）：居中 Logo + 顶级标签条（TopTabStrip：主页钉在最左、
 //     项目标签横向滚动、设置单例标签固定追加在所有项目标签之后）+ 齿轮（全局设置
 //     单例标签）+ 框架窗口按钮；收窄为 24px 高，
 //     主题为 apitab 海洋品牌风：冷灰海面、浅色内容岛与青色品牌点缀。
@@ -70,7 +70,7 @@ namespace {
 
 // 标题栏几何常量与 TopTabDisplayKey 已移至 ui.h / title_bar.cpp（P1-C2 纯搬移）：
 // kTitleBarContentHeight / kProjectTabWidth / kSettingsTabDisplayKey 见 ui.h；
-// TopTabDisplayKey / ProjectTabDragPayload / TopTab / TopTabStrip / LogoBadge 见 title_bar.cpp。
+// TopTabDisplayKey / ProjectTabDragPayload / TopTab / TopTabStrip / TitleBarLogo 见 title_bar.cpp。
 
 // apitab 水母品牌主题：颜色先落到语义 token，再由 typed style 统一消费。
 // 两种主题都以中性灰阶承载大面积背景和内容卡片，只在主操作和选中状态使用品牌青；
@@ -405,7 +405,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     return huxerui::Theme(std::move(definition), content);
 }
 
-// LogoBadge / TopTab / TopTabStrip 已移至 title_bar.cpp（P1-C2 纯搬移），此处保留占位注释。
+// TitleBarLogo / TopTab / TopTabStrip 已移至 title_bar.cpp（P1-C2 纯搬移），此处保留占位注释。
 
 
 // 单个顶级标签：激活态 = 最高层级容器底 + 主文字色；未激活 = 略深容器底 + 次级文字色。
@@ -792,7 +792,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
         // WindowTitleBar 构造即带交叉轴居中，这里给中间标签条包装 Row 也补上
         // 居中，任何一侧偏高都不漂移。
         huxerui::WindowTitleBar {
-            LogoBadge().With(huxerui::WindowDragRegion{}),
+            TitleBarLogo().With(huxerui::WindowDragRegion{}),
             // 标签条按真实内容宽度布局；窄窗时受父约束收缩并横向滚动。
             TopTabStrip(tabs, settingsOpen, activeTopTab, topTabActions),
             // 标题栏唯一的弹性项。ScrollView 本身必须保持 Client；所有标签内容之外

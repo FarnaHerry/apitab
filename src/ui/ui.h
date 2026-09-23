@@ -364,11 +364,9 @@ inline TopTabState RestoreTopTabs(const std::string& openCsv, const std::string&
 
 // common.cpp
 huxerui::View PageHeader(std::string title, std::string subtitle);
-// 品牌资源：水母徽标（钟形伞体 + 三条触手 + 右上四角星）、彩色 apitab 字标，以及两者的组合。静态图案来自
+// 品牌资源：水母徽标（钟形伞体 + 三条触手 + 右上四角星）。静态图案来自
 // resources/images/apitab_mark.svg，颜色由当前主题控制，避免页面各自拼出一套 logo。
 huxerui::View BrandMark(float size = 24.0F);
-huxerui::View BrandWordmark(float textSize = 16.0F);
-huxerui::View BrandLogo(float markSize = 24.0F, float textSize = 16.0F);
 huxerui::View DialogCard(huxerui::View content);
 huxerui::View MigrationPlaceholder(std::string pageName);
 // 头像共用蓝紫渐变外圈，size 包含光圈与内侧留白。
@@ -758,8 +756,8 @@ struct TopTabActions {
     std::function<void(TopTabId)> close;
 };
 
-// 标题栏（title_bar.cpp）：Logo + 顶级标签条（含主页/项目/设置单例、拖拽换位）
-huxerui::View LogoBadge();
+// 标题栏（title_bar.cpp）：居中 Logo + 顶级标签条（含主页/项目/设置单例、拖拽换位）
+huxerui::View TitleBarLogo();
 huxerui::View TopTabStrip(huxerui::State<std::vector<std::int64_t>> tabs,
                           huxerui::State<bool> settingsOpen,
                           huxerui::State<TopTabId> activeTopTab,

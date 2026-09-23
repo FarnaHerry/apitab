@@ -27,31 +27,6 @@ namespace apitab::ui {
         .With(huxerui::Frame{.width = size, .height = size});
 }
 
-[[huxerui::composable]] huxerui::View BrandWordmark(float textSize) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    const huxerui::TextStyle apiStyle{
-        .font = huxerui::Font::System(textSize).WithWeight(huxerui::FontWeight::SemiBold),
-        .foreground = theme.colors.on_surface};
-    const huxerui::TextStyle tabStyle{
-        .font = huxerui::Font::System(textSize).WithWeight(huxerui::FontWeight::SemiBold),
-        .foreground = theme.colors.primary};
-    return huxerui::Row {
-        huxerui::Text("api", huxerui::TextRole::Label).Style(apiStyle),
-        huxerui::Text("tab", huxerui::TextRole::Label).Style(tabStyle),
-    }
-        .With(huxerui::Spacing(0.0F),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
-}
-
-[[huxerui::composable]] huxerui::View BrandLogo(float markSize, float textSize) {
-    return huxerui::Row {
-        BrandMark(markSize),
-        BrandWordmark(textSize),
-    }
-        .With(huxerui::Spacing(4.0F),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
-}
-
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     huxerui::Color outline_hair = theme.colors.outline;
     outline_hair.alpha *= 0.5F;

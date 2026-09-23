@@ -1,5 +1,5 @@
 // title_bar.cpp — 标题栏（Logo + 顶级标签条 TopTabStrip + 拖拽换位，P1-C2 自 app.cpp 纯搬移）：
-//   LogoBadge（水母徽标 + apitab 字标）+ TopTab（单个项目/主页/设置标签，激活态/悬停/关闭动作）+
+//   TitleBarLogo（居中的水母徽标）+ TopTab（单个项目/主页/设置标签，激活态/悬停/关闭动作）+
 //   TopTabStrip（主页钉最左、项目标签横向滚动、设置单例标签固定队尾、分隔竖线、拖拽换位与
 //   让位滑动、覆盖层克隆）。命中区规则见 island-structure-theme.md §15：Logo 区与标签条
 //   空白为拖动区、标签本体/关闭动作/齿轮为交互区、弹性 Grow(1) 空白为 WindowDragRegion。
@@ -282,17 +282,14 @@ struct ProjectTabDragPayload {
 
 } // namespace
 
-// 软件徽标：使用设计稿中的水母徽标 + apitab 字标，不再使用字母 AT。
-// 外层使用 primary_container，图案使用 primary，形成冰川青/深海蓝正反版本，
-// 同时保留标题栏的轻量高度。
-[[huxerui::composable]] huxerui::View LogoBadge() {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    return BrandLogo(18.0F, 14.0F)
-        .With(huxerui::Frame{.width = 86.0F, .height = kTitleBarContentHeight},
-              huxerui::Background(theme.colors.primary_container),
-              huxerui::Border(theme.colors.primary, 1.0F),
-              huxerui::CornerRadius(theme.shapes.medium),
-              huxerui::Padding(huxerui::EdgeInsets::Symmetric(4.0F, 2.0F)));
+// 标题栏只显示水母图形，不铺徽标底、不显示字标；图形在固定槽位中居中，
+// 外层仍由 WindowDragRegion 提供窗口拖动命中区。
+[[huxerui::composable]] huxerui::View TitleBarLogo() {
+    return huxerui::Row {BrandMark(18.0F)}
+        .With(huxerui::Spacing(0.0F),
+              huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+              huxerui::Frame{.width = 40.0F, .height = kTitleBarContentHeight});
 }
 
 // 顶级标签条（P1-B0.1，由 ProjectTabStrip 泛化为通用顶级标签条）：主页标签
