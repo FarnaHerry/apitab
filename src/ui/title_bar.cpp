@@ -284,12 +284,12 @@ struct ProjectTabDragPayload {
 
 // 标题栏只显示水母图形，不铺徽标底、不显示字标；图形在固定槽位中居中，
 // 外层仍由 WindowDragRegion 提供窗口拖动命中区。
-[[huxerui::composable]] huxerui::View TitleBarLogo() {
+[[huxerui::composable]] huxerui::View TitleBarLogo(float slotWidth) {
     return huxerui::Row {BrandMark(18.0F)}
         .With(huxerui::Spacing(0.0F),
               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-              huxerui::Frame{.width = 40.0F, .height = kTitleBarContentHeight});
+              huxerui::Frame{.width = slotWidth, .height = kTitleBarContentHeight});
 }
 
 // 顶级标签条（P1-B0.1，由 ProjectTabStrip 泛化为通用顶级标签条）：主页标签

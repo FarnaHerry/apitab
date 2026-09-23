@@ -428,6 +428,9 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
 // 从药丸中心推开，已删除。每个图标都在自己的按钮里双向居中：外层 Row 与
 // IconButton 同为 40pt（无多余兄弟节点），CrossAlign(Center) 负责纵向。
 // WebSocket/TCP 已并入请求页标签，不再单列。
+inline constexpr float kCompactSideShellWidth = 52.0F;
+inline constexpr float kRegularSideShellWidth = 64.0F;
+
 [[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
@@ -471,7 +474,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     return huxerui::Column(std::move(buttons))
         .With(huxerui::Padding(compact ? theme.spacing.small : theme.spacing.medium),
               huxerui::Spacing(theme.spacing.small),
-              huxerui::Frame{.width = compact ? 52.0F : 64.0F},
+              huxerui::Frame{.width = compact ? kCompactSideShellWidth : kRegularSideShellWidth},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 
@@ -703,6 +706,11 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     // 仅属于项目工作区；主页和通用设置页没有它，主岛直接吃满标题栏以下的高度。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const float gap = compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small;
+    const float titleBarHorizontalPadding =
+        compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small;
+    const float sideShellWidth =
+        compact ? kCompactSideShellWidth : kRegularSideShellWidth;
+    const float titleBarLogoWidth = sideShellWidth - 2.0F * titleBarHorizontalPadding;
     const float statusTopPad = gap - rootSpec.spacing.extra_small;
 
     // 托盘：图标 + 菜单；点击托盘图标激活主窗口。仅在可用时注册；
@@ -792,7 +800,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
         // WindowTitleBar 构造即带交叉轴居中，这里给中间标签条包装 Row 也补上
         // 居中，任何一侧偏高都不漂移。
         huxerui::WindowTitleBar {
-            TitleBarLogo().With(huxerui::WindowDragRegion{}),
+            TitleBarLogo(titleBarLogoWidth).With(huxerui::WindowDragRegion{}),
             // 标签条按真实内容宽度布局；窄窗时受父约束收缩并横向滚动。
             TopTabStrip(tabs, settingsOpen, activeTopTab, topTabActions),
             // 标题栏唯一的弹性项。ScrollView 本身必须保持 Client；所有标签内容之外
@@ -843,7 +851,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
             // 用玻璃表面/描边自成一层。垂直零内边距：内容本身 24pt 高，与
             // title_bar_height 对齐，避免标题栏下缘与内容岛之间多出一条空隙。
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
-                      compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small, 0.0F)),
+                      titleBarHorizontalPadding, 0.0F)),
                   huxerui::Spacing(gap)),
         // 主行：图标侧栏（直接落海面）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。

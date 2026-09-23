@@ -757,7 +757,7 @@ struct TopTabActions {
 };
 
 // 标题栏（title_bar.cpp）：居中 Logo + 顶级标签条（含主页/项目/设置单例、拖拽换位）
-huxerui::View TitleBarLogo();
+huxerui::View TitleBarLogo(float slotWidth);
 huxerui::View TopTabStrip(huxerui::State<std::vector<std::int64_t>> tabs,
                           huxerui::State<bool> settingsOpen,
                           huxerui::State<TopTabId> activeTopTab,
