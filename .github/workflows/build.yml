@@ -1,12 +1,12 @@
 name: build-and-package
 
-# 只由发布 tag 触发：每个 v* tag 跑一次全平台构建 + 打包 + GitHub Release。
-# 日常 main 推送与 PR 不再触发（省 GitHub Action 带宽/额度）；需要临时验证工作流
-# 本身时用 workflow_dispatch 手动跑一次。
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -30,8 +30,12 @@ jobs:
   #    需按 llvm-21 前缀改写为绝对路径，见下方步骤）。
   build-linux:
     name: build-linux-x86_64
-    # 本工作流只由 v* tag（或手动 dispatch）触发，每次触发都要完整跑完：
-    # 不再需要按提交信息跳过 main 推送的那套守卫。
+    # Release-preparation commits are verified by the v* tag run below. Skip
+    # the duplicate main push so a release only compiles each platform once.
+    if: >-
+      github.event_name != 'push' ||
+      github.ref != 'refs/heads/main' ||
+      !startsWith(github.event.head_commit.message, 'chore(release): prepare ')
     runs-on: ubuntu-24.04
     container:
       image: ubuntu:26.04
@@ -198,7 +202,12 @@ jobs:
 
   build-other:
     name: build-${{ matrix.name }}
-    # 同上：只由 v* tag（或手动 dispatch）触发，无按提交信息跳过的分支。
+    # The release tag is the canonical full build for release-preparation
+    # commits; ordinary main pushes and pull requests still run normally.
+    if: >-
+      github.event_name != 'push' ||
+      github.ref != 'refs/heads/main' ||
+      !startsWith(github.event.head_commit.message, 'chore(release): prepare ')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
