@@ -124,5 +124,5 @@ const Application application{
     InstallerPage,
     {.window = {.title = "apitab Setup", .initial_size = {720.0F, 470.0F}, .minimum_size = Size{620.0F, 390.0F}},
      .show_debug_overlay = false,
-     .root_hooks = {InstallInstallerSession}},
+     .window_hooks = {InstallInstallerSession}},
 };
