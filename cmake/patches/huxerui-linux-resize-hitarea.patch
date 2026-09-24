@@ -1,20 +1,10 @@
 diff --git a/platform/linux/linux_adapter.cpp b/platform/linux/linux_adapter.cpp
-index 60fae33..e87722f 100644
+index 4564443..e8d1d85 100644
 --- a/platform/linux/linux_adapter.cpp
 +++ b/platform/linux/linux_adapter.cpp
-@@ -52,8 +52,6 @@ namespace huxerui::detail {
- namespace {
- 
- constexpr float kDipsPerScrollStep = 40.0F;
+@@ -55 +54,0 @@ constexpr float kDipsPerScrollStep = 40.0F;
 -constexpr float kResizeBorderDips = 6.0F;
--
- const char* LinuxPointerCursorName(PointerCursorKind kind) noexcept {
-   switch (kind) {
-   case PointerCursorKind::Default:
-@@ -288,39 +286,32 @@ std::string KeyText(guint key_value, GdkModifierType state) {
-   return std::string(buffer, static_cast<std::size_t>(length));
- }
- 
+@@ -291,31 +290,24 @@ std::string KeyText(guint key_value, GdkModifierType state) {
 -std::optional<GdkSurfaceEdge> ResizeEdge(Point point, Size viewport, bool maximized) noexcept {
 -  if (maximized || viewport.width <= 0.0F || viewport.height <= 0.0F) {
 -    return std::nullopt;
@@ -70,40 +60,23 @@ index 60fae33..e87722f 100644
 +  case LinuxResizeEdge::SouthWest: return "nesw-resize";
 +  case LinuxResizeEdge::NorthWest:
 +  case LinuxResizeEdge::SouthEast: return "nwse-resize";
-   }
+@@ -323 +315 @@ std::optional<GdkSurfaceEdge> ResizeEdge(Point point, Size viewport, bool maximi
 -  return std::nullopt;
 +  return "default";
- }
- 
- std::shared_ptr<LinuxUIThreadDispatcher> InitializeGtk() {
-@@ -417,8 +408,9 @@ public:
-   }
- 
-   void SetPointerCursor(PointerCursorKind kind) override {
+@@ -691,0 +684 @@ public:
 +    requested_pointer_cursor_ = kind;
-     if (drawing_area_ != nullptr) {
+@@ -693 +686 @@ public:
 -      gtk_widget_set_cursor_from_name(GTK_WIDGET(drawing_area_), LinuxPointerCursorName(kind));
 +      ApplyPointerCursor();
-     }
-   }
- 
-@@ -869,9 +861,9 @@ private:
-         static_cast<float>(gtk_widget_get_width(GTK_WIDGET(drawing_area_))),
-         static_cast<float>(gtk_widget_get_height(GTK_WIDGET(drawing_area_))),
-     };
+@@ -975,3 +968,4 @@ private:
 -    if (const std::optional<GdkSurfaceEdge> edge =
 -            ResizeEdge(point, viewport, gtk_window_is_maximized(window_) != FALSE)) {
 -      gdk_toplevel_begin_resize(GDK_TOPLEVEL(surface), *edge, device, static_cast<int>(button), point.x, point.y, time);
 +    if (const std::optional<LinuxResizeEdge> edge = ResolveLinuxResizeEdge(
 +            point, viewport, gtk_window_is_maximized(window_) != FALSE)) {
-+      gdk_toplevel_begin_resize(GDK_TOPLEVEL(surface), GdkResizeEdge(*edge), device, static_cast<int>(button), point.x, point.y, time);
-       return true;
-     }
-     if (runtime_->IsWindowDragRegion(point)) {
-@@ -896,6 +888,32 @@ private:
-         pressed_buttons,
-         modifiers,
-     });
++      gdk_toplevel_begin_resize(
++          GDK_TOPLEVEL(surface), GdkResizeEdge(*edge), device, static_cast<int>(button), point.x, point.y, time);
+@@ -1001,0 +996,26 @@ private:
 +    UpdateResizeCursor(position);
 +  }
 +
@@ -130,56 +103,25 @@ index 60fae33..e87722f 100644
 +      hovered_resize_edge_ = edge;
 +      ApplyPointerCursor();
 +    }
-   }
- 
-   void CancelPointer() {
-@@ -1037,7 +1055,9 @@ private:
-   }
- 
-   static void WindowMaximizedChanged(GObject*, GParamSpec*, gpointer data) {
--    static_cast<LinuxPlatformAdapter*>(data)->UpdateRuntimeViewport();
-+    auto& self = *static_cast<LinuxPlatformAdapter*>(data);
+@@ -1136 +1156,3 @@ private:
+-    static_cast<LinuxUiWindow*>(data)->UpdateRuntimeViewport();
++    auto& self = *static_cast<LinuxUiWindow*>(data);
 +    self.UpdateRuntimeViewport();
 +    self.UpdateResizeCursor(self.last_pointer_position_);
-   }
- 
-   static void ScaleChanged(GObject*, GParamSpec*, gpointer data) {
-@@ -1149,6 +1169,8 @@ private:
-     if (self.pressed_buttons_ == PointerButton::None) {
-       self.SendPointer(PointerEventType::Cancel, self.last_pointer_position_);
-     }
+@@ -1247,0 +1270,2 @@ private:
 +    self.hovered_resize_edge_.reset();
 +    self.ApplyPointerCursor();
-   }
- 
-   static gboolean Scrolled(GtkEventControllerScroll* controller, double dx, double dy, gpointer data) {
-@@ -1222,6 +1244,8 @@ private:
-   bool suppress_pointer_release_ = false;
-   bool clipboard_read_active_ = false;
-   Point last_pointer_position_;
+@@ -1319,0 +1344,2 @@ private:
 +  PointerCursorKind requested_pointer_cursor_ = PointerCursorKind::Default;
 +  std::optional<LinuxResizeEdge> hovered_resize_edge_;
-   LinuxKeyTracker key_tracker_;
-   std::exception_ptr failure_;
- };
 diff --git a/platform/linux/linux_internal.h b/platform/linux/linux_internal.h
-index 2eb1e89..e5a8a92 100644
+index 2eb1e89..f20b142 100644
 --- a/platform/linux/linux_internal.h
 +++ b/platform/linux/linux_internal.h
-@@ -3,6 +3,7 @@
- #include <algorithm>
- #include <cmath>
- #include <cstdint>
+@@ -5,0 +6 @@
 +#include <optional>
- #include <unordered_set>
- 
- #include <huxerui/app.h>
-@@ -12,6 +13,48 @@ namespace huxerui::detail {
- 
- inline constexpr float kLinuxCaptionButtonWidth = 46.0F;
- inline constexpr float kLinuxMinTitleBarHeight = 32.0F;
-+// NOTE(apitab local patch): Keep the visible border unchanged while making
-+// custom-chrome resize targets practical to acquire.
+@@ -14,0 +16,41 @@ inline constexpr float kLinuxMinTitleBarHeight = 32.0F;
++// NOTE(apitab local patch): Keep the visible border unchanged while making custom-chrome resize targets practical to acquire.
 +inline constexpr float kLinuxResizeBorderDips = 10.0F;
 +inline constexpr float kLinuxResizeCornerDips = 14.0F;
 +
@@ -220,17 +162,11 @@ index 2eb1e89..e5a8a92 100644
 +  if (bottom) return LinuxResizeEdge::South;
 +  return std::nullopt;
 +}
- 
- inline WindowTitleBarMetrics ResolveLinuxTitleBarMetrics(
-     float preferred_height, Size viewport, bool maximized
 diff --git a/tests/platform/linux/window_chrome.cpp b/tests/platform/linux/window_chrome.cpp
 index 3ce39bd..e464453 100644
 --- a/tests/platform/linux/window_chrome.cpp
 +++ b/tests/platform/linux/window_chrome.cpp
-@@ -42,6 +42,34 @@ TEST_CASE("LinuxApplicationLifecycleIncludesMinimizedToplevelState") {
-   );
- }
- 
+@@ -44,0 +45,28 @@ TEST_CASE("LinuxApplicationLifecycleIncludesMinimizedToplevelState") {
 +TEST_CASE("LinuxCustomChromeResizeEdgesUseLargerCornerTargets") {
 +  using detail::LinuxResizeEdge;
 +  const Size viewport{800.0F, 600.0F};
@@ -259,6 +195,3 @@ index 3ce39bd..e464453 100644
 +      {std::numeric_limits<float>::quiet_NaN(), 1.0F}, viewport, false).has_value());
 +}
 +
- TEST_CASE("LinuxKeyTrackingBalancesInputMethodFilteringAndRepeat") {
-   detail::LinuxKeyTracker keys;
-   REQUIRE(keys.Press(38, false) == (detail::LinuxKeyPressResult{true, false}));

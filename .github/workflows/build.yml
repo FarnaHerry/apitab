@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout d1d2daa154200ff293e556244a5bbf98011602bb
+          git -C third_party/huxerui checkout 0c5126235d43c2b703166bcc00781b850f2d1c39
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
           # 预置宿主工具可能与运行库的资源索引格式脱节；Linux CI 后面会用同一
@@ -61,7 +61,7 @@ jobs:
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-hosttools-dynamic.patch
           # 自定义窗口边框的缩放热区加宽（10dp 边 / 14dp 角）并补方向光标；
           # 改动处带 NOTE(apitab local patch)。
-          git -C third_party/huxerui apply ../../cmake/patches/huxerui-linux-resize-hitarea.patch
+          git -C third_party/huxerui apply --unidiff-zero ../../cmake/patches/huxerui-linux-resize-hitarea.patch
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
           git -C third_party/huxerui-sweetedit checkout 21925a2c088c4224b497c010c521422b11d36502
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
@@ -230,12 +230,12 @@ jobs:
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/HuxerUI/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout d1d2daa154200ff293e556244a5bbf98011602bb
+          git -C third_party/huxerui checkout 0c5126235d43c2b703166bcc00781b850f2d1c39
           # 本地补丁（macOS ObjC++ 不实现 P0960 聚合函数式转换；见补丁内 NOTE）
           git -C third_party/huxerui apply ../../cmake/patches/huxerui-window-p0960.patch
           # 自定义窗口边框的缩放热区加宽（10dp 边 / 14dp 角）并补方向光标；
           # 仅触 Linux 平台文件，改动处带 NOTE(apitab local patch)。
-          git -C third_party/huxerui apply ../../cmake/patches/huxerui-linux-resize-hitarea.patch
+          git -C third_party/huxerui apply --unidiff-zero ../../cmake/patches/huxerui-linux-resize-hitarea.patch
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
           git -C third_party/huxerui-sweetedit checkout 21925a2c088c4224b497c010c521422b11d36502
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
@@ -381,7 +381,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: huxerui-sdk
-          key: huxerui-sdk-windows-x86_64-msvc-d1d2daa-${{ hashFiles('cmake/patches/huxerui-window-p0960.patch', 'cmake/patches/huxerui-linux-resize-hitarea.patch') }}
+          key: huxerui-sdk-windows-x86_64-msvc-0c51262-${{ hashFiles('cmake/patches/huxerui-window-p0960.patch', 'cmake/patches/huxerui-linux-resize-hitarea.patch') }}
 
       - name: Check HuxerUI SDK cache (Windows)
         if: runner.os == 'Windows' && steps.huxerui_sdk_cache.outputs.cache-hit == 'true'
