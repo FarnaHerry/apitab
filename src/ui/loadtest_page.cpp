@@ -90,6 +90,10 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
 
     const bool k6ok = g_loadtest.available();
+    const auto recordsResult = g_loadtest.records(10);
+    const std::vector<db::LoadRecord> records = recordsResult
+                                                    ? *recordsResult
+                                                    : std::vector<db::LoadRecord>{};
 
     // 当前环境的基础 URL（g_requests 持有环境选择；无环境/为空时该段不渲染）。
     std::string envBaseUrl;
@@ -184,15 +188,22 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
                             // k6 子进程由引擎监视线程拆行入队；UI 协程按 200ms
                             // 节拍取回输出并写 State（见 task_bridge.h 线程契约）。
                             api::LoadSummary s;
+                            std::string persistError;
                             co_await PollWhile(std::chrono::duration<double>{0.2}, [&] {
                                 for (std::string& line : g_loadtest.drainOutput()) {
                                     output.PushBack(std::move(line));
                                     while (output.Size() > kOutputCap) output.Erase(0);
                                 }
-                                return g_loadtest.running() || !g_loadtest.pollSummary(s);
+                                auto polled = g_loadtest.pollSummary(s);
+                                if (!polled) {
+                                    persistError = polled.error().message;
+                                    return false;
+                                }
+                                return g_loadtest.running() || !*polled;
                             });
-                            g_loadtest.pollSummary(s);
-                            if (s.ok) {
+                            if (!persistError.empty()) {
+                                summary = "压测结果落库失败: " + persistError;
+                            } else if (s.ok) {
                                 summary = std::format("{} 请求 · RPS {:.0f} · P50 {:.0f}ms · P95 {:.0f}ms "
                                                       "· P99 {:.0f}ms · 失败率 {:.2f}%",
                                                       s.requests, s.rps, s.p50Ms, s.p95Ms, s.p99Ms,
@@ -215,8 +226,11 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
             // 输出区自带固定高度虚拟滚动。
             OutputArea(output, theme),
             huxerui::Text("最近记录", huxerui::TextRole::Title),
+            huxerui::Text(recordsResult ? "" : "读取压测记录失败: " + recordsResult.error().message,
+                          huxerui::TextRole::Body)
+                .With(huxerui::Foreground(theme.colors.error)),
             huxerui::ForEach(
-                g_loadtest.records(10), [theme](const db::LoadRecord& r) {
+                records, [theme](const db::LoadRecord& r) {
                     return huxerui::Text(
                                std::format("{} {} · VU={} · {} req · RPS {:.0f} · P95 {:.0f}ms", r.name,
                                            r.url, r.vus, r.requests, r.rps, r.p95Ms),

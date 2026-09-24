@@ -91,10 +91,10 @@ namespace apitab::ui {
                         kvs.push_back(api::KeyValue{r.key.text, r.value.text, r.enabled,
                                                     r.type.text, r.remark.text});
                     }
-                    if (const std::string err = g_requests.updateProjectMeta(
+                    if (auto result = g_requests.updateProjectMeta(
                             current, name.Get().text, description.Get().text, kvs);
-                        !err.empty())
-                        toast.Show("保存失败: " + err);
+                        !result)
+                        toast.Show("保存失败: " + result.error().message);
                     else
                         toast.Show("已保存");
                 }),

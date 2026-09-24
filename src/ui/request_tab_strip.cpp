@@ -589,8 +589,8 @@ struct DraftTabDragPayload {
             selectedEnvId = std::to_string(g_requests.currentEnvId());
             return;
         }
-        if (const std::string err = g_requests.selectEnv(envId); !err.empty()) {
-            toast.Show("切换环境失败: " + err);
+        if (auto result = g_requests.selectEnv(envId); !result) {
+            toast.Show("切换环境失败: " + result.error().message);
             selectedEnvId = std::to_string(g_requests.currentEnvId());
             return;
         }

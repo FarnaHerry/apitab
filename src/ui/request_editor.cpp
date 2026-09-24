@@ -516,8 +516,8 @@ huxerui::View SplitActionButton(
             saved.bodyContents[bodyIndex].fields = spec.bodyFields;
         for (const TestCaseDraft& c : draft.cases) saved.testCases.push_back(CaseToDb(c));
         saved.mock = MockToDb(draft.mock);
-        if (const std::string err = g_requests.save(saved); !err.empty()) {
-            toast.Show("保存失败: " + err);
+        if (auto result = g_requests.save(saved); !result) {
+            toast.Show("保存失败: " + result.error().message);
             return;
         }
         toast.Show(asCase ? "已保存当前状态为用例" : "已保存到集合");
@@ -688,7 +688,12 @@ huxerui::View SplitActionButton(
                         co_return;
                     }
                     const std::int64_t requestId = current[index].savedId;
-                    const api::RequestSpec finalSpec = g_requests.finalizeSpec(spec);
+                    const auto finalized = g_requests.finalizeSpec(spec);
+                    if (!finalized) {
+                        toast.Show("组装请求失败: " + finalized.error().message);
+                        co_return;
+                    }
+                    const api::RequestSpec finalSpec = *finalized;
                     sendSeq += 1;
                     const std::uint64_t seq = sendSeq.Get();
                     inFlight = true;
@@ -722,8 +727,11 @@ huxerui::View SplitActionButton(
                         if (seq != sendSeq.Get()) co_return; // 已取消/被新请求取代
                         // 响应 Cookie 归集进项目 Cookie（同名覆盖、删除语义生效），
                         // 再落历史。取消的请求在这里之前就 co_return 了，不会归集。
-                        g_requests.collectResponseCookies(view);
-                        g_requests.recordHistory(requestId, finalSpec.method, finalSpec.url, view);
+                        if (auto result = g_requests.collectResponseCookies(view); !result)
+                            toast.Show("归集响应 Cookie 失败: " + result.error().message);
+                        if (auto result = g_requests.recordHistory(
+                                requestId, finalSpec.method, finalSpec.url, view); !result)
+                            toast.Show("写入请求历史失败: " + result.error().message);
                         if (view.ok) {
                             responseBody = std::format("HTTP {} · {} · {} bytes\n\n{}", view.status,
                                                        view.totalMs, view.sizeBytes, view.body);
@@ -756,7 +764,7 @@ huxerui::View SplitActionButton(
             // 删除会卸载本编辑器 → 确认回调里推迟出指针事件路径。
             // OverflowButton = "更多操作" 语义（Bare 28pt，工具栏溢出动作），
             // 回调体与菜单内容保持原样。
-            OverflowButton([overflow, dialog, tasks, drafts, activeTab, listVersion, index] {
+            OverflowButton([overflow, dialog, tasks, drafts, activeTab, listVersion, index, toast] {
                     std::vector<RequestDraft> snapshot = drafts.Get();
                     if (index >= snapshot.size()) return;
                     const bool saved = snapshot[index].savedId != 0;
@@ -766,21 +774,25 @@ huxerui::View SplitActionButton(
                         {PopupMenuItem{
                             .label = "删除",
                             .on_click = [dialog, tasks, drafts, activeTab, listVersion, index,
-                                         saved, name] {
+                                         saved, name, toast] {
                                 ShowDangerConfirm(
                                     dialog, "删除请求",
                                     saved ? "确定删除请求「" + name +
                                                 "」吗？将从集合中删除，此操作不可恢复。"
                                           : "确定删除草稿「" + name +
                                                 "」吗？未保存的内容将丢失。",
-                                    "删除", [tasks, drafts, activeTab, listVersion, index] {
+                                    "删除", [tasks, drafts, activeTab, listVersion, index, toast] {
                                         tasks.Launch([=]() -> huxerui::Task<void> {
                                             co_await huxerui::Delay(
                                                 std::chrono::duration<double>{0});
                                             std::vector<RequestDraft> copy = drafts.Get();
                                             if (index >= copy.size()) co_return;
                                             if (copy[index].savedId != 0) {
-                                                (void)g_requests.remove(copy[index].savedId);
+                                                if (auto result = g_requests.remove(copy[index].savedId);
+                                                    !result) {
+                                                    toast.Show("删除请求失败: " + result.error().message);
+                                                    co_return;
+                                                }
                                                 listVersion = listVersion.Get() + 1;
                                             }
                                             copy.erase(copy.begin() +

@@ -283,7 +283,12 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                 toast.Show("URL 不能为空");
                 co_return;
             }
-            const api::RequestSpec finalSpec = g_requests.finalizeSpec(spec);
+            const auto finalized = g_requests.finalizeSpec(spec);
+            if (!finalized) {
+                toast.Show("组装请求失败: " + finalized.error().message);
+                co_return;
+            }
+            const api::RequestSpec finalSpec = *finalized;
             running = true;
             results.Clear(); // 旧结果作废（用例可能已编辑）
             runGen = runGen.Get() + 1;

@@ -288,10 +288,9 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                     tasks.Launch([=]() -> huxerui::Task<void> {
                                         co_await huxerui::Delay(
                                             std::chrono::duration<double>{0});
-                                        if (const std::string err =
-                                                g_requests.updateGroup(gid, name, path);
-                                            !err.empty()) {
-                                            toast.Show("保存接口目录失败: " + err);
+                                        if (auto result = g_requests.updateGroup(gid, name, path);
+                                            !result) {
+                                            toast.Show("保存接口目录失败: " + result.error().message);
                                             co_return;
                                         }
                                         toast.Show("接口目录已更新");
@@ -308,39 +307,44 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
     // 请求行的菜单条目（重命名/删除）：行尾更多按钮与右键菜单共用，
     // 按行现场构造，避免两处逻辑分叉。自绘 PopupMenu：删除项 hover 才显红。
     auto requestEntries = [showRenameDialog, dialog, tasks, drafts, activeTab,
-                           listVersion](const db::SavedRequest& r) {
+                           listVersion, toast](const db::SavedRequest& r) {
         const std::int64_t id = r.id;
         return std::vector<AppMenuItem>{
             AppMenuItem{
                 .label = "重命名",
-                .onClick = [showRenameDialog, drafts, id, currentName = r.name] {
+                .onClick = [showRenameDialog, drafts, id, toast, currentName = r.name] {
                     // 重命名后同步已打开标签的名字。
-                    showRenameDialog(currentName, [drafts, id](const std::string& name) {
-                        const std::string err = g_requests.renameRequest(id, name);
-                        if (err.empty()) {
+                    showRenameDialog(currentName, [drafts, id, toast](const std::string& name) {
+                        if (auto result = g_requests.renameRequest(id, name); result) {
                             std::vector<RequestDraft> copy = drafts.Get();
                             for (RequestDraft& d : copy)
                                 if (d.savedId == id)
                                     d.name = huxerui::TextEditingValue{name};
                             drafts = copy;
+                        } else {
+                            toast.Show("重命名失败: " + result.error().message);
+                            return result.error().message;
                         }
-                        return err;
+                        return std::string{};
                     });
                 }},
             AppMenuItem{
                 .label = "删除",
-                .onClick = [dialog, tasks, drafts, activeTab, listVersion, id,
+                .onClick = [dialog, tasks, drafts, activeTab, listVersion, id, toast,
                             name = r.name] {
                     // 删除前先弹危险确认框（确认按钮染红）；真正删行仍在确认回调里
                     // 推迟出指针事件路径。
                     ShowDangerConfirm(dialog, "删除请求",
                                       "确定删除请求「" + (name.empty() ? "未命名" : name) +
                                           "」吗？此操作不可恢复。",
-                                      "删除", [tasks, drafts, activeTab, listVersion, id] {
+                                      "删除", [tasks, drafts, activeTab, listVersion, id, toast] {
                                           tasks.Launch([=]() -> huxerui::Task<void> {
                                               co_await huxerui::Delay(
                                                   std::chrono::duration<double>{0});
-                                              (void)g_requests.remove(id);
+                                              if (auto result = g_requests.remove(id); !result) {
+                                                  toast.Show("删除请求失败: " + result.error().message);
+                                                  co_return;
+                                              }
                                               std::vector<RequestDraft> copy = drafts.Get();
                                               for (std::size_t i = 0; i < copy.size(); ++i) {
                                                   if (copy[i].savedId == id) {
@@ -374,8 +378,8 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                     // （组内请求移到未分组，子分组一并删除）。
                     tasks.Launch([=]() -> huxerui::Task<void> {
                         co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        if (const std::string err = g_requests.deleteGroup(gid); !err.empty()) {
-                            toast.Show("删除接口目录失败: " + err);
+                        if (auto result = g_requests.deleteGroup(gid); !result) {
+                            toast.Show("删除接口目录失败: " + result.error().message);
                             co_return;
                         }
                         listVersion = listVersion.Get() + 1;
@@ -425,7 +429,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
         // UseTheme，也可以调用 RowMenuButton 这样的 composable（框架自带的 tree
         // 测试就在行工厂里用 UseState/Button）。捕获一律按值拿 handle/lambda：
         // 工厂可能被 TreeView 在后续帧复用，引用本 composable 的局部量会悬空。
-        [listVersion, hoveredRow, ctxMenu, requestEntries, groupEntries](
+        [listVersion, hoveredRow, ctxMenu, requestEntries, groupEntries, toast](
             const RequestTreeNodePtr& node) -> huxerui::View {
             const huxerui::ThemeSpec& rowTheme = huxerui::UseTheme();
             if (node->group) {
@@ -461,16 +465,22 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                   return payload.groupId != groupId;
                               }))
                     .On<huxerui::DropEvents<RequestDragPayload>::Dropped>(
-                        [listVersion, groupId](const RequestDragPayload& payload,
+                        [listVersion, groupId, toast](const RequestDragPayload& payload,
                                                const huxerui::DropEvent&) {
-                            if (g_requests.moveToGroup(payload.requestId, groupId).empty())
+                            if (auto result = g_requests.moveToGroup(payload.requestId, groupId);
+                                result)
                                 listVersion = listVersion.Get() + 1;
+                            else
+                                toast.Show("移动请求失败: " + result.error().message);
                         })
                     .On<huxerui::DropEvents<GroupDragPayload>::Dropped>(
-                        [listVersion, groupId](const GroupDragPayload& payload,
+                        [listVersion, groupId, toast](const GroupDragPayload& payload,
                                                const huxerui::DropEvent&) {
-                            if (g_requests.moveGroup(payload.groupId, groupId).empty())
+                            if (auto result = g_requests.moveGroup(payload.groupId, groupId);
+                                result)
                                 listVersion = listVersion.Get() + 1;
+                            else
+                                toast.Show("移动分组失败: " + result.error().message);
                         })
                     // 悬停显隐 ⋮：Leave 仅当仍是本行才清空，防跨行误清。
                     .On<huxerui::ViewEvents::Hover>(
@@ -662,15 +672,15 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                                                        tasks.Launch([=]() -> huxerui::Task<void> {
                                                                            co_await huxerui::Delay(
                                                                                std::chrono::duration<double>{0});
-                                                                           if (const std::string err =
+                                                                           if (auto result =
                                                                                    g_requests.createGroup(
                                                                                        name,
                                                                                        path.empty()
                                                                                            ? db::GroupMode::Name
                                                                                            : db::GroupMode::Path,
                                                                                        0, path);
-                                                                               !err.empty()) {
-                                                                               toast.Show("新建接口目录失败: " + err);
+                                                                               !result) {
+                                                                               toast.Show("新建接口目录失败: " + result.error().message);
                                                                                co_return;
                                                                            }
                                                                            toast.Show("已新建接口目录");
@@ -721,10 +731,9 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                                tasks.Launch([=]() -> huxerui::Task<void> {
                                                    co_await huxerui::Delay(
                                                        std::chrono::duration<double>{0});
-                                                   if (const std::string err =
-                                                           g_requests.moveToGroup(p.requestId, 0);
-                                                       !err.empty()) {
-                                                       toast.Show("移动失败: " + err);
+                                                   if (auto result = g_requests.moveToGroup(p.requestId, 0);
+                                                       !result) {
+                                                       toast.Show("移动失败: " + result.error().message);
                                                        co_return;
                                                    }
                                                    listVersion = listVersion.Get() + 1;
@@ -737,10 +746,9 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                                tasks.Launch([=]() -> huxerui::Task<void> {
                                                    co_await huxerui::Delay(
                                                        std::chrono::duration<double>{0});
-                                                   if (const std::string err =
-                                                           g_requests.moveGroup(p.groupId, 0);
-                                                       !err.empty()) {
-                                                       toast.Show("移动失败: " + err);
+                                                   if (auto result = g_requests.moveGroup(p.groupId, 0);
+                                                       !result) {
+                                                       toast.Show("移动失败: " + result.error().message);
                                                        co_return;
                                                    }
                                                    listVersion = listVersion.Get() + 1;

@@ -18,6 +18,7 @@ import apitab.preferences;
 import apitab.store.requests;
 import apitab.store.loadtest;
 import apitab.utils;
+import std;
 
 namespace apitab::ui {
 
@@ -50,9 +51,11 @@ struct CookieRow {
 };
 
 // 从 store 读当前项目 Cookie 列表 → 编辑缓冲（弹窗打开时取初值）。
-std::vector<CookieRow> CookieRowsFromStore() {
+Result<std::vector<CookieRow>> CookieRowsFromStore() {
     std::vector<CookieRow> rows;
-    for (const db::GlobalCookie& cookie : g_requests.globalCookies()) {
+    auto cookies = g_requests.globalCookies();
+    if (!cookies) return std::unexpected(cookies.error());
+    for (const db::GlobalCookie& cookie : *cookies) {
         rows.push_back(CookieRow{cookie.id, huxerui::TextEditingValue{cookie.name},
                                  huxerui::TextEditingValue{cookie.value}, cookie.enabled});
     }
@@ -183,8 +186,19 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
     (void)version.Get();
-    std::vector<CookieRow> initial = CookieRowsFromStore();
+    auto initialResult = CookieRowsFromStore();
+    std::vector<CookieRow> initial = initialResult ? std::move(*initialResult)
+                                                   : std::vector<CookieRow>{};
     auto rows = huxerui::UseState(std::move(initial));
+    if (!initialResult) {
+        return DialogCard(huxerui::Column {
+            huxerui::Text("项目 Cookie", huxerui::TextRole::Title),
+            huxerui::Text("读取 Cookie 失败: " + initialResult.error().message,
+                          huxerui::TextRole::Body)
+                .With(huxerui::Foreground(theme.colors.error)),
+            huxerui::Button("关闭").OnClick([ctx] { ctx.Dismiss(); }),
+        }.With(huxerui::Spacing(12.0F), huxerui::Frame{.width = 520.0F}));
+    }
 
     return DialogCard(huxerui::Column {
         huxerui::Text("项目 Cookie", huxerui::TextRole::Title),
@@ -203,15 +217,19 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
             huxerui::Button("保存").OnClick([ctx, rows, toast, version] {
                 // 先 upsert 有效行；全部成功后再删去未保留的旧行，避免写入中途
                 // 失败时丢失 Cookie。id 仅用于更新/删除，不影响 Cookie 语义。
-                const std::vector<db::GlobalCookie> previous = g_requests.globalCookies();
+                auto previousResult = g_requests.globalCookies();
+                if (!previousResult) {
+                    toast.Show("读取 Cookie 失败: " + previousResult.error().message);
+                    return;
+                }
+                const std::vector<db::GlobalCookie>& previous = *previousResult;
                 std::vector<CookieRow> kept;
                 bool failed = false;
                 for (CookieRow r : rows.Get()) {
                     if (r.name.text.empty()) continue;
                     db::GlobalCookie cookie{r.id, 0, r.name.text, r.value.text, r.enabled};
-                    if (const std::string err = g_requests.saveGlobalCookie(cookie);
-                        !err.empty()) {
-                        toast.Show("保存 Cookie 失败: " + err);
+                    if (auto result = g_requests.saveGlobalCookie(cookie); !result) {
+                        toast.Show("保存 Cookie 失败: " + result.error().message);
                         failed = true;
                         kept.push_back(std::move(r));
                         continue;
@@ -229,9 +247,8 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
                         if (row.id == cookie.id) retained = true;
                     }
                     if (!retained) {
-                        if (const std::string err = g_requests.deleteGlobalCookie(cookie.id);
-                            !err.empty()) {
-                            toast.Show("删除 Cookie 失败: " + err);
+                        if (auto result = g_requests.deleteGlobalCookie(cookie.id); !result) {
+                            toast.Show("删除 Cookie 失败: " + result.error().message);
                             rows = std::move(kept);
                             return;
                         }

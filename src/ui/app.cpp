@@ -492,6 +492,7 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     const huxerui::WindowHandle window = huxerui::UseWindow();
     const huxerui::SystemTrayHandle tray = application.SystemTray();
+    auto toast = huxerui::UseToast();
     // IsAvailable() 内部会观察托盘可用性 State：DBus 托盘宿主就绪较晚时，
     // 这里在组合期订阅，可用性翻转后本作用域重组、托盘随后注册。
     const bool trayAvailable = tray.IsAvailable();
@@ -545,19 +546,28 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
     // P1-B0.5 启动恢复：从 session.open_projects / session.active_project 重建 tabs 与 active（解析/去重/过滤已删，数据无效回主页）。
     TopTabState restored;
     if (firstComposition) {
-        std::vector<std::int64_t> existIds;
-        for (const db::Project& p : g_requests.allProjects()) existIds.push_back(p.id);
-        restored = RestoreTopTabs(sessionPreference("open_projects"),
-                                  sessionPreference("active_project"), existIds);
+        const auto projects = g_requests.allProjects();
+        if (projects) {
+            std::vector<std::int64_t> existIds;
+            for (const db::Project& p : *projects) existIds.push_back(p.id);
+            restored = RestoreTopTabs(sessionPreference("open_projects"),
+                                      sessionPreference("active_project"), existIds);
+        }
     }
     // 领域游标与 State 同步（启动时即一致，首帧不闪回主页）。
     if (firstComposition) {
         if (restored.active.kind == TopTabKind::Project) {
-            g_requests.selectProject(restored.active.project_id);
-            g_loadtest.setProject(restored.active.project_id);
+            if (auto selected = g_requests.selectProject(restored.active.project_id); !selected) {
+                toast.Show("恢复项目失败: " + selected.error().message);
+                restored = {};
+            }
+            if (auto loaded = g_loadtest.setProject(restored.active.project_id); !loaded)
+                toast.Show("加载压测配置失败: " + loaded.error().message);
         } else {
-            g_requests.selectProject(0);
-            g_loadtest.setProject(0);
+            if (auto selected = g_requests.selectProject(0); !selected)
+                toast.Show("恢复主页项目上下文失败: " + selected.error().message);
+            if (auto loaded = g_loadtest.setProject(0); !loaded)
+                toast.Show("加载压测配置失败: " + loaded.error().message);
         }
     }
     auto tabs = huxerui::UseState(firstComposition ? std::move(restored.open_projects)
@@ -599,10 +609,15 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
     // activeProject State 与 store 游标同步（HomePage is_open 高亮 / RequestPage
     // 的领域输入）。
     auto syncDomainProject = [=](std::int64_t id) {
-        g_requests.selectProject(id);
-        g_loadtest.setProject(id);
+        if (auto selected = g_requests.selectProject(id); !selected) {
+            toast.Show("切换项目失败: " + selected.error().message);
+            return false;
+        }
+        if (auto loaded = g_loadtest.setProject(id); !loaded)
+            toast.Show("加载压测配置失败: " + loaded.error().message);
         saveSessionPreference("active_project", std::to_string(id));
         activeProject = id;
+        return true;
     };
 
     // State 写回；open_projects 变化时按既有 CSV 格式持久化（保持「只在新增/拖拽
@@ -640,7 +655,7 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
                 break;
         }
         if (after.active.kind == TopTabKind::Project) {
-            syncDomainProject(after.active.project_id);
+            if (!syncDomainProject(after.active.project_id)) return;
         }
         commitTopTab(before, after);
     };
@@ -652,10 +667,14 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
         const TopTabState before = topTabSnapshot();
         const TopTabState after = CloseTopTab(before, target);
         if (after.active.kind == TopTabKind::Project) {
-            syncDomainProject(after.active.project_id);
+            if (!syncDomainProject(after.active.project_id)) return;
         } else if (target.kind == TopTabKind::Project && before.active == target) {
-            g_requests.selectProject(0);
-            g_loadtest.setProject(0);
+            if (auto selected = g_requests.selectProject(0); !selected) {
+                toast.Show("切回主页失败: " + selected.error().message);
+                return;
+            }
+            if (auto loaded = g_loadtest.setProject(0); !loaded)
+                toast.Show("加载压测配置失败: " + loaded.error().message);
             saveSessionPreference("active_project", "0");
             activeProject = 0;
         }
@@ -691,7 +710,8 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
     std::function<std::string(std::int64_t)> onDeleteProject =
         [closeTopTabNow](std::int64_t id) -> std::string {
         closeTopTabNow(TopTabId{TopTabKind::Project, id});
-        return g_requests.deleteProject(id);
+        const Status removed = g_requests.deleteProject(id);
+        return removed ? std::string{} : removed.error().message;
     };
 
     const bool dark =

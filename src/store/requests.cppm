@@ -183,15 +183,16 @@ std::vector<SetCookieField> parseSetCookies(const std::vector<api::KeyValue>& he
 export class RequestStore {
 public:
     RequestStore()
-        : engine_(makeCurlEngine()),
-          db_(std::make_unique<db::Db>(cfg::databaseFile())) {
-        try {
+        : engine_(makeCurlEngine()) {
+        const Status initialized = captureResult([&] {
+            db_ = std::make_unique<db::Db>(cfg::databaseFile());
             // 迁移兜底：空库建默认组织/项目，游离请求归入默认项目。
             db_->ensureDefaultProject();
             reloadOrgs();
-            healthy_ = true;
-        } catch (...) {
-            healthy_ = false;
+        });
+        healthy_ = initialized.has_value();
+        if (!initialized) {
+            startupError_ = initialized.error();
         }
     }
 
@@ -203,7 +204,7 @@ public:
     const std::vector<db::Org>& orgs() const { return orgs_; }
     std::int64_t currentOrgId() const { return currentOrgId_; }
 
-    std::string selectOrg(std::int64_t id) {
+    Status selectOrg(std::int64_t id) {
         return guarded([&] {
             if (currentProjectId_ != 0) {
                 selectedEnvByProject_[currentProjectId_] = currentEnvId_;
@@ -213,22 +214,22 @@ public:
         });
     }
 
-    std::string createOrg(const std::string& name) {
+    Status createOrg(const std::string& name) {
         return guarded([&] {
             currentOrgId_ = db_->createOrg(name);
             reloadOrgs();
         });
     }
 
-    std::string renameOrg(std::int64_t id, const std::string& name) {
+    Status renameOrg(std::int64_t id, const std::string& name) {
         return guarded([&] {
             db_->renameOrg(id, name);
             reloadOrgs();
         });
     }
 
-    // 删除组织（级联删项目与请求）。返回错误消息或空串。
-    std::string deleteOrg(std::int64_t id) {
+    // 删除组织（级联删项目与请求）。
+    Status deleteOrg(std::int64_t id) {
         return guarded([&] {
             db_->deleteOrg(id);
             db_->ensureDefaultProject();  // 删光后保底
@@ -239,18 +240,20 @@ public:
     // ---- 项目 ----
 
     const std::vector<db::Project>& projects() const { return projects_; }
-    std::vector<db::Project> allProjects() const {
-        std::vector<db::Project> result;
-        for (const auto& org : orgs_) {
-            std::vector<db::Project> projects = db_->listProjects(org.id);
-            result.insert(result.end(), std::make_move_iterator(projects.begin()),
-                          std::make_move_iterator(projects.end()));
-        }
-        return result;
+    Result<std::vector<db::Project>> allProjects() {
+        return databaseResult([&] {
+            std::vector<db::Project> result;
+            for (const auto& org : orgs_) {
+                std::vector<db::Project> projects = db_->listProjects(org.id);
+                result.insert(result.end(), std::make_move_iterator(projects.begin()),
+                              std::make_move_iterator(projects.end()));
+            }
+            return result;
+        });
     }
     std::int64_t currentProjectId() const { return currentProjectId_; }
 
-    std::string selectProjectInOrg(std::int64_t orgId, std::int64_t projectId) {
+    Status selectProjectInOrg(std::int64_t orgId, std::int64_t projectId) {
         return guarded([&] {
             const std::vector<db::Project> candidates = db_->listProjects(orgId);
             const bool belongs = std::ranges::any_of(candidates, [&](const db::Project& p) {
@@ -265,7 +268,7 @@ public:
         });
     }
 
-    std::string selectProject(std::int64_t id) {
+    Status selectProject(std::int64_t id) {
         return guarded([&] {
             if (currentProjectId_ != 0) {
                 selectedEnvByProject_[currentProjectId_] = currentEnvId_;
@@ -275,7 +278,7 @@ public:
         });
     }
 
-    std::string createProject(const std::string& name) {
+    Status createProject(const std::string& name) {
         return guarded([&] {
             currentProjectId_ = db_->createProject(currentOrgId_, name);
             (void)db_->createEnvironment(currentProjectId_, "localhost", "http://localhost");
@@ -283,7 +286,7 @@ public:
         });
     }
 
-    std::string renameProject(std::int64_t id, const std::string& name) {
+    Status renameProject(std::int64_t id, const std::string& name) {
         return guarded([&] {
             db_->renameProject(id, name);
             reloadProjects();
@@ -291,9 +294,9 @@ public:
     }
 
     // 项目设置页：全量更新名称/说明/公共请求头。
-    std::string updateProjectMeta(std::int64_t id, const std::string& name,
-                                  const std::string& description,
-                                  const std::vector<api::KeyValue>& headers) {
+    Status updateProjectMeta(std::int64_t id, const std::string& name,
+                             const std::string& description,
+                             const std::vector<api::KeyValue>& headers) {
         return guarded([&] {
             db_->updateProjectMeta(id, name, description, headers);
             reloadProjects();
@@ -313,7 +316,7 @@ public:
     }
     static std::string globalProxy() { return trim(sessionPreference("request_proxy")); }
     // 删除项目（级联删其请求）。
-    std::string deleteProject(std::int64_t id) {
+    Status deleteProject(std::int64_t id) {
         return guarded([&] {
             db_->deleteProject(id);
             db_->ensureDefaultProject();
@@ -325,8 +328,8 @@ public:
         if (const auto it = selectedEnvByProject_.find(projectId); it != selectedEnvByProject_.end()) return it->second;
         return projectId == currentProjectId_ ? currentEnvId_ : 0;
     }
-    std::string restoreEnvironment(std::int64_t projectId, std::int64_t envId) {
-        if (const std::string err = selectProject(projectId); !err.empty()) return err;
+    Status restoreEnvironment(std::int64_t projectId, std::int64_t envId) {
+        if (Status selected = selectProject(projectId); !selected) return selected;
         return selectEnv(envId);
     }
 
@@ -352,7 +355,7 @@ public:
     // 当前项目的环境列表（id 升序）。
     // 默认第一个为当前环境，下标 0 提供一个"无"选项。
     std::int64_t currentEnvId() const { return currentEnvId_; }
-    std::string selectEnv(std::int64_t id) {
+    Status selectEnv(std::int64_t id) {
         return guarded([&] {
             if (id != 0 && !findEnvironment(id)) {
                 throw std::runtime_error("环境不属于当前项目");
@@ -362,7 +365,7 @@ public:
         });
     }
 
-    std::string createEnvironment(const std::string& name, const std::string& baseUrl) {
+    Status createEnvironment(const std::string& name, const std::string& baseUrl) {
         return guarded([&] {
             currentEnvId_ = db_->createEnvironment(currentProjectId_, name, baseUrl);
             selectedEnvByProject_[currentProjectId_] = currentEnvId_;
@@ -370,31 +373,31 @@ public:
         });
     }
 
-    std::string renameEnvironment(std::int64_t id, const std::string& name) {
+    Status renameEnvironment(std::int64_t id, const std::string& name) {
         return guarded([&] {
             db_->renameEnvironment(id, name);
             reloadEnvironments();
         });
     }
 
-    std::string setEnvironmentBaseUrl(std::int64_t id, const std::string& baseUrl) {
+    Status setEnvironmentBaseUrl(std::int64_t id, const std::string& baseUrl) {
         return guarded([&] {
             db_->setEnvironmentBaseUrl(id, baseUrl);
             reloadEnvironments();
         });
     }
 
-    std::string setEnvironmentVariables(std::int64_t id,
-                                        const std::vector<api::KeyValue>& vars) {
+    Status setEnvironmentVariables(std::int64_t id,
+                                   const std::vector<api::KeyValue>& vars) {
         return guarded([&] {
             db_->setEnvironmentVariables(id, vars);
             reloadEnvironments();
         });
     }
 
-    std::string updateEnvironment(std::int64_t id, const std::string& name,
-                                  const std::string& baseUrl,
-                                  const std::vector<api::KeyValue>& variables) {
+    Status updateEnvironment(std::int64_t id, const std::string& name,
+                             const std::string& baseUrl,
+                             const std::vector<api::KeyValue>& variables) {
         return guarded([&] {
             db_->renameEnvironment(id, name);
             db_->setEnvironmentBaseUrl(id, baseUrl);
@@ -403,7 +406,7 @@ public:
         });
     }
 
-    std::string deleteEnvironment(std::int64_t id) {
+    Status deleteEnvironment(std::int64_t id) {
         return guarded([&] {
             db_->deleteEnvironment(id);
             reloadEnvironments();
@@ -484,8 +487,8 @@ public:
         return g.path.empty() ? g.name : g.path;
     }
 
-    std::string createGroup(const std::string& name, db::GroupMode mode,
-                            std::int64_t parentId = 0, const std::string& path = "") {
+    Status createGroup(const std::string& name, db::GroupMode mode,
+                       std::int64_t parentId = 0, const std::string& path = "") {
         return guarded([&] {
             if (parentId != 0) {
                 const db::Group* parent = findGroup(parentId);
@@ -498,7 +501,7 @@ public:
         });
     }
 
-    std::string renameGroup(std::int64_t id, const std::string& name) {
+    Status renameGroup(std::int64_t id, const std::string& name) {
         return guarded([&] {
             db_->renameGroup(id, name);
             reloadGroups();
@@ -507,8 +510,8 @@ public:
 
     // 接口目录编辑必须原子同步显示名称、URL 路径和目录模式；旧 renameGroup
     // 只改 name，会让 Path 目录继续使用过期 path。
-    std::string updateGroup(std::int64_t id, const std::string& name,
-                            const std::string& path) {
+    Status updateGroup(std::int64_t id, const std::string& name,
+                       const std::string& path) {
         return guarded([&] {
             if (!findGroup(id)) throw std::runtime_error("接口目录不存在");
             db_->updateGroup(id, name,
@@ -518,14 +521,14 @@ public:
         });
     }
 
-    std::string setGroupMode(std::int64_t id, db::GroupMode mode) {
+    Status setGroupMode(std::int64_t id, db::GroupMode mode) {
         return guarded([&] {
             db_->setGroupMode(id, mode);
             reloadGroups();
         });
     }
 
-    std::string deleteGroup(std::int64_t id) {
+    Status deleteGroup(std::int64_t id) {
         return guarded([&] {
             db_->deleteGroup(id);
             reloadGroups();
@@ -533,7 +536,7 @@ public:
     }
 
     // 把请求移到某分组（0 = 未分组）。
-    std::string moveToGroup(std::int64_t requestId, std::int64_t groupId) {
+    Status moveToGroup(std::int64_t requestId, std::int64_t groupId) {
         return guarded([&] {
             // 改字段走 saveRequest 更新。这里直接 SQL 更快：复用 db 的 save 逻辑，
             // 读出来改 groupId 再 save。代价一次 select+update，可接受。
@@ -547,7 +550,7 @@ public:
     }
 
     // 分组换父（拖拽用，0 = 移到根目录）。环检测：目标不能是自身或自身的后代。
-    std::string moveGroup(std::int64_t id, std::int64_t parentId) {
+    Status moveGroup(std::int64_t id, std::int64_t parentId) {
         return guarded([&] {
             if (!findGroup(id)) throw std::runtime_error("分组不存在");
             if (parentId != 0) {
@@ -576,33 +579,28 @@ public:
         return nullptr;
     }
 
-    // 保存（新建 id==0 / 更新）。失败返回错误消息，成功返回空串。
-    std::string save(db::SavedRequest& r) {
-        if (currentProjectId_ == 0) return "未打开项目，无法保存";
+    // 保存（新建 id==0 / 更新）。失败返回结构化错误。
+    Status save(db::SavedRequest& r) {
+        if (currentProjectId_ == 0)
+            return std::unexpected(AppError{"未打开项目，无法保存"});
         r.projectId = currentProjectId_;
         r.updatedAt = nowUnix();
-        try {
+        return databaseResult([&] {
             const std::int64_t id = db_->saveRequest(r);
             r.id = id;
             reloadRequests();
-            return {};
-        } catch (const std::exception& e) {
-            return e.what();
-        }
+        });
     }
 
-    std::string remove(std::int64_t id) {
-        try {
+    Status remove(std::int64_t id) {
+        return databaseResult([&] {
             db_->deleteRequest(id);
             reloadRequests();
-            return {};
-        } catch (const std::exception& e) {
-            return e.what();
-        }
+        });
     }
 
     // 重命名已保存请求：改字段走 saveRequest 更新（同 moveToGroup 的思路）。
-    std::string renameRequest(std::int64_t id, const std::string& name) {
+    Status renameRequest(std::int64_t id, const std::string& name) {
         return guarded([&] {
             if (const db::SavedRequest* r = find(id)) {
                 db::SavedRequest copy = *r;
@@ -613,20 +611,19 @@ public:
         });
     }
 
-    std::vector<db::GlobalCookie> globalCookies() const {
-        try { return db_->listGlobalCookies(currentProjectId_); } catch (...) { return {}; }
+    Result<std::vector<db::GlobalCookie>> globalCookies() {
+        return databaseResult([&] { return db_->listGlobalCookies(currentProjectId_); });
     }
-    std::string saveGlobalCookie(db::GlobalCookie& cookie) {
-        if (cookie.projectId != 0 && cookie.projectId != currentProjectId_) return "项目不匹配";
+    Status saveGlobalCookie(db::GlobalCookie& cookie) {
+        if (cookie.projectId != 0 && cookie.projectId != currentProjectId_)
+            return std::unexpected(AppError{"项目不匹配"});
         cookie.projectId = currentProjectId_;
-        try {
+        return databaseResult([&] {
             cookie.id = db_->saveGlobalCookie(cookie);
-            return {};
-        } catch (const std::exception& e) { return e.what(); }
+        });
     }
-    std::string deleteGlobalCookie(std::int64_t id) {
-        try { db_->deleteGlobalCookie(id, currentProjectId_); return {}; }
-        catch (const std::exception& e) { return e.what(); }
+    Status deleteGlobalCookie(std::int64_t id) {
+        return databaseResult([&] { db_->deleteGlobalCookie(id, currentProjectId_); });
     }
 
     // ---- 发送（传输由引擎抽象 api::ApiEngine 执行，当前为 curl 实现）----
@@ -645,7 +642,8 @@ public:
     // 组装最终请求规格：环境变量替换 + 基础 URL 拼接 + url 拼启用的 query 参数，
     // 合并全局 Cookie。
     // 先替换当前环境的 {{变量}}，再拼 URL（保证变量值里的特殊字符被正确百分号编码）。
-    api::RequestSpec finalizeSpec(const api::RequestSpec& spec) {
+    Result<api::RequestSpec> finalizeSpec(const api::RequestSpec& spec) {
+        return databaseResult([&] {
         api::RequestSpec finalSpec = spec;
         // 环境变量替换：当前环境启用的 {{name}} 应用到 url / params / headers /
         // cookies / body；未定义或停用的占位符保留原样。全局 Cookie 是项目级静态
@@ -677,7 +675,8 @@ public:
         for (const auto& p : finalSpec.params) {
             if (p.enabled && !p.key.empty()) enabled.emplace_back(p.key, p.value);
         }
-        for (const auto& cookie : globalCookies()) {
+        const std::vector<db::GlobalCookie> cookies = db_->listGlobalCookies(currentProjectId_);
+        for (const auto& cookie : cookies) {
             if (cookie.enabled) finalSpec.cookies.push_back({cookie.name, cookie.value, true, {}, {}});
         }
         // JSON 体剥离注释（引擎不处理，见 curl_engine.cpp；原由已删除的
@@ -707,13 +706,14 @@ public:
         finalSpec.timeoutSec = globalTimeoutSec();
         finalSpec.proxy = globalProxy();
         return finalSpec;
+        });
     }
 
     // 历史落库：响应回到 UI 线程后由页面调用；写入失败不打断主流程。
     // requestId 关联集合请求（未保存的草稿 = 0）。
-    void recordHistory(std::int64_t requestId, const std::string& method,
-                       const std::string& url, const api::ResponseView& result) {
-        try {
+    Status recordHistory(std::int64_t requestId, const std::string& method,
+                         const std::string& url, const api::ResponseView& result) {
+        return databaseResult([&] {
             db_->addHistory(db::HistoryEntry{
                 .requestId = requestId,
                 .method = method,
@@ -724,9 +724,7 @@ public:
                 .error = result.error,
                 .createdAt = nowUnix(),
             });
-        } catch (...) {
-            // 历史写入失败不打断主流程
-        }
+        });
     }
 
     // 响应 Cookie 归集：把响应里的 Set-Cookie 并入当前项目的项目 Cookie。
@@ -739,12 +737,12 @@ public:
     //   - 删除语义（Max-Age<=0 或 Expires 已过期）删掉同名条目——登出流程靠它；
     //   - 项目 Cookie 没有 domain/path 维度，任何响应返回的 Cookie 都进本项目列表，
     //     并随本项目之后每次发送一起带上（既有模型，见 finalizeSpec）。
-    // 返回发生增/改/删的条数（供调用方记录/测试）；数据库异常吞掉，不打断请求主流程。
-    std::size_t collectResponseCookies(const api::ResponseView& result) {
+    // 返回发生增/改/删的条数；写入失败通过错误结果交给调用方决定如何处理。
+    Result<std::size_t> collectResponseCookies(const api::ResponseView& result) {
+        return databaseResult([&] {
         const std::vector<SetCookieField> incoming = parseSetCookies(result.headers, nowUnix());
-        if (incoming.empty()) return 0;
+        if (incoming.empty()) return std::size_t{0};
         std::size_t changed = 0;
-        try {
             std::vector<db::GlobalCookie> stored = db_->listGlobalCookies(currentProjectId_);
             for (const SetCookieField& field : incoming) {
                 const auto found = std::ranges::find_if(
@@ -770,43 +768,28 @@ public:
                     ++changed;
                 }
             }
-        } catch (...) {
-            // 归集失败不打断请求主流程（与 recordHistory 同策略）
-        }
         return changed;
+        });
     }
 
-    std::vector<db::HistoryEntry> history(int limit = 50) {
-        try {
-            return db_->listHistory(limit);
-        } catch (...) {
-            return {};
-        }
+    Result<std::vector<db::HistoryEntry>> history(int limit = 50) {
+        return databaseResult([&] { return db_->listHistory(limit); });
     }
 
-    std::int64_t historyCount() {
-        try {
-            return db_->historyCount();
-        } catch (...) {
-            return 0;
-        }
+    Result<std::int64_t> historyCount() {
+        return databaseResult([&] { return db_->historyCount(); });
     }
 
-    std::vector<db::HistoryEntry> historyPage(int pageSize, std::int64_t pageIndex) {
-        try {
+    Result<std::vector<db::HistoryEntry>> historyPage(int pageSize, std::int64_t pageIndex) {
+        return databaseResult([&] {
             const int safePageSize = std::clamp(pageSize, 1, 100);
             const std::int64_t offset = std::max<std::int64_t>(0, pageIndex) * safePageSize;
             return db_->listHistoryPage(safePageSize, offset);
-        } catch (...) {
-            return {};
-        }
+        });
     }
 
-    void clearHistory() {
-        try {
-            db_->clearHistory();
-        } catch (...) {
-        }
+    Status clearHistory() {
+        return databaseResult([&] { db_->clearHistory(); });
     }
 
     // DB 打开失败（目录不可写等）：返回 false，集合功能整体降级为空。
@@ -865,17 +848,21 @@ private:
         return text;
     }
 
-    // CRUD 包装：统一 try/catch → 错误消息。
     template <typename F>
-    std::string guarded(F&& fn) {
-        try {
-            fn();
-            healthy_ = true;
-            return {};
-        } catch (const std::exception& e) {
+    auto databaseResult(F&& fn) -> Result<std::invoke_result_t<F>> {
+        if (!db_) {
             healthy_ = false;
-            return e.what();
+            return std::unexpected(startupError_.value_or(AppError{"数据库不可用"}));
         }
+        auto result = captureResult(std::forward<F>(fn));
+        healthy_ = result.has_value();
+        return result;
+    }
+
+    // 对外命令边界统一把 SQLiteCpp / 校验异常转换成错误值。
+    template <typename F>
+    Status guarded(F&& fn) {
+        return databaseResult([&] { std::invoke(std::forward<F>(fn)); });
     }
 
     void reloadOrgs() {
@@ -938,6 +925,7 @@ private:
     std::int64_t currentProjectId_ = 0;
     std::int64_t currentEnvId_ = 0;
     std::unordered_map<std::int64_t, std::int64_t> selectedEnvByProject_;
+    std::optional<AppError> startupError_;
     bool healthy_ = true;
 };
 

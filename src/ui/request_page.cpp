@@ -337,10 +337,10 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                         };
                         std::int64_t gid = findChild(parent);
                         if (gid == 0) {
-                            if (const std::string err = g_requests.createGroup(
+                            if (auto result = g_requests.createGroup(
                                     seg, db::GroupMode::Name, parent);
-                                !err.empty()) {
-                                toast.Show("导入失败: " + err);
+                                !result) {
+                                toast.Show("导入失败: " + result.error().message);
                                 failed = true;
                                 break;
                             }
@@ -376,8 +376,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                     rec.bodyKind = static_cast<api::BodyKind>(bk);
                     rec.body = op.body; // 兼容字段：当前类型文本
                     if (bk < rec.bodyContents.size()) rec.bodyContents[bk].text = op.body;
-                    if (const std::string err = g_requests.save(rec); !err.empty()) {
-                        toast.Show("导入失败: " + err);
+                    if (auto result = g_requests.save(rec); !result) {
+                        toast.Show("导入失败: " + result.error().message);
                         co_return;
                     }
                     ++count;

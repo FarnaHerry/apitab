@@ -7,6 +7,34 @@ export module apitab.utils;
 
 import std;
 
+// 业务层可预期失败统一以值返回。第三方接口的异常在 store 边界通过 captureResult
+// 转换；协程运行时仍沿用 HuxerUI 的异常传播语义。
+export struct AppError {
+    std::string message;
+};
+
+export template <class T>
+using Result = std::expected<T, AppError>;
+
+export using Status = Result<void>;
+
+export template <class F>
+auto captureResult(F&& operation) -> Result<std::invoke_result_t<F>> {
+    using Value = std::invoke_result_t<F>;
+    try {
+        if constexpr (std::is_void_v<Value>) {
+            std::invoke(std::forward<F>(operation));
+            return {};
+        } else {
+            return std::invoke(std::forward<F>(operation));
+        }
+    } catch (const std::exception& error) {
+        return std::unexpected(AppError{error.what()});
+    } catch (...) {
+        return std::unexpected(AppError{"未知错误"});
+    }
+}
+
 // 去掉首尾空白（URL / header 键值输入清洗）。
 export std::string trim(std::string s) {
     const auto notSpace = [](unsigned char c) { return !std::isspace(c); };

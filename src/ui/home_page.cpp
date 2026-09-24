@@ -50,8 +50,8 @@ namespace {
                 // 删除组织级联删项目与请求，并卸载本行：推迟出指针事件路径
                 tasks.Launch([=]() -> huxerui::Task<void> {
                     co_await huxerui::Delay(std::chrono::duration<double>{0});
-                    if (const std::string err = g_requests.deleteOrg(id); !err.empty()) {
-                        toast.Show("删除组织失败: " + err);
+                    if (auto result = g_requests.deleteOrg(id); !result) {
+                        toast.Show("删除组织失败: " + result.error().message);
                         co_return;
                     }
                     refresh = refresh.Get() + 1;
@@ -70,8 +70,8 @@ namespace {
             // 切组织会级联切项目并重载列表：重组卸载本行，推迟出指针事件路径
             tasks.Launch([=]() -> huxerui::Task<void> {
                 co_await huxerui::Delay(std::chrono::duration<double>{0});
-                if (const std::string err = g_requests.selectOrg(id); !err.empty()) {
-                    toast.Show("切换组织失败: " + err);
+                if (auto result = g_requests.selectOrg(id); !result) {
+                    toast.Show("切换组织失败: " + result.error().message);
                     co_return;
                 }
                 refresh = refresh.Get() + 1;
@@ -133,13 +133,13 @@ namespace {
         tasks.Launch([=]() -> huxerui::Task<void> {
             co_await huxerui::Delay(std::chrono::duration<double>{0});
             // 领域写入先行（§13.2 不变量 1：领域同步完成后才渲染项目工作区）。
-            if (const std::string err =
-                    g_requests.selectProjectInOrg(g_requests.currentOrgId(), id);
-                !err.empty()) {
-                toast.Show("打开失败: " + err);
+            if (auto result = g_requests.selectProjectInOrg(g_requests.currentOrgId(), id);
+                !result) {
+                toast.Show("打开失败: " + result.error().message);
                 co_return;
             }
-            g_loadtest.setProject(id);
+            if (auto result = g_loadtest.setProject(id); !result)
+                toast.Show("加载项目压测配置失败: " + result.error().message);
             saveSessionPreference("active_project", std::to_string(id));
             // 顶级标签新增/激活 + State 写回 + open_projects 按需持久化由
             // AppRoot 的 onOpenProject 完成；同一推迟任务内执行，重组无中间帧。
@@ -175,10 +175,10 @@ namespace {
                                 tasks.Launch([=]() -> huxerui::Task<void> {
                                     co_await huxerui::Delay(
                                         std::chrono::duration<double>{0});
-                                    if (const std::string err = g_requests.renameProject(
+                                    if (auto result = g_requests.renameProject(
                                             id, renameName.Get().text);
-                                        !err.empty()) {
-                                        toast.Show("重命名失败: " + err);
+                                        !result) {
+                                        toast.Show("重命名失败: " + result.error().message);
                                         co_return;
                                     }
                                     refresh = refresh.Get() + 1;
@@ -380,10 +380,10 @@ namespace {
                                         tasks.Launch([=]() -> huxerui::Task<void> {
                                             co_await huxerui::Delay(
                                                 std::chrono::duration<double>{0});
-                                            if (const std::string err = g_requests.createOrg(
+                                            if (auto result = g_requests.createOrg(
                                                     newOrgName.Get().text);
-                                                !err.empty()) {
-                                                toast.Show("新建组织失败: " + err);
+                                                !result) {
+                                                toast.Show("新建组织失败: " + result.error().message);
                                                 co_return;
                                             }
                                             newOrgName = huxerui::TextEditingValue{};
@@ -449,11 +449,10 @@ namespace {
                                             tasks.Launch([=]() -> huxerui::Task<void> {
                                                 co_await huxerui::Delay(
                                                     std::chrono::duration<double>{0});
-                                                if (const std::string err =
-                                                        g_requests.createProject(
-                                                            newProjectName.Get().text);
-                                                    !err.empty()) {
-                                                    toast.Show("新建项目失败: " + err);
+                                                if (auto result = g_requests.createProject(
+                                                        newProjectName.Get().text);
+                                                    !result) {
+                                                    toast.Show("新建项目失败: " + result.error().message);
                                                     co_return;
                                                 }
                                                 newProjectName = huxerui::TextEditingValue{};

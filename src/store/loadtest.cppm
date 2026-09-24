@@ -12,20 +12,64 @@ import apitab.utils;
 export class LoadStore {
 public:
     LoadStore()
-        : engine_(makeK6Engine(cfg::k6Binary().string())),
-          db_(std::make_unique<db::Db>(cfg::databaseFile())) {}
+        : engine_(makeK6Engine(cfg::k6Binary().string())) {
+        const Status initialized = captureResult([&] {
+            db_ = std::make_unique<db::Db>(cfg::databaseFile());
+        });
+        if (!initialized) startupError_ = initialized.error();
+    }
 
     LoadStore(const LoadStore&) = delete;
     LoadStore& operator=(const LoadStore&) = delete;
 
-    void setProject(std::int64_t projectId) { currentProjectId_ = projectId; reloadAutomation(); }
-    const std::vector<db::AutomationTest>& automationTests() { reloadAutomation(); return automationTests_; }
-    const db::AutomationTest* selectedAutomation() { reloadAutomation(); for (auto& t : automationTests_) if (t.id == selectedAutomationId_) return &t; return nullptr; }
+    Status setProject(std::int64_t projectId) {
+        currentProjectId_ = projectId;
+        return reloadAutomation();
+    }
+    Result<std::reference_wrapper<const std::vector<db::AutomationTest>>> automationTests() {
+        if (Status loaded = reloadAutomation(); !loaded) return std::unexpected(loaded.error());
+        return std::cref(automationTests_);
+    }
+    Result<const db::AutomationTest*> selectedAutomation() {
+        if (Status loaded = reloadAutomation(); !loaded) return std::unexpected(loaded.error());
+        for (const auto& test : automationTests_)
+            if (test.id == selectedAutomationId_) return &test;
+        return static_cast<const db::AutomationTest*>(nullptr);
+    }
     std::int64_t selectedAutomationId() const { return selectedAutomationId_; }
     void selectAutomation(std::int64_t id) { selectedAutomationId_ = id; }
-    std::string saveAutomation(db::AutomationTest& t) { try { t.projectId=currentProjectId_; t.updatedAt=nowUnix(); t.id=db_->saveAutomationTest(t); selectedAutomationId_=t.id; reloadAutomation(); return {}; } catch(const std::exception& e){ return e.what(); } }
-    std::string removeAutomation(std::int64_t id) { try { db_->deleteAutomationTest(id,currentProjectId_); if(selectedAutomationId_==id) selectedAutomationId_=0; reloadAutomation(); return {}; } catch(const std::exception& e){ return e.what(); } }
-    void reloadAutomation() { if (currentProjectId_ == cachedProjectId_) return; cachedProjectId_=currentProjectId_; try { automationTests_=db_->listAutomationTests(currentProjectId_); } catch (...) { automationTests_.clear(); } if (!std::ranges::any_of(automationTests_, [&](const auto& t){return t.id==selectedAutomationId_;})) selectedAutomationId_=automationTests_.empty()?0:automationTests_.front().id; }
+    Status saveAutomation(db::AutomationTest& t) {
+        t.projectId = currentProjectId_;
+        t.updatedAt = nowUnix();
+        const auto saved = databaseResult([&] { return db_->saveAutomationTest(t); });
+        if (!saved) return std::unexpected(saved.error());
+        t.id = *saved;
+        selectedAutomationId_ = t.id;
+        return reloadAutomation();
+    }
+    Status removeAutomation(std::int64_t id) {
+        const Status removed = databaseResult([&] {
+            db_->deleteAutomationTest(id, currentProjectId_);
+        });
+        if (!removed) return removed;
+        if (selectedAutomationId_ == id) selectedAutomationId_ = 0;
+        return reloadAutomation();
+    }
+    Status reloadAutomation() {
+        if (currentProjectId_ == cachedProjectId_) return {};
+        const auto loaded = databaseResult([&] {
+            return db_->listAutomationTests(currentProjectId_);
+        });
+        if (!loaded) return std::unexpected(loaded.error());
+        automationTests_ = *loaded;
+        cachedProjectId_ = currentProjectId_;
+        if (!std::ranges::any_of(automationTests_, [&](const auto& test) {
+                return test.id == selectedAutomationId_;
+            })) {
+            selectedAutomationId_ = automationTests_.empty() ? 0 : automationTests_.front().id;
+        }
+        return {};
+    }
     db::AutomationTest automationFromRequest(const db::SavedRequest& r, int vus, std::string duration) const { return {.projectId=currentProjectId_, .name=r.name, .method=r.method, .url=r.url, .params=r.params, .headers=r.headers, .cookies=r.cookies, .bodyKind=r.bodyKind, .body=r.body, .bodyContents=r.bodyContents, .followRedirects=r.followRedirects, .allowJsonComments=r.allowJsonComments, .vus=vus, .duration=std::move(duration)}; }
 
     // ---- 引擎状态 ----
@@ -57,10 +101,10 @@ public:
     std::vector<std::string> drainOutput() { return engine_->drainOutput(); }
 
     // UI 线程轮询：压测结束则落库并返回 true。
-    bool pollSummary(api::LoadSummary& out) {
+    Result<bool> pollSummary(api::LoadSummary& out) {
         if (!engine_->takeSummary(out)) return false;
         if (out.ok) {
-            try {
+            const Status saved = databaseResult([&] {
                 db_->addLoadRecord(db::LoadRecord{
                     .requestId = pendingRequestId_,
                     .name = pendingName_,
@@ -76,28 +120,30 @@ public:
                     .failRate = out.failRate,
                     .createdAt = nowUnix(),
                 });
-            } catch (...) {
-                // 落库失败不打断主流程
-            }
+            });
+            if (!saved) return std::unexpected(saved.error());
         }
         return true;
     }
 
-    std::vector<db::LoadRecord> records(int limit = 20) {
-        try {
-            return db_->listLoadRecords(limit);
-        } catch (...) {
-            return {};
-        }
+    Result<std::vector<db::LoadRecord>> records(int limit = 20) {
+        return databaseResult([&] { return db_->listLoadRecords(limit); });
     }
 
 private:
+    template <typename F>
+    auto databaseResult(F&& fn) -> Result<std::invoke_result_t<F>> {
+        if (!db_) return std::unexpected(startupError_.value_or(AppError{"数据库不可用"}));
+        return captureResult(std::forward<F>(fn));
+    }
+
     std::unique_ptr<api::LoadEngine> engine_;
     std::unique_ptr<db::Db> db_;
     std::int64_t currentProjectId_ = 0;
     std::int64_t cachedProjectId_ = -1;
     std::int64_t selectedAutomationId_ = 0;
     std::vector<db::AutomationTest> automationTests_;
+    std::optional<AppError> startupError_;
 
     // 在途压测的落库上下文。
     std::int64_t pendingRequestId_ = 0;

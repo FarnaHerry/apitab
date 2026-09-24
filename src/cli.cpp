@@ -4,7 +4,8 @@
 //   - 同一个领域单例 RequestStore g_requests（构造即打开 SQLite
 //     <数据目录>/apitab.db，并持有 curl 引擎 = 常驻工作线程），CLI 进程与 GUI
 //     进程互不通信：SQLite 按连接加锁，两进程同时读写靠锁串行；store 的
-//     guarded() 把偶发 SQLITE_BUSY 转成错误消息字符串返回，不抛穿到 main。
+//     Store 边界把 SQLiteCpp 异常转换为 Status / Result<AppError>，CLI 显式检查后
+//     写到 stderr，不把数据库失败伪装成空结果。
 //   - 项目上下文默认从 settings.ini 的 session.active_project 恢复（与 GUI
 //     启动时一致）；`--project` 显式覆盖时经 selectProjectInOrg 切换并**回写
 //     active_project**（下次 GUI 启动会打开到该项目的标签）；`--org` 与
@@ -159,19 +160,23 @@ Options parseOptions(const std::vector<std::string>& args, bool allowOrg,
 //   --org：selectOrg；原活动项目若不属于该组织则自动打开其第一个项目（不回写）；
 //   都不给：从 session active_project 恢复（不回写）。
 int ensureContext(const Options& opt) {
+    const auto projects = g_requests.allProjects();
+    if (!projects) {
+        err("读取项目失败: " + projects.error().message);
+        return 1;
+    }
     if (opt.projectId >= 0) {
         std::int64_t orgId = 0;
         bool found = false;
-        for (const db::Project& p : g_requests.allProjects()) {
+        for (const db::Project& p : *projects) {
             if (p.id == opt.projectId) { orgId = p.orgId; found = true; break; }
         }
         if (!found) { err("项目不存在: " + std::to_string(opt.projectId)); return 1; }
         if (opt.orgId >= 0 && opt.orgId != orgId) {
             err("--project 与 --org 不属于同一组织"); return 1;
         }
-        if (const std::string e = g_requests.selectProjectInOrg(orgId, opt.projectId);
-            !e.empty()) {
-            err("切换项目失败: " + e); return 1;
+        if (Status selected = g_requests.selectProjectInOrg(orgId, opt.projectId); !selected) {
+            err("切换项目失败: " + selected.error().message); return 1;
         }
         saveSessionPreference("active_project", std::to_string(opt.projectId));
         return 0;
@@ -182,20 +187,25 @@ int ensureContext(const Options& opt) {
             if (o.id == opt.orgId) { found = true; break; }
         }
         if (!found) { err("组织不存在: " + std::to_string(opt.orgId)); return 1; }
-        if (const std::string e = g_requests.selectOrg(opt.orgId); !e.empty()) {
-            err("切换组织失败: " + e); return 1;
+        if (Status selected = g_requests.selectOrg(opt.orgId); !selected) {
+            err("切换组织失败: " + selected.error().message); return 1;
         }
         if (g_requests.currentProjectId() == 0 && !g_requests.projects().empty()) {
-            (void)g_requests.selectProject(g_requests.projects().front().id);
+            if (Status selected = g_requests.selectProject(g_requests.projects().front().id);
+                !selected) {
+                err("切换项目失败: " + selected.error().message); return 1;
+            }
         }
         return 0;
     }
     // 默认：恢复会话活动项目（不回写偏好）。
     const std::string active = trim(sessionPreference("active_project"));
     if (const std::optional<std::int64_t> id = parseI64(active); id && *id > 0) {
-        for (const db::Project& p : g_requests.allProjects()) {
+        for (const db::Project& p : *projects) {
             if (p.id != *id) continue;
-            (void)g_requests.selectProjectInOrg(p.orgId, p.id);
+            if (Status selected = g_requests.selectProjectInOrg(p.orgId, p.id); !selected) {
+                err("恢复活动项目失败: " + selected.error().message); return 1;
+            }
             break;
         }
     }
@@ -204,15 +214,20 @@ int ensureContext(const Options& opt) {
 
 // 在当前项目找请求；找不到则跨项目自动定位（临时切上下文、不回写偏好）。
 // 返回副本——切项目会重载 store 缓存，不能把 find() 的裸指针带出本函数。
-std::optional<db::SavedRequest> locateRequest(std::int64_t id) {
-    if (const db::SavedRequest* r = g_requests.find(id)) return *r;
+Result<std::optional<db::SavedRequest>> locateRequest(std::int64_t id) {
+    if (const db::SavedRequest* r = g_requests.find(id))
+        return std::optional<db::SavedRequest>{*r};
     const std::int64_t keep = g_requests.currentProjectId();
-    for (const db::Project& p : g_requests.allProjects()) {
+    const auto projects = g_requests.allProjects();
+    if (!projects) return std::unexpected(projects.error());
+    for (const db::Project& p : *projects) {
         if (p.id == keep) continue;
-        if (!g_requests.selectProjectInOrg(p.orgId, p.id).empty()) continue;
-        if (const db::SavedRequest* r = g_requests.find(id)) return *r;
+        if (Status selected = g_requests.selectProjectInOrg(p.orgId, p.id); !selected)
+            return std::unexpected(selected.error());
+        if (const db::SavedRequest* r = g_requests.find(id))
+            return std::optional<db::SavedRequest>{*r};
     }
-    return std::nullopt;
+    return std::optional<db::SavedRequest>{};
 }
 
 // ---- help -------------------------------------------------------------------
@@ -352,9 +367,10 @@ int cmdShow(const Options& opt) {
     const std::optional<std::int64_t> id = parseI64(opt.positional[0]);
     if (!id || *id <= 0) { err("请求 ID 需要是正整数"); return 1; }
     if (const int rc = ensureContext(opt); rc != 0) return rc;
-    const std::optional<db::SavedRequest> found = locateRequest(*id);
-    if (!found) { err("请求不存在: " + std::to_string(*id)); return 1; }
-    const db::SavedRequest& r = *found;
+    const auto foundResult = locateRequest(*id);
+    if (!foundResult) { err("读取请求失败: " + foundResult.error().message); return 1; }
+    if (!*foundResult) { err("请求不存在: " + std::to_string(*id)); return 1; }
+    const db::SavedRequest& r = **foundResult;
 
     out(std::format("请求 #{}", r.id));
     out("名称: " + r.name);
@@ -455,8 +471,8 @@ api::RequestSpec specFromSaved(const db::SavedRequest& saved) {
 int applyEnvOption(const std::string& envArg) {
     if (envArg.empty()) return 0;
     if (const std::optional<std::int64_t> id = parseI64(envArg); id && *id >= 0) {
-        if (const std::string e = g_requests.selectEnv(*id); !e.empty()) {
-            err("选择环境失败: " + e); return 1;
+        if (Status selected = g_requests.selectEnv(*id); !selected) {
+            err("选择环境失败: " + selected.error().message); return 1;
         }
         return 0;
     }
@@ -467,8 +483,8 @@ int applyEnvOption(const std::string& envArg) {
     }
     if (matches == 0) { err("环境不存在: " + envArg + "（用 requests 命令查看环境列表）"); return 1; }
     if (matches > 1) { err("环境名不唯一: " + envArg); return 1; }
-    if (const std::string e = g_requests.selectEnv(match->id); !e.empty()) {
-        err("选择环境失败: " + e); return 1;
+    if (Status selected = g_requests.selectEnv(match->id); !selected) {
+        err("选择环境失败: " + selected.error().message); return 1;
     }
     return 0;
 }
@@ -512,9 +528,10 @@ int cmdSend(const Options& opt) {
     const std::optional<std::int64_t> id = parseI64(opt.positional[0]);
     if (!id || *id <= 0) { err("请求 ID 需要是正整数"); return 1; }
     if (const int rc = ensureContext(opt); rc != 0) return rc;
-    const std::optional<db::SavedRequest> found = locateRequest(*id);
-    if (!found) { err("请求不存在: " + std::to_string(*id)); return 1; }
-    const db::SavedRequest& saved = *found;
+    const auto foundResult = locateRequest(*id);
+    if (!foundResult) { err("读取请求失败: " + foundResult.error().message); return 1; }
+    if (!*foundResult) { err("请求不存在: " + std::to_string(*id)); return 1; }
+    const db::SavedRequest& saved = **foundResult;
     if (saved.kind != api::RequestKind::Http) {
         err(std::format("条目 #{} 是 {} 请求，CLI send 仅支持 HTTP", saved.id,
                         requestKindName(saved.kind)));
@@ -545,7 +562,9 @@ int cmdSend(const Options& opt) {
     if (trim(spec.url).empty()) { err("URL 为空，无法发送"); return 1; }
     // finalizeSpec：当前环境的 {{变量}} 替换 + baseUrl/全局 Cookie/公共头合并 +
     // 全局超时/代理注入（与 GUI 发送前同一步）。
-    const api::RequestSpec final = g_requests.finalizeSpec(spec);
+    const auto finalized = g_requests.finalizeSpec(spec);
+    if (!finalized) { err("组装请求失败: " + finalized.error().message); return 1; }
+    const api::RequestSpec& final = *finalized;
     if (trim(final.url).empty()) { err("URL 为空（相对路径需当前环境配置 baseUrl，或用 --env 选择环境）"); return 1; }
 
     g_requests.sendViaEngine(final);
@@ -565,10 +584,14 @@ int cmdSend(const Options& opt) {
         err("发送超时（>120s 未取回结果），已请求取消");
         return 2;
     }
-    // 响应 Cookie 归集进项目 Cookie + 落历史（与 GUI 一致；写失败内部吞掉，
-    // 不打断输出）。CLI 与 GUI 是两条独立发送路径，两边都要调。
-    g_requests.collectResponseCookies(view);
-    g_requests.recordHistory(saved.id, final.method, final.url, view);
+    // 响应 Cookie 归集进项目 Cookie + 落历史（与 GUI 一致；写失败给出诊断，
+    // 但保留传输结果输出）。CLI 与 GUI 是两条独立发送路径，两边都要调。
+    if (auto collected = g_requests.collectResponseCookies(view); !collected)
+        err("归集响应 Cookie 失败: " + collected.error().message);
+    if (Status recorded = g_requests.recordHistory(saved.id, final.method, final.url, view);
+        !recorded) {
+        err("写入请求历史失败: " + recorded.error().message);
+    }
     if (!view.ok) {
         if (opt.json) {
             out(responseJson(final.method, final.url, view, /*mock=*/false).dump());
@@ -601,10 +624,13 @@ int cmdHistory(const Options& opt) {
         if (opt.limit == 0 || opt.limit > 10000) { err("--limit 需要在 1..10000"); return 1; }
         limit = static_cast<int>(opt.limit);
     }
-    const std::vector<db::HistoryEntry> rows = g_requests.history(limit);
-    out(std::format("# 历史共 {} 条，显示最近 {} 条（最新在前）", g_requests.historyCount(),
-                    rows.size()));
-    for (const db::HistoryEntry& h : rows) {
+    const auto rows = g_requests.history(limit);
+    if (!rows) { err("读取历史失败: " + rows.error().message); return 1; }
+    const auto count = g_requests.historyCount();
+    if (!count) { err("读取历史总数失败: " + count.error().message); return 1; }
+    out(std::format("# 历史共 {} 条，显示最近 {} 条（最新在前）", *count,
+                    rows->size()));
+    for (const db::HistoryEntry& h : *rows) {
         std::string line = std::format("#{}\t{}\t{}\t{}\t状态 {} · {} · {}", h.id,
                                        stampTime(h.createdAt), h.method, h.url, h.status,
                                        formatMs(h.durationMs), formatBytes(h.sizeBytes));

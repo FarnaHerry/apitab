@@ -105,6 +105,7 @@ constexpr float kPageSizeSelectWidth = 80.0F;
 [[huxerui::composable]] huxerui::View HistoryPage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto dialog = huxerui::UseDialog();
+    auto toast = huxerui::UseToast();
     auto pageIndex = huxerui::UseState<std::int64_t>(0);
     auto pageSize = huxerui::UseState(kDefaultPageSizeIndex);
     auto reloadKey = huxerui::UseState(0);
@@ -116,9 +117,15 @@ constexpr float kPageSizeSelectWidth = 80.0F;
 
     const std::int64_t page = pageIndex.Get();
     const int pageSizeValue = kPageSizeOptions.at(pageSize.Get());
-    const std::vector<db::HistoryEntry> entries =
-        g_requests.historyPage(pageSizeValue, static_cast<int>(page));
-    const std::int64_t total = g_requests.historyCount();
+    const auto entriesResult = g_requests.historyPage(pageSizeValue, page);
+    const auto totalResult = g_requests.historyCount();
+    const std::vector<db::HistoryEntry> entries = entriesResult
+                                                       ? *entriesResult
+                                                       : std::vector<db::HistoryEntry>{};
+    const std::int64_t total = totalResult ? *totalResult : 0;
+    const std::string historyError = !entriesResult
+                                         ? entriesResult.error().message
+                                         : !totalResult ? totalResult.error().message : std::string{};
 
     // Select 的全局最小宽度为 120dp，对仅含 10/20/50/100 的分页控件过宽；
     // 弹出菜单会至少与触发框同宽，因此在局部主题与触发框同时限制为 80dp。
@@ -142,21 +149,30 @@ constexpr float kPageSizeSelectWidth = 80.0F;
     // 清空按钮套一层 Row：岛交叉轴 Stretch 会把直接子节点拉满全宽，
     // Row 主轴不拉伸子节点，按钮保持自然宽度。
     return huxerui::Column {
-        PageHeader("历史记录", "共 " + std::to_string(total) + " 条请求"),
+        PageHeader("历史记录", historyError.empty()
+                                    ? "共 " + std::to_string(total) + " 条请求"
+                                    : "读取历史记录失败: " + historyError),
         huxerui::Flow {
-            huxerui::Button("清空历史").OnClick([dialog, reloadKey, pageIndex, pageInput] {
+            huxerui::Button("清空历史").OnClick([dialog, reloadKey, pageIndex, pageInput, toast] {
                 ShowDangerConfirm(dialog, "清空历史", "确定删除全部历史记录吗？此操作不可恢复。",
-                                  "清空", [reloadKey, pageIndex, pageInput] {
-                                      g_requests.clearHistory();
+                                  "清空", [reloadKey, pageIndex, pageInput, toast] {
+                                      if (auto result = g_requests.clearHistory(); !result) {
+                                          toast.Show("清空历史失败: " + result.error().message);
+                                          return;
+                                      }
                                       pageIndex = 0;
                                       pageInput = huxerui::TextEditingValue::FromText("1");
                                       reloadKey = reloadKey.Get() + 1;
                                   });
             }),
         },
-        HistoryRows(entries)
-            .Key(std::format("{}-{}-{}", reloadKey.Get(), page, pageSizeValue))
-            .With(huxerui::Grow(1.0F)),
+        historyError.empty()
+            ? huxerui::View{HistoryRows(entries)
+                                .Key(std::format("{}-{}-{}", reloadKey.Get(), page, pageSizeValue))
+                                .With(huxerui::Grow(1.0F))}
+            : huxerui::View{huxerui::Text("历史记录暂不可用", huxerui::TextRole::Body)
+                                .With(huxerui::Grow(1.0F),
+                                      huxerui::Foreground(theme.colors.error))},
         // 底部分页栏：上一页/页码输入(回车跳转)/下一页 + 每页条数官方 Select。
         huxerui::Row {
             AppIconButton(app::images::chevron_left, "上一页", [page, pageIndex, pageInput] {

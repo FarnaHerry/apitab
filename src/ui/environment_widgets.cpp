@@ -82,10 +82,10 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                 std::vector<api::KeyValue> kvs;
                 kvs.reserve(vars.Size());
                 for (const KvRow& row : vars) kvs.push_back(ToKeyValue(row));
-                if (const std::string err = g_requests.updateEnvironment(
+                if (auto result = g_requests.updateEnvironment(
                         envId, name.Get().text, baseUrl.Get().text, kvs);
-                    !err.empty()) {
-                    toast.Show("保存失败: " + err);
+                    !result) {
+                    toast.Show("保存失败: " + result.error().message);
                     return;
                 }
                 toast.Show("已保存");
@@ -169,11 +169,10 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                                                 tasks.Launch([=]() -> huxerui::Task<void> {
                                                     co_await huxerui::Delay(
                                                         std::chrono::duration<double>{0});
-                                                    if (const std::string err =
-                                                            g_requests.renameEnvironment(
-                                                                id, renameValue.Get().text);
-                                                        !err.empty()) {
-                                                        toast.Show("重命名失败: " + err);
+                                                    if (auto result = g_requests.renameEnvironment(
+                                                            id, renameValue.Get().text);
+                                                        !result) {
+                                                        toast.Show("重命名失败: " + result.error().message);
                                                         co_return;
                                                     }
                                                     envVersion = envVersion.Get() + 1;
@@ -192,16 +191,20 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                             huxerui::DialogOptions{});
                     }, AppIconButtonShape::Bare),
                 // 删除图标：危险确认框（共享 helper，确认按钮染红）；删除重组本弹窗 → 推迟。
-                AppIconButton(app::images::close, "删除环境", [dialog, tasks, selectedId, envVersion, id,
+                AppIconButton(app::images::close, "删除环境", [dialog, tasks, selectedId, envVersion, id, toast,
                                                       name = e.name] {
                         ShowDangerConfirm(dialog, "删除环境",
                                           "确定删除环境「" + name + "」吗？此操作不可恢复。",
                                           "删除",
-                                          [tasks, selectedId, envVersion, id] {
+                                          [tasks, selectedId, envVersion, id, toast] {
                                               tasks.Launch([=]() -> huxerui::Task<void> {
                                                   co_await huxerui::Delay(
                                                       std::chrono::duration<double>{0});
-                                                  (void)g_requests.deleteEnvironment(id);
+                                                  if (auto result = g_requests.deleteEnvironment(id);
+                                                      !result) {
+                                                      toast.Show("删除环境失败: " + result.error().message);
+                                                      co_return;
+                                                  }
                                                   if (selectedId.Get() == id)
                                                       selectedId = g_requests.currentEnvId();
                                                   envVersion = envVersion.Get() + 1;
@@ -270,10 +273,9 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                     AppIconButton(app::images::add, "新建环境", [tasks, toast, selectedId, envVersion] {
                         tasks.Launch([=]() -> huxerui::Task<void> {
                             co_await huxerui::Delay(std::chrono::duration<double>{0});
-                            if (const std::string err =
-                                    g_requests.createEnvironment("新环境", "");
-                                !err.empty()) {
-                                toast.Show("新建环境失败: " + err);
+                            if (auto result = g_requests.createEnvironment("新环境", "");
+                                !result) {
+                                toast.Show("新建环境失败: " + result.error().message);
                                 co_return;
                             }
                             selectedId = g_requests.currentEnvId();
