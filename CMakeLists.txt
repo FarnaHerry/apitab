@@ -567,6 +567,21 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
             BASE_DIRS src
             FILES src/utils.cppm)
         add_test(NAME smoke COMMAND test_smoke)
+        # curl 引擎资源契约回归测试：本地回环服务器统计"连接数 / 请求数"，断言
+        # 常驻 easy 句柄复用同一条 TCP 连接、RequestSpec::proxy 真的接线、上一请求
+        # 的选项不泄漏到下一请求。引擎实现单元要单独编进测试目标（apitab 自身的
+        # 源码不导出为库，只能按 TU 复用）。
+        add_executable(test_curl_engine tests/test_curl_engine.cpp src/curl_engine.cpp)
+        set_target_properties(test_curl_engine PROPERTIES
+            CXX_MODULE_STD ON
+            CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_curl_engine PRIVATE cxx_std_23)
+        target_sources(test_curl_engine PRIVATE FILE_SET apitab_curl_test_modules TYPE CXX_MODULES
+            BASE_DIRS src
+            FILES src/api_engine.cppm src/curl_engine.cppm)
+        target_link_libraries(test_curl_engine PRIVATE CURL::libcurl Threads::Threads)
+        add_test(NAME curl_engine COMMAND test_curl_engine)
+        set_tests_properties(curl_engine PROPERTIES TIMEOUT 60)
         # P1-B1.0 构建选择矩阵（5 场景，跑 5 次 cmake 配置，约 10s）。
         # 日常 `ctest` 会执行；CI 三通道验证见 P1-B1.0a。
         add_test(NAME huxerui_selection_matrix

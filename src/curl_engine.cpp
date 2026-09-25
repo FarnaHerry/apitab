@@ -22,6 +22,18 @@
 // 流式进度：正文/头部在传输期直接累积进 progress_ 槽（写回调持锁追加），UI 经
 // takeProgress 每 30ms 取全量快照增量呈现（SSE 逐条/逐字到达都能跟上）；传输
 // 结束由 finish 把累积内容并入最终结果槽并清空进度槽。
+//
+// 资源模型（详见 docs/architecture.md）：
+// - 全部 curl C 资源经本单元的 RAII 包装持有（CurlGlobal / EasyHandle /
+//   HeaderList / MimeHandle），异常路径不再泄漏——旧实现只在 perform 之后手写
+//   cleanup，中途抛 std::bad_alloc 就会把 easy 句柄漏在工作线程的整个生命周期里；
+// - 引擎持有一个常驻 easy 句柄并跨请求复用（不是 N 路句柄池）：本引擎串行消费
+//   队列，任一时刻至多一个在途传输，N 路句柄只会把连接缓存摊薄、降低复用率。
+//   复用的价值在于 libcurl 的连接缓存 / DNS 缓存 / TLS 会话缓存都挂在句柄内部，
+//   同主机后续请求因此省掉 TCP + TLS 握手；
+// - 单次请求用 curl_easy_reset 复位全部选项后再设置本次选项：上一请求的残留
+//   设置（SSE 传输里关掉的 CURLOPT_TIMEOUT、旧代理、旧 POSTFIELDS）不会漏到下一
+//   请求，而连接缓存 / DNS 缓存 / TLS 会话缓存按 curl 契约在 reset 后保留。
 module;
 
 #include <curl/curl.h>
@@ -39,6 +51,131 @@ namespace {
 
 // 响应体上限：API 调试场景 32 MiB 足够，防止打满内存（截断后在 body 尾部标注）。
 constexpr std::size_t kMaxBodyBytes = 32u * 1024u * 1024u;
+
+// ---- curl C 资源的 RAII 包装 -------------------------------------------------
+// 这些类型只在本实现单元内可见：curl 头依旧不进入任何 importers（curl_engine.cppm
+// 只导出 makeCurlEngine）。所有 curl_* 资源都必须经它们持有，禁止裸指针手写
+// cleanup —— run() 里任何抛异常（bad_alloc 等）都会跳过函数尾部的清理语句。
+
+// 进程级 curl 全局状态：第一个使用者构造时 curl_global_init，最后一个使用者析构
+// 时 curl_global_cleanup。用引用计数而不是裸静态对象，是为了固定清理顺序——引擎
+// 自身是静态单例（g_requests），"最后一个句柄"必然先于全局清理被销毁，不会被静态
+// 析构顺序反噬（curl_global_cleanup 早于 curl_easy_cleanup 是未定义行为）。
+class CurlGlobal {
+public:
+    static std::shared_ptr<CurlGlobal> acquire() {
+        // registry 故意不析构（进程级一次性、自身不含 curl 资源）：退出期的静态
+        // 析构顺序不再影响它，避免 mutex 已销毁却仍被 acquire 取用。
+        static Registry* registry = new Registry;
+        std::lock_guard lock(registry->mutex);
+        if (std::shared_ptr<CurlGlobal> live = registry->weak.lock()) return live;
+        std::shared_ptr<CurlGlobal> fresh(new CurlGlobal());
+        registry->weak = fresh;
+        return fresh;
+    }
+
+    // 初始化失败（罕见：内存/内部状态）时句柄创建一并失败，错误经 error() 投递。
+    bool ok() const { return ok_; }
+    const std::string& error() const { return error_; }
+
+    // 析构必须公开：shared_ptr 的默认删除器要能访问它。构造仍然是私有的——
+    // 只有 acquire() 能创建，保证"首个使用者初始化、最后一个使用者清理"的语义。
+    ~CurlGlobal() {
+        if (ok_) curl_global_cleanup();
+    }
+
+private:
+    struct Registry {
+        std::mutex mutex;
+        std::weak_ptr<CurlGlobal> weak;
+    };
+
+    CurlGlobal() {
+        const CURLcode code = curl_global_init(CURL_GLOBAL_DEFAULT);
+        ok_ = code == CURLE_OK;
+        if (!ok_) error_ = std::string{"curl_global_init failed: "} + curl_easy_strerror(code);
+    }
+
+    CurlGlobal(const CurlGlobal&) = delete;
+    CurlGlobal& operator=(const CurlGlobal&) = delete;
+
+    bool ok_ = false;
+    std::string error_;
+};
+
+// easy 句柄（RAII + 复用载体）。连接缓存 / DNS 缓存 / TLS 会话缓存都挂在句柄
+// 内部，所以句柄跨请求常驻；recycle() 复位选项但保留这些缓存（curl 契约）。
+// 句柄持有 CurlGlobal 引用，保证全局状态活得比任何一个句柄久。
+class EasyHandle {
+public:
+    EasyHandle()
+        : global_(CurlGlobal::acquire()),
+          handle_(global_->ok() ? curl_easy_init() : nullptr) {}
+    ~EasyHandle() {
+        if (handle_ != nullptr) curl_easy_cleanup(handle_);
+    }
+
+    EasyHandle(const EasyHandle&) = delete;
+    EasyHandle& operator=(const EasyHandle&) = delete;
+
+    CURL* get() const { return handle_; }
+    const std::shared_ptr<CurlGlobal>& global() const { return global_; }
+
+    // 传输前复位：清空上一请求留下的全部选项（取消/中断后同样安全），保留
+    // live connections / DNS 缓存 / TLS 会话缓存。
+    void recycle() {
+        if (handle_ != nullptr) curl_easy_reset(handle_);
+    }
+
+private:
+    std::shared_ptr<CurlGlobal> global_;
+    CURL* handle_ = nullptr;
+};
+
+// 请求头表。curl 不复制字符串内容，行必须活到 perform 返回 —— 调用方用
+// std::string 局部量保证；本包装只负责挂载与释放。
+class HeaderList {
+public:
+    HeaderList() = default;
+    ~HeaderList() {
+        if (list_ != nullptr) curl_slist_free_all(list_);
+    }
+
+    HeaderList(const HeaderList&) = delete;
+    HeaderList& operator=(const HeaderList&) = delete;
+
+    void append(const std::string& line) {
+        // 追加失败（分配失败）时原表保持有效，行为与裸 curl_slist_append 一致。
+        if (curl_slist* grown = curl_slist_append(list_, line.c_str()); grown != nullptr) {
+            list_ = grown;
+        }
+    }
+    curl_slist* get() const { return list_; }
+
+private:
+    curl_slist* list_ = nullptr;
+};
+
+// multipart/form-data 体（CURLOPT_MIMEPOST 同样不复制内容，须活到 perform 返回）。
+class MimeHandle {
+public:
+    MimeHandle() = default;
+    ~MimeHandle() {
+        if (mime_ != nullptr) curl_mime_free(mime_);
+    }
+
+    MimeHandle(const MimeHandle&) = delete;
+    MimeHandle& operator=(const MimeHandle&) = delete;
+
+    curl_mime* create(CURL* easy) {
+        mime_ = curl_mime_init(easy);
+        return mime_;
+    }
+    curl_mime* get() const { return mime_; }
+
+private:
+    curl_mime* mime_ = nullptr;
+};
 
 // 传输期共享上下文：正文与头部直接累积进引擎的 progress_ 槽（写路径持锁），
 // UI 线程 takeProgress 读快照；blockStart 标记当前头部块起点（重定向会产生
@@ -171,9 +308,9 @@ std::vector<std::pair<std::string, std::string>> parseFormData(std::string_view 
 class CurlEngine final : public api::ApiEngine {
 public:
     CurlEngine() {
-        // 先完成 curl 全局初始化再启动工作线程（初始化非线程安全，
-        // 线程启动后一旦有 send 到达就会调 curl_easy_init）。
-        curl_global_init(CURL_GLOBAL_DEFAULT);
+        // easy_ 构造即完成两件事：拿到进程级 curl 全局状态（首个引擎初始化）、
+        // 创建常驻 easy 句柄。两者都在工作线程启动之前——curl 全局初始化非线程
+        // 安全，而工作线程一旦收到 send 就会使用该句柄。
         worker_ = std::thread([this] { workerLoop(); });
     }
     ~CurlEngine() override {
@@ -291,21 +428,25 @@ private:
     void run(const api::RequestSpec& spec, std::uint64_t generation) {
         api::ResponseView result;
 
-        CURL* easy = curl_easy_init();
-        if (!easy) {
-            result.error = "curl_easy_init failed";
+        CURL* easy = easy_.get();
+        if (easy == nullptr) {
+            result.error = easy_.global()->error().empty() ? "curl_easy_init failed"
+                                                           : easy_.global()->error();
             finish(std::move(result), generation);
             return;
         }
+        // 复位上一请求的全部选项（含被取消/中断的传输留下的状态），保留句柄内的
+        // 连接缓存 / DNS 缓存 / TLS 会话缓存——这是常驻句柄复用的全部意义。
+        easy_.recycle();
 
-        TransferCtx transfer{&resultMutex_, &progress_, &progressDirty_, easy,
-                             &isEventStream_, &transferTruncated_};
-        struct curl_slist* headerList = nullptr;
-        curl_mime* mime = nullptr;
+        // 正文与头部表都在 setopt 前定稿：CURLOPT_POSTFIELDS / CURLOPT_HTTPHEADER /
+        // CURLOPT_MIMEPOST 都只存指针不复制内容，这些局部量必须活到 perform 返回。
+        HeaderList headerList;
+        MimeHandle mime;
+        std::string body;
         for (const auto& h : spec.headers) {
             if (!h.enabled || h.key.empty()) continue;
-            const std::string line = h.key + ": " + h.value;
-            headerList = curl_slist_append(headerList, line.c_str());
+            headerList.append(h.key + ": " + h.value);
         }
 
         // Cookie 必须只占一行、单个 "Cookie: a=1; b=2"（RFC 6265 §5.4）：逐个
@@ -319,15 +460,52 @@ private:
                 if (!cookieLine.empty()) cookieLine += "; ";
                 cookieLine += cookie.key + "=" + cookie.value;
             }
-            if (!cookieLine.empty())
-                headerList = curl_slist_append(headerList, ("Cookie: " + cookieLine).c_str());
+            if (!cookieLine.empty()) headerList.append("Cookie: " + cookieLine);
         }
+
+        if (spec.bodyKind != api::BodyKind::None) {
+            body = spec.body;
+            // allowJsonComments 是 UI/编辑层关注点（发送前由上层剥离注释），引擎不处理。
+            if (spec.bodyKind == api::BodyKind::FormUrlEncoded) {
+                body = serializeFormUrlEncoded(spec.bodyFields);
+                headerList.append("Content-Type: application/x-www-form-urlencoded");
+            } else if (spec.bodyKind == api::BodyKind::Json ||
+                       spec.bodyKind == api::BodyKind::GraphQL) {
+                headerList.append("Content-Type: application/json");
+            } else if (spec.bodyKind == api::BodyKind::Xml) {
+                headerList.append("Content-Type: application/xml");
+            } else if (spec.bodyKind == api::BodyKind::FormData) {
+                if (curl_mime* mimeData = mime.create(easy); mimeData != nullptr) {
+                    for (const auto& field : spec.bodyFields) {
+                        if (!field.enabled || field.key.empty()) continue;
+                        curl_mimepart* part = curl_mime_addpart(mimeData);
+                        if (part == nullptr) continue;
+                        curl_mime_name(part, field.key.c_str());
+                        curl_mime_data(part, field.value.c_str(), CURL_ZERO_TERMINATED);
+                    }
+                }
+            }
+        }
+
+        TransferCtx transfer{&resultMutex_, &progress_, &progressDirty_, easy,
+                             &isEventStream_, &transferTruncated_};
         curl_easy_setopt(easy, CURLOPT_URL, spec.url.c_str());
         curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "http,https");
         curl_easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
         curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, spec.method.c_str());
         curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, spec.followRedirects ? 1L : 0L);
-        curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headerList);
+        curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headerList.get());
+        // 代理以 RequestSpec::proxy 为唯一权威（store 在 finalizeSpec 注入 settings.ini
+        // request_proxy）。空值也要显式下发：CURLOPT_PROXY 的空串同时关掉 libcurl 的
+        // 环境变量代理探测（http_proxy/HTTP_PROXY），否则"空 = 直连"的引擎契约会被
+        // 运行环境里恰好存在的代理环境变量悄悄推翻。非空时一并清空 NOPROXY，让用户
+        // 显式配置的代理不被 no_proxy 环境变量旁路（代理是全局显式设置，不是环境探测）。
+        if (spec.proxy.empty()) {
+            curl_easy_setopt(easy, CURLOPT_PROXY, "");
+        } else {
+            curl_easy_setopt(easy, CURLOPT_PROXY, spec.proxy.c_str());
+            curl_easy_setopt(easy, CURLOPT_NOPROXY, "");
+        }
         curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, &onBodyWrite);
         curl_easy_setopt(easy, CURLOPT_WRITEDATA, &transfer);
         curl_easy_setopt(easy, CURLOPT_HEADERFUNCTION, &onHeaderLine);
@@ -335,44 +513,23 @@ private:
         // timeoutSec 覆盖 DNS+连接+传输全程（含 threaded resolver 的解析等待）；
         // CONNECTTIMEOUT 单独给连接段兜底。非法值（<=0 表示"无限"）一律钳制到
         // 30s——引擎契约是"任何端点都在有限时间内返回"。SSE 长连接是唯一例外：
-        // 头部块识别 text/event-stream 后 onHeaderLine 会把总超时关掉。
+        // 头部块识别 text/event-stream 后 onHeaderLine 会把总超时关掉（下一请求
+        // 由 recycle() 复位，不会继承"无超时"）。
         const long timeoutSec = spec.timeoutSec > 0 ? spec.timeoutSec : 30L;
         curl_easy_setopt(easy, CURLOPT_TIMEOUT, timeoutSec);
         curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, timeoutSec);
         curl_easy_setopt(easy, CURLOPT_NOSIGNAL, 1L);  // 多线程必须（禁用信号超时）
         curl_easy_setopt(easy, CURLOPT_USERAGENT, "apitab/0.1");
         curl_easy_setopt(easy, CURLOPT_ACCEPT_ENCODING, "");  // 自动解压 gzip/br
+        curl_easy_setopt(easy, CURLOPT_TCP_KEEPALIVE, 1L);    // 复用连接 + SSE 长连接
         curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, &onProgress);
         curl_easy_setopt(easy, CURLOPT_XFERINFODATA, this);
         curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);  // 启用 xferinfo 回调
-        // CURLOPT_POSTFIELDS 只保存指针，不复制内容；body 必须活到 perform() 完成。
-        std::string body;
-        if (spec.bodyKind != api::BodyKind::None) {
-            body = spec.body;
-            if (spec.bodyKind == api::BodyKind::FormUrlEncoded) {
-                body = serializeFormUrlEncoded(spec.bodyFields);
-            }
-            // allowJsonComments 是 UI/编辑层关注点（发送前由上层剥离注释），引擎不处理。
+        if (mime.get() != nullptr) {
+            curl_easy_setopt(easy, CURLOPT_MIMEPOST, mime.get());
+        } else if (spec.bodyKind != api::BodyKind::None) {
             curl_easy_setopt(easy, CURLOPT_POSTFIELDS, body.data());
-            curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE,
-                             static_cast<long>(body.size()));
-            if (spec.bodyKind == api::BodyKind::Json || spec.bodyKind == api::BodyKind::GraphQL) {
-                headerList = curl_slist_append(headerList, "Content-Type: application/json");
-            } else if (spec.bodyKind == api::BodyKind::FormData) {
-                mime = curl_mime_init(easy);
-                for (const auto& field : spec.bodyFields) {
-                    if (!field.enabled || field.key.empty()) continue;
-                    curl_mimepart* part = curl_mime_addpart(mime);
-                    curl_mime_name(part, field.key.c_str());
-                    curl_mime_data(part, field.value.c_str(), CURL_ZERO_TERMINATED);
-                }
-                curl_easy_setopt(easy, CURLOPT_MIMEPOST, mime);
-            } else if (spec.bodyKind == api::BodyKind::FormUrlEncoded) {
-                headerList = curl_slist_append(headerList, "Content-Type: application/x-www-form-urlencoded");
-            } else if (spec.bodyKind == api::BodyKind::Xml) {
-                headerList = curl_slist_append(headerList, "Content-Type: application/xml");
-            }
-            curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headerList);
+            curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
         }
 
         const CURLcode code = curl_easy_perform(easy);
@@ -392,9 +549,6 @@ private:
             result.error = curl_easy_strerror(code);
         }
 
-        if (mime) curl_mime_free(mime);
-        curl_slist_free_all(headerList);
-        curl_easy_cleanup(easy);
         finish(std::move(result), generation);
     }
 
@@ -419,6 +573,7 @@ private:
         core::platform::requestUiUpdate();  // 唤醒 UI 一帧取结果
     }
 
+    EasyHandle easy_;  // 常驻 easy 句柄（连接/DNS/TLS 会话缓存的载体，跨请求复用）
     std::thread worker_;  // 常驻工作线程（构造即起，析构 join）
     mutable std::mutex queueMutex_;  // busy() 是 const：锁可变
     std::condition_variable queueCv_;

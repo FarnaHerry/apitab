@@ -209,7 +209,7 @@ huxerui run linux                  # HuxerUI CLI 流程：构建到 .huxerui/bui
 huxerui build linux --profile release
 cmake -B build -G Ninja            # 配置为 Ninja 生成器（默认 Release；调试加 -DCMAKE_BUILD_TYPE=Debug）
 cmake --build build --target apitab --parallel $(nproc) # 经 CMake 调用 Ninja，并行编译并链接应用目标
-ctest --test-dir build             # 冒烟测试（test_smoke）
+ctest --test-dir build             # 冒烟 + 引擎契约测试（test_smoke / test_curl_engine）
 ./run.sh                           # 启动 GUI（切到仓库根 + INTEL_FORCE_PROBE=1）
 ```
 
@@ -264,12 +264,14 @@ ctest --test-dir build             # 冒烟测试（test_smoke）
 
 ## 架构
 
-全模块化（`import std` + 各 `apitab.*` 模块），UI 只面向引擎抽象：
+分层、线程契约、运行时资源所有权矩阵与「基础请求（curl）为什么不池化」的结论见
+**`docs/architecture.md`**。全模块化（`import std` + 各 `apitab.*` 模块），UI 只面向
+引擎抽象：
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `apitab.api_engine` | `src/api_engine.cppm` | 抽象接口 `ApiEngine` / `LoadEngine` / `WebSocketEngine` / `TcpEngine` + `RequestSpec` / `ResponseView` / `LoadOptions` / `LoadSummary` |
-| `apitab.curl_engine` | `src/curl_engine.cppm/.cpp` | 单次请求引擎的 curl 实现（常驻工作线程；send 纯入队、代际丢弃、cancel 协作打断且丢弃排队请求、取消后结果不投递；run 全 try/catch 兜底填错误结果）；传输期正文/头部累积进进度槽供 `takeProgress` 增量快照（SSE 用），头部块识别 `text/event-stream` 即关闭总超时（长连接唯一例外，取消仍走协作打断）；`makeCurlEngine()` 工厂，curl 头只进实现单元 |
+| `apitab.curl_engine` | `src/curl_engine.cppm/.cpp` | 单次请求引擎的 curl 实现（常驻工作线程；send 纯入队、代际丢弃、cancel 协作打断且丢弃排队请求、取消后结果不投递；run 全 try/catch 兜底填错误结果）；传输期正文/头部累积进进度槽供 `takeProgress` 增量快照（SSE 用），头部块识别 `text/event-stream` 即关闭总超时（长连接唯一例外，取消仍走协作打断）；**常驻单个 easy 句柄跨请求复用**（连接/DNS/TLS 会话缓存挂在句柄内，每请求先 `curl_easy_reset` 复位选项——串行工作线程下 1 个句柄即最大复用率，不做 N 路池），全局状态与头表/MIME 走 RAII 包装（`CurlGlobal`/`EasyHandle`/`HeaderList`/`MimeHandle`，异常路径不泄漏），`spec.proxy` 每请求显式下发（空串 = 直连且关掉环境变量代理探测）；`makeCurlEngine()` 工厂，curl 头只进实现单元 |
 | `apitab.k6_engine` | `src/k6_engine.cppm/.cpp` | 压测引擎：生成 k6 脚本（`handleSummary` 打印 `K6SUMMARY {json}` 行）→ spawn 子进程 → 监视线程拆 `\r`/`\n` 行入队；stop=SIGINT，3s 宽限后 SIGKILL |
 | `apitab.db` | `src/db.cppm/.cpp` | SQLiteCpp：requests / history / load_tests 三表；KV 序列化为 JSON |
 | `apitab.config` | `src/config.cppm` | 数据目录（~/.local/share/apitab）/ k6 二进制解析 |
