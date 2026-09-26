@@ -246,6 +246,8 @@ agent 的数据类命令（orgs/projects/requests/show/send/history）全部可�
 4. 启动闪烁时长实测（present → Hide 的间隔），作为是否催上游 `start_hidden` 的依据。
 
 ## 9. 阶段 0 进度
+
+**阶段 0 已随 v0.2.0 发布**（tag `v0.2.0` → `63e10da9`；三平台产物齐全）。
 已完成（第五轮）：
 
 - [x] **控制面客户端半边有了自动化测试**：`tests/test_control_client.cpp` + ctest 目标
