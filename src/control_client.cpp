@@ -3,8 +3,6 @@
 // 这个进程**不构造 store、不碰数据库、不进事件循环**：它只读端点文件、把 argv 发给
 // 运行中的实例、把回传的 stdout/stderr 原样回放并沿用它的退出码。命令实现在实例里
 // （src/cli.cpp 同一份），所以输出契约与 "--cli 在实例内直跑" 完全一致。
-#include <huxerui/huxerui.h>
-
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
@@ -13,6 +11,7 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -26,11 +25,11 @@
 extern char** environ;
 #endif
 
-#include "cli.h"
 #include "control.h"
 
 import asio;
 import nlohmann.json;
+import apitab.config;
 
 namespace apitab::control {
 
@@ -225,8 +224,47 @@ bool StartInstanceAndWait(std::string& error) {
 
 namespace {
 
-// help 是纯文本、不依赖实例：本地直接打印（离线可用，也不碰数据库）。
-// 判据与 cli::run 的短路一致：无参数 / help / --help / -h，或任一子命令带 --help。
+// 端点文件放运行目录（POSIX）以避免写用户数据目录；Windows 没有对应概念，回落
+// 数据目录。与写端（control.cpp 的 EndpointFile）必须一致。
+std::string RuntimeDirectory() {
+#ifdef _WIN32
+    return {};
+#else
+    const char* dir = std::getenv("XDG_RUNTIME_DIR");
+    return dir != nullptr && *dir != '\0' ? std::string{dir} : std::string{};
+#endif
+}
+
+std::filesystem::path EndpointPath() {
+    const std::string runtime = RuntimeDirectory();
+    if (!runtime.empty()) return std::filesystem::path(runtime) / "apitab-control.json";
+    return cfg::dataDir() / "control.json";
+}
+
+} // namespace
+
+std::string EndpointFilePath() { return EndpointPath().string(); }
+
+bool ReadEndpoint(int& port, std::string& token, std::string& error) {
+    const std::filesystem::path path = EndpointPath();
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        error = "apitab 未在运行（找不到控制面端点 " + path.string() +
+                "）。先启动 apitab，或用 apitab --ensure 拉起。";
+        return false;
+    }
+    try {
+        json payload;
+        input >> payload;
+        port = payload.at("port").get<int>();
+        token = payload.at("token").get<std::string>();
+    } catch (const std::exception& parse_error) {
+        error = "控制面端点文件不可用（" + path.string() + "）: " + parse_error.what();
+        return false;
+    }
+    return true;
+}
+
 bool IsHelpOnly(const std::vector<std::string>& args) {
     if (args.empty()) return true;
     if (args.front() == "help" || args.front() == "--help" || args.front() == "-h") return true;
@@ -236,38 +274,36 @@ bool IsHelpOnly(const std::vector<std::string>& args) {
     return false;
 }
 
-class StreamSink final : public cli::Sink {
-public:
-    void Out(std::string_view line) override { std::cout << line << '\n'; }
-    void Err(std::string_view line) override { std::cerr << line << '\n'; }
-};
-
-} // namespace
-
-int ForwardCommand(const std::vector<std::string>& args, std::string& error, bool ensure) {
-    if (IsHelpOnly(args)) {
-        StreamSink sink;
-        return cli::run(args, sink);
-    }
-    if (ensure && !StartInstanceAndWait(error)) return 1;
-
+bool ExchangeCommand(const std::vector<std::string>& args, CommandResult& result,
+                     std::string& error) {
     int port = 0;
     std::string token;
-    if (!ReadEndpoint(port, token, error)) return 1;
+    if (!ReadEndpoint(port, token, error)) return false;
 
     json response;
-    if (!RoundTrip(port, token, args, response, error, kForwardTimeoutMs)) return 1;
+    if (!RoundTrip(port, token, args, response, error, kForwardTimeoutMs)) return false;
     if (!response.contains("exit")) {
         error = response.value("error", std::string{"控制面返回错误"});
-        return 1;
+        return false;
     }
+    result.exit_code = response.value("exit", 1);
+    result.stdout_text = response.value("stdout", std::string{});
+    result.stderr_text = response.value("stderr", std::string{});
+    return true;
+}
+
+int ForwardCommand(const std::vector<std::string>& args, std::string& error, bool ensure) {
+    if (ensure && !StartInstanceAndWait(error)) return 1;
+
+    CommandResult result;
+    if (!ExchangeCommand(args, result, error)) return 1;
 
     // stdout 只放数据、stderr 放提示——与本地直跑时的分流完全一致。
-    std::cout << response.value("stdout", std::string{});
+    std::cout << result.stdout_text;
     std::cout.flush();
-    std::cerr << response.value("stderr", std::string{});
+    std::cerr << result.stderr_text;
     std::cerr.flush();
-    return response.value("exit", 1);
+    return result.exit_code;
 }
 
 } // namespace apitab::control

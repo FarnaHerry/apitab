@@ -246,6 +246,18 @@ agent 的数据类命令（orgs/projects/requests/show/send/history）全部可�
 4. 启动闪烁时长实测（present → Hide 的间隔），作为是否催上游 `start_hidden` 的依据。
 
 ## 9. 阶段 0 进度
+已完成（第五轮）：
+
+- [x] **控制面客户端半边有了自动化测试**：`tests/test_control_client.cpp` + ctest 目标
+      `control_client`（本地回环 HTTP 桩冒充实例，POSIX；Windows 跳过编译）。覆盖
+      19 条断言：结果回放（退出码/stdout/stderr/`--json` 原样）、401 token 不匹配、
+      端点缺失的可读错误、`ping` 就绪探测（服务端停掉后 `InstanceRunning()` 必须转 false）、
+      help 判定。
+- [x] 为此把控制面头拆成两半：`control.h`（客户端：端点发现 + 命令往返，**不依赖
+      huxerui**，可单独编进测试）与 `control_server.h`（服务端：ApplicationPoster +
+      InstallControlServer）；`ReadEndpoint`/`EndpointFilePath` 移入客户端 TU，
+      服务端与客户端共用同一份路径规则。
+
 
 已完成（2026-09-26，提交 `feat(control): run --cli commands inside the running instance`）：
 

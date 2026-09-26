@@ -8,6 +8,7 @@
 #include <string_view>
 #include <vector>
 
+#include "cli.h"
 #include "control.h"
 #include "single_instance.h"
 
@@ -28,6 +29,8 @@ int main(int argc, char** argv) {
             ensure = true;
             args.erase(args.begin());
         }
+        // help 是纯文本：本地打印，不需要实例、不碰数据库。
+        if (apitab::control::IsHelpOnly(args)) return apitab::cli::run(args);
         std::string error;
         const int code = apitab::control::ForwardCommand(args, error, ensure);
         if (!error.empty()) {

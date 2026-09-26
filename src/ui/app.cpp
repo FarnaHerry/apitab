@@ -26,7 +26,7 @@
 
 #include "ui.h"
 #include "app.h"
-#include "control.h"
+#include "control_server.h"
 #include "lightweight.h"
 #include "app_resources.h"
 

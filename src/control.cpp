@@ -34,6 +34,7 @@
 
 #include "cli.h"
 #include "control.h"
+#include "control_server.h"
 #include "log.h"
 #include "ui/lightweight.h"
 
@@ -51,25 +52,6 @@ using json = nlohmann::json;
 constexpr auto kCommandTimeout = std::chrono::seconds{60};
 // 单条连接读/写的兜底超时，防止半开连接把控制面线程占住（退出时 join 不挂）。
 constexpr int kSocketTimeoutSeconds = 5;
-
-// ---- 端点文件 --------------------------------------------------------------
-
-std::string RuntimeDirectory() {
-#ifdef _WIN32
-    return {};
-#else
-    const char* dir = std::getenv("XDG_RUNTIME_DIR");
-    return dir != nullptr && *dir != '\0' ? std::string{dir} : std::string{};
-#endif
-}
-
-// 端点文件放运行目录（POSIX）以避免写用户数据目录；Windows 没有对应概念，回落
-// 数据目录。两边都只有当前用户可读（POSIX 显式 0600）。
-std::filesystem::path EndpointPath() {
-    const std::string runtime = RuntimeDirectory();
-    if (!runtime.empty()) return std::filesystem::path(runtime) / "apitab-control.json";
-    return cfg::dataDir() / "control.json";
-}
 
 // 随机 token：控制面只绑回环，token 用来挡住同机其它用户的进程。
 std::string MakeToken() {
@@ -95,7 +77,7 @@ public:
     EndpointFile& operator=(const EndpointFile&) = delete;
 
     bool Write(int port, const std::string& token, std::string& error) {
-        const std::filesystem::path path = EndpointPath();
+        const std::filesystem::path path = EndpointFilePath();
         std::error_code ec;
         std::filesystem::create_directories(path.parent_path(), ec);
         const json payload{{"port", port}, {"token", token}, {"pid", static_cast<std::int64_t>(
@@ -519,28 +501,6 @@ bool ApplicationPoster::PostTask(std::function<void()> task) const {
     }
     if (!post) return false;
     post(std::move(task));
-    return true;
-}
-
-std::string EndpointFilePath() { return EndpointPath().string(); }
-
-bool ReadEndpoint(int& port, std::string& token, std::string& error) {
-    const std::filesystem::path path = EndpointPath();
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        error = "apitab 未在运行（找不到控制面端点 " + path.string() +
-                "）。先启动 apitab，或用 apitab --ensure 拉起。";
-        return false;
-    }
-    try {
-        json payload;
-        input >> payload;
-        port = payload.at("port").get<int>();
-        token = payload.at("token").get<std::string>();
-    } catch (const std::exception& parse_error) {
-        error = "控制面端点文件不可用（" + path.string() + "）: " + parse_error.what();
-        return false;
-    }
     return true;
 }
 

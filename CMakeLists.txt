@@ -582,6 +582,23 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_link_libraries(test_curl_engine PRIVATE CURL::libcurl Threads::Threads)
         add_test(NAME curl_engine COMMAND test_curl_engine)
         set_tests_properties(curl_engine PROPERTIES TIMEOUT 60)
+        # 控制面**客户端半边**的协议契约测试：本地回环桩冒充实例，断言结果回放
+        # （退出码/stdout/stderr）、401 与端点缺失的错误路径、ping 就绪探测。
+        # 客户端半边不依赖 cli/store（help 由平台入口本地处理），所以只编这一个 TU。
+        add_executable(test_control_client tests/test_control_client.cpp src/control_client.cpp)
+        set_target_properties(test_control_client PROPERTIES
+            CXX_MODULE_STD ON
+            CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_control_client PRIVATE cxx_std_23)
+        target_include_directories(test_control_client PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        # 模块接口由被链接的目标提供：asio（cmake/asio.cppm）与 apitab_json
+        # （cmake/nlohmann.json.cppm）——客户端半边只 import 这两个。
+        target_sources(test_control_client PRIVATE FILE_SET apitab_control_test_modules TYPE CXX_MODULES
+            BASE_DIRS src
+            FILES src/config.cppm)
+        target_link_libraries(test_control_client PRIVATE asio apitab_json Threads::Threads)
+        add_test(NAME control_client COMMAND test_control_client)
+        set_tests_properties(control_client PROPERTIES TIMEOUT 60)
         # P1-B1.0 构建选择矩阵（5 场景，跑 5 次 cmake 配置，约 10s）。
         # 日常 `ctest` 会执行；CI 三通道验证见 P1-B1.0a。
         add_test(NAME huxerui_selection_matrix
