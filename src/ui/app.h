@@ -18,6 +18,11 @@ public:
     void Activate() const {
         if (window_) window_->Activate();
     }
+    // 轻量模式用：隐藏窗口（停止出帧，实测 CPU → 0），不销毁、不退出应用。
+    void Hide() const {
+        if (window_) window_->Hide();
+    }
+    bool HasWindow() const { return window_.has_value(); }
 
 private:
     std::optional<huxerui::WindowHandle> window_;
@@ -32,6 +37,11 @@ private:
 // 与 docs/guide/core-concepts.md）。处理器不捕获窗口，改经 TrayWindowController
 // 定位——该控制器也在这里 Provide 给根组合。
 void InstallSystemTray(huxerui::ApplicationContext& context);
+
+// 进程级窗口控制器：应用安装钩子里创建并在这里发布，根组合写入当前窗口句柄。
+// 控制面命令（如 lightweight）在应用线程上经它操作窗口。
+void PublishWindowController(TrayWindowController* controller);
+TrayWindowController* CurrentWindowController();
 
 // 应用根：侧栏导航 + 页面切换。由 src/app.cpp 注册到 Application。
 huxerui::View AppRoot();

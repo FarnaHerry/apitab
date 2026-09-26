@@ -309,6 +309,7 @@ void printGeneralHelp() {
   send <请求ID> [--project ID] [--env ID|名字] [--json]
                                     发送请求并输出响应（body 到 stdout）
   history [--limit N]               最近发送历史（默认 20 条）
+  lightweight [off]                 进入/退出轻量模式（隐藏窗口 + 释放应用侧缓存）
 
 约定:
   stdout 数据（列表一行一条）；stderr 错误。

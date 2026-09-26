@@ -34,6 +34,7 @@
 
 #include "cli.h"
 #include "control.h"
+#include "ui/lightweight.h"
 
 import asio;
 import nlohmann.json;
@@ -156,7 +157,17 @@ void RunCommandOnApplicationThread(std::vector<std::string> args,
     CollectSink sink;
     int code = 1;
     try {
-        code = cli::run(args, sink);
+        // 轻量模式属于"实例进程形态"操作，不是数据命令：由控制面自己处理
+        // （cli::run 只管 apitab 领域命令）。
+        if (!args.empty() && args.front() == "lightweight") {
+            const bool off = args.size() > 1 && args[1] == "off";
+            const ui::LightweightResult result =
+                off ? ui::ExitLightweightMode() : ui::EnterLightweightMode();
+            sink.Out(result.message);
+            code = result.ok ? 0 : 1;
+        } else {
+            code = cli::run(args, sink);
+        }
     } catch (const std::exception& error) {
         if (!sink.stderr_.empty()) sink.stderr_.push_back('\n');
         sink.stderr_ += std::string{"命令执行异常: "} + error.what();

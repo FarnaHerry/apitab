@@ -27,6 +27,7 @@
 #include "ui.h"
 #include "app.h"
 #include "control.h"
+#include "lightweight.h"
 #include "app_resources.h"
 
 import apitab.config;
@@ -493,8 +494,19 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
 // 重连），所以在 AppRoot 里每次重组调用都安全；08acc36 所有权重构把它改成应用
 // 级一次性注册后，原来的写法在第二次重组时抛异常 → std::terminate（启动后
 // 托盘宿主就绪触发重组即闪退）。处理器不捕获窗口，改为捕获控制器。
+namespace {
+// 进程级窗口控制器指针（应用安装期创建，进程内唯一）：控制面命令要用它操作窗口，
+// 而 UseService 只在组合期可用。
+TrayWindowController* g_windowController = nullptr;
+} // namespace
+
+void PublishWindowController(TrayWindowController* controller) { g_windowController = controller; }
+
+TrayWindowController* CurrentWindowController() { return g_windowController; }
+
 void InstallSystemTray(huxerui::ApplicationContext& context) {
     auto controller = std::make_shared<TrayWindowController>();
+    PublishWindowController(controller.get());
     context.Provide(controller);
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     application.SystemTray().OnActivate([controller] { controller->Activate(); });
@@ -776,12 +788,21 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     // 待可用性翻转触发重组后再 Show。
     if (trayAvailable) {
         huxerui::Lifecycle(
-            [tray, window, application] {
+            [tray, window, application, tasks] {
                 // 菜单项用 push_back 构造：GCC 16 对 menu 列表初始化内的
                 // MenuItem/MenuSection 隐式转换报 "expected primary-expression"
                 std::vector<huxerui::MenuEntry> menuEntries;
                 menuEntries.push_back(
                     huxerui::MenuItem("显示主窗口", [window] { window.Activate(); }));
+                // 轻量模式（伪纯 CLI 形态）：隐藏窗口 + 释放应用侧缓存，控制面继续服务。
+                // 与关闭到托盘同理，Hide 推迟出菜单回调，避免在回调栈上拆窗口。
+                menuEntries.push_back(huxerui::MenuItem(
+                    "轻量模式（隐藏并释放缓存）", [tasks] {
+                        tasks.Launch([]() -> huxerui::Task<void> {
+                            co_await huxerui::Delay(std::chrono::duration<double>{0});
+                            (void)EnterLightweightMode();
+                        });
+                    }));
                 menuEntries.push_back(huxerui::MenuSection{});
                 menuEntries.push_back(
                     huxerui::MenuItem("退出", [application] { application.Quit(); }));

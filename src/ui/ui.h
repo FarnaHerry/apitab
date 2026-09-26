@@ -542,6 +542,10 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup, std::vector<AppMen
 huxerui::codeeditor::EditorTheme EditorTheme(const huxerui::ThemeSpec& theme);
 void ConfigureEditorMenu(huxerui::codeeditor::EditorOptions& options);
 void ApplyEditorTypography(huxerui::codeeditor::EditorOptions& options);
+// 释放语法高亮 provider 缓存（每个 provider 持有解析后的文档/行索引）。轻量模式
+// 调用；下次组合按需重建。
+void ClearSweetLineProviders();
+
 std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> SweetLineProvider(
     std::string syntax, std::string initialText, std::string documentKey);
 // 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（无尾下箭头弹菜单），

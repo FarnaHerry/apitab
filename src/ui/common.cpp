@@ -551,11 +551,20 @@ void ApplyEditorTypography(huxerui::codeeditor::EditorOptions& options) {
     options.scrollbar_thickness = editor_metrics::kScrollbarThickness;
 }
 
-std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> SweetLineProvider(
-    std::string syntax, std::string initialText, std::string documentKey) {
+// documentKey → provider 缓存。具名（而非函数内 static）是为了让轻量模式能整表释放。
+namespace {
+std::unordered_map<std::string,
+                   std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider>>&
+SweetLineProviderCache() {
     static std::unordered_map<std::string,
                               std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider>> cache;
-    auto [entry, inserted] = cache.try_emplace(documentKey);
+    return cache;
+}
+} // namespace
+
+std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> SweetLineProvider(
+    std::string syntax, std::string initialText, std::string documentKey) {
+    auto [entry, inserted] = SweetLineProviderCache().try_emplace(documentKey);
     if (inserted) {
         entry->second = std::make_shared<demo::SweetLineDecorationProvider>(
             std::move(syntax), std::move(initialText), documentKey,
@@ -563,6 +572,12 @@ std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> SweetLineProvider
             demo::SweetLineDecorationProvider::PhantomSource{});
     }
     return entry->second;
+}
+
+// 轻量模式：丢掉全部语法高亮 provider（它们各自持有 SweetLine 的解析结果与行索引，
+// 是应用侧最大的一块可再生缓存）。下次组合会按 documentKey 重新创建。
+void ClearSweetLineProviders() {
+    SweetLineProviderCache().clear();
 }
 
 // ---- 自绘弹出菜单（ShowPopupMenu[At]）----
