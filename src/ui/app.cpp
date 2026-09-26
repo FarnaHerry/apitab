@@ -20,6 +20,7 @@
 #include <functional>
 #include <filesystem>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -482,6 +483,22 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
 
 } // namespace
 
+// 应用安装钩子（AppOptions::application_hooks，运行时在工作排队前调用一次）：
+// 提供托盘窗口控制器 + 注册托盘激活处理器。
+//
+// 这里是托盘激活的**唯一**注册点，原因见 ui/app.h：OnActivate 注册的是"应用级
+// 主激活处理器"，活到 Runtime 关闭，重复注册抛 std::logic_error。旧版 HuxerUI
+// 的 OnActivate(handler, deps...) 自己把它包进 Lifecycle（组合期订阅 + 依赖
+// 重连），所以在 AppRoot 里每次重组调用都安全；08acc36 所有权重构把它改成应用
+// 级一次性注册后，原来的写法在第二次重组时抛异常 → std::terminate（启动后
+// 托盘宿主就绪触发重组即闪退）。处理器不捕获窗口，改为捕获控制器。
+void InstallSystemTray(huxerui::ApplicationContext& context) {
+    auto controller = std::make_shared<TrayWindowController>();
+    context.Provide(controller);
+    const huxerui::ApplicationHandle application = huxerui::UseApplication();
+    application.SystemTray().OnActivate([controller] { controller->Activate(); });
+}
+
 // 关闭询问弹窗宿主：必须在 OceanThemed provider 之下组合——AppRoot 自身在
 // provider 之上，层内容捕获调用处环境，在 AppRoot 里 dialog.Show 的弹窗
 // UseTheme() 只能拿到默认浅色 spec（弹窗不应用主题的根因）。关闭拦截
@@ -492,6 +509,9 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     const huxerui::WindowHandle window = huxerui::UseWindow();
     const huxerui::SystemTrayHandle tray = application.SystemTray();
+    // 托盘激活处理器已由 InstallSystemTray（应用安装钩子）一次性注册；这里只取
+    // 它用来定位窗口的应用级控制器。必须无条件取服务，不能放进 if (trayAvailable)。
+    const auto trayWindow = huxerui::UseService<TrayWindowController>();
     auto toast = huxerui::UseToast();
     // IsAvailable() 内部会观察托盘可用性 State：DBus 托盘宿主就绪较晚时，
     // 这里在组合期订阅，可用性翻转后本作用域重组、托盘随后注册。
@@ -733,10 +753,18 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
     const float titleBarLogoWidth = sideShellWidth - 2.0F * titleBarHorizontalPadding;
     const float statusTopPad = gap - rootSpec.spacing.extra_small;
 
-    // 托盘：图标 + 菜单；点击托盘图标激活主窗口。仅在可用时注册；
-    // 首次组合时宿主未就绪则跳过，待可用性触发重组后再注册。
+    // 托盘：把当前窗口交给应用级控制器——托盘激活处理器（InstallSystemTray
+    // 注册）经它激活主窗口。句柄在根挂载时写入、卸载时清除。
+    huxerui::Lifecycle(
+        [trayWindow, window] {
+            trayWindow->SetWindow(window);
+            return [trayWindow] { trayWindow->ClearWindow(); };
+        },
+        0);
+
+    // 托盘图标 + 菜单；仅在可用时展示：首次组合时宿主未就绪则跳过，
+    // 待可用性翻转触发重组后再 Show。
     if (trayAvailable) {
-        tray.OnActivate([window] { window.Activate(); });
         huxerui::Lifecycle(
             [tray, window, application] {
                 // 菜单项用 push_back 构造：GCC 16 对 menu 列表初始化内的

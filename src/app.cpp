@@ -24,5 +24,9 @@ const huxerui::Application application{
             // 若框架窗口按钮（─▢✕）的系统最小值更大，SDK 会保留下限——
             // 内容与按钮都按 WindowTitleBar 默认的交叉轴居中共享中心线。
             .title_bar_height = 24.0F,
-        }},
+        },
+        // 托盘激活处理器是应用级一次性注册（见 ui/app.h 的 InstallSystemTray），
+        // 必须在安装钩子里注册，不能放进会重组的 AppRoot。
+        .application_hooks = {apitab::ui::InstallSystemTray},
+    },
 };

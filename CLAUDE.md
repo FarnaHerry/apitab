@@ -140,6 +140,19 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   嵌套滚动/overscroll 统一。本仓 0.2.0 预编译 SDK 尚不含这些 main 能力；开发期
   默认源码通道可以使用，合并/发布前必须刷新 SDK 并完成三通道验证。应用场景与边界见
   `docs/plans/island-structure-theme.md` §十四。
+- **托盘激活改「应用级一次性注册」（2026-09-24 上游 08acc36 `refactor(runtime):
+  separate application and window ownership`，本仓 pin 0c51262 起生效）**：
+  `SystemTrayHandle::OnActivate` 从**组合期订阅**变成**应用级主激活处理器**——
+  旧签名 `OnActivate(handler, deps...)` 内部自己包 `Lifecycle`（可随依赖重连、
+  每次重组调用都安全），新签名 `OnActivate(handler)` 只认一次注册、活到 Runtime
+  关闭，**重复注册抛 `std::logic_error`**；`Show/Hide` 同步去掉 owner 参数。
+  所以托盘激活的唯一注册点是 `AppOptions::application_hooks`
+  （`src/app.cpp` 挂 `apitab::ui::InstallSystemTray`，`src/ui/app.cpp` 实现，
+  经 `TrayWindowController` 定位窗口，窗口句柄在根挂载时写入），
+  **绝不能写在会重组的 composable 里**：写在 AppRoot 里第二次重组即抛异常
+  `std::terminate`（v0.1.11–v0.1.14 启动、托盘宿主就绪后闪退的根因）。上游契约见
+  `third_party/huxerui/docs/design/system-tray.md`「Composed behavior」与
+  `docs/guide/core-concepts.md`。
 - **已用上的 2026-08-30 新能力**（已包含于 SDK 0.2.0；
   `PointerEvent button 字段`计划项已落地）：右键事件
   `ViewEvents::ContextMenuRequested` + `ShowPopupMenuAt`（请求树列表右键
