@@ -19,9 +19,15 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "--cli") {
         // 薄客户端：命令发给运行中的实例执行（见 src/control_client.cpp）。
         // 本进程不构造 store、不碰数据库——DB 的唯一属主是 GUI 进程。
+        std::vector<std::string> args(argv + 2, argv + argc);
+        // --ensure：实例没在跑就先拉起再执行（客户端侧开关，不发给服务端）。
+        bool ensure = false;
+        if (!args.empty() && args.front() == "--ensure") {
+            ensure = true;
+            args.erase(args.begin());
+        }
         std::string error;
-        const int code = apitab::control::ForwardCommand(
-            std::vector<std::string>(argv + 2, argv + argc), error);
+        const int code = apitab::control::ForwardCommand(args, error, ensure);
         if (!error.empty()) {
             std::fprintf(stderr, "%s\n", error.c_str());
             return 1;

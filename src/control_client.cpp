@@ -5,12 +5,23 @@
 // （src/cli.cpp 同一份），所以输出契约与 "--cli 在实例内直跑" 完全一致。
 #include <huxerui/huxerui.h>
 
+#include <chrono>
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
+
+#ifndef _WIN32
+#include <spawn.h>
+#include <unistd.h>
+extern char** environ;
+#endif
 
 #include "control.h"
 
@@ -18,16 +29,94 @@ import asio;
 import nlohmann.json;
 
 namespace apitab::control {
+
+// 当前可执行文件路径：--cli 进程自己就是 apitab，拉起实例 = 再跑一次自己。
+std::string ExecutablePath() {
+#ifdef _WIN32
+    char buffer[MAX_PATH]{};
+    const DWORD n = ::GetModuleFileNameA(nullptr, buffer, MAX_PATH);
+    return n == 0 ? std::string{} : std::string(buffer, n);
+#else
+    char buffer[4096]{};
+    const ssize_t n = ::readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+    if (n <= 0) return {};
+    return std::string(buffer, static_cast<std::size_t>(n));
+#endif
+}
+
 namespace {
 
 using json = nlohmann::json;
 
-// 客户端侧不需要运行时，但保留与仓库其它 TU 一致的 asio 引入方式（import asio）。
-constexpr int kConnectTimeoutMs = 4000;
+// 拉起后等端点就绪的上限：冷启动要读库、建资源包缓存，给足 30s；超时就报错退出，
+// 不无限等（agent 侧需要确定的失败语义）。
+constexpr auto kStartupTimeout = std::chrono::seconds{30};
+constexpr auto kStartupPollInterval = std::chrono::milliseconds{200};
+
+// 拉起实例：同一可执行文件、不带 --cli（子进程走 GUI 路径；它会自己拿单实例锁，
+// 与这里并发多次拉起天然串行）。
+bool SpawnInstance(std::string& error) {
+#ifdef _WIN32
+    std::wstring command = std::filesystem::path{ExecutablePath()}.wstring();
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION info{};
+    std::vector<wchar_t> buffer(command.begin(), command.end());
+    buffer.push_back(L'\0');
+    const BOOL ok = ::CreateProcessW(nullptr, buffer.data(), nullptr, nullptr, FALSE,
+                                     CREATE_NO_WINDOW, nullptr, nullptr, &startup, &info);
+    if (!ok) {
+        error = "拉起 apitab 失败（CreateProcess）";
+        return false;
+    }
+    ::CloseHandle(info.hThread);
+    ::CloseHandle(info.hProcess);
+    return true;
+#else
+    const std::string exe = ExecutablePath();
+    std::vector<std::string> storage{exe};
+    std::vector<char*> argv;
+    for (std::string& item : storage) argv.push_back(item.data());
+    argv.push_back(nullptr);
+    pid_t pid = -1;
+    const int rc = ::posix_spawn(&pid, exe.c_str(), nullptr, nullptr, argv.data(), environ);
+    if (rc != 0) {
+        error = "拉起 apitab 失败: " + std::string{std::strerror(rc)};
+        return false;
+    }
+    return true;
+#endif
+}
 
 } // namespace
 
-int ForwardCommand(const std::vector<std::string>& args, std::string& error) {
+bool InstanceRunning() {
+    int port = 0;
+    std::string token;
+    std::string ignored;
+    if (!ReadEndpoint(port, token, ignored)) return false;
+    asio::io_context context;
+    asio::ip::tcp::socket socket{context};
+    asio::error_code ec;
+    socket.connect({asio::ip::make_address("127.0.0.1", ec),
+                    static_cast<unsigned short>(port)}, ec);
+    return !ec;
+}
+
+bool StartInstanceAndWait(std::string& error) {
+    if (InstanceRunning()) return true;
+    if (!SpawnInstance(error)) return false;
+    const auto deadline = std::chrono::steady_clock::now() + kStartupTimeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(kStartupPollInterval);
+        if (InstanceRunning()) return true;
+    }
+    error = "已拉起 apitab，但控制面端点在 30s 内未就绪（实例可能启动失败）。";
+    return false;
+}
+
+int ForwardCommand(const std::vector<std::string>& args, std::string& error, bool ensure) {
+    if (ensure && !StartInstanceAndWait(error)) return 1;
     int port = 0;
     std::string token;
     if (!ReadEndpoint(port, token, error)) return 1;

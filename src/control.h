@@ -24,9 +24,18 @@ std::string EndpointFilePath();
 // 读取端点文件里的 {port, token}；文件缺失/损坏 → false，error 给出可读原因。
 bool ReadEndpoint(int& port, std::string& token, std::string& error);
 
+// 实例是否已在运行（端点文件存在且能连上）。
+bool InstanceRunning();
+
+// 拉起实例并等端点就绪（默认路径见 ForwardCommand 的 ensure）。
+// 注意：HuxerUI 目前没有"启动即隐藏"，所以拉起的实例会先显示窗口（上游 TODO：
+// WindowOptions::start_hidden，见 docs/plans/runtime-control-surface.md §8）。
+bool StartInstanceAndWait(std::string& error);
+
 // 把一条命令转发给运行中的实例：命令在实例的应用线程执行，stdout/stderr 原样回放
 // 到本进程标准流，返回它的退出码。连接失败时返回 1 并填充 error（调用方负责打印）。
-int ForwardCommand(const std::vector<std::string>& args, std::string& error);
+// ensure=true 时：实例没在跑就先拉起并等端点就绪（`apitab --cli --ensure …`）。
+int ForwardCommand(const std::vector<std::string>& args, std::string& error, bool ensure = false);
 
 // 应用线程投递口：控制面线程 → 应用线程的唯一通道。
 // 应用安装期还没有组合作用域（拿不到 TaskScope::Post），所以由根组合在挂载时注入

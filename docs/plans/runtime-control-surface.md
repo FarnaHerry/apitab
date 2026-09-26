@@ -236,12 +236,24 @@ agent 的数据类命令（orgs/projects/requests/show/send/history）全部可�
 - [x] 实测：`orgs` / `projects` / `requests` / `history --limit` 输出与旧实现一致；
       无实例路径错误可读。
 
+已完成（第二轮）：
+
+- [x] 只读子命令不回写会话：`SessionRestore` 包住整条命令，进入时快照 组织/项目/环境 +
+      `active_project`，返回前（含异常路径）还原。命令期间的临时切换安全——整条命令在
+      应用线程同步执行、不让出事件循环，组合观察不到中间态。
+      实测：实例当前项目 11 → 跑 `projects --org 1`、`requests --project 5` → 再读仍是 11，
+      settings.ini 的 `session.active_project` 逐字未变。
+- [x] `--ensure` 拉起 + 握手：`apitab --cli --ensure …` 发现实例没跑就 `posix_spawn` /
+      `CreateProcessW` 再跑一次自己（GUI 路径），轮询端点最多 30s；已在跑则直接复用
+      （实测复用耗时 24ms）。默认仍是报错 + 退出码 1。
+
 下一轮：
 
-- [ ] `--ensure` 拉起 + 端点位就绪等待（默认仍是报错）；"启动即隐藏"依赖上游
-      `WindowOptions::start_hidden`（见 §8 的 TODO）。
-- [ ] 只读子命令不回写会话：现在 `projects`/`requests` 经 `ensureContext` 会切换实例
-      的当前项目（用户眼前的 GUI 会跳项目）——改成按参数取上下文。
+- [ ] `help` 离线可用（不依赖实例），让 CLI 进程彻底不构造 store。
+- [ ] 轻量模式（首帧 Hide + apitab 侧缓存释放）+ 三态 RSS/CPU 基线（§7）。
+- [ ] `send` 走后端引擎异步化：现在它在应用线程上同步等到响应，会把 GUI 卡住整个传输时长
+      （旧 CLI 是独立进程没这个问题）；保持 `--json` 形状不变。
+- [ ] 启动即隐藏仍等上游 `WindowOptions::start_hidden`（§8 TODO）：拉起的实例现在会闪一下窗口。
 - [ ] `help` 离线可用（不依赖实例），并让 CLI 进程彻底不构造 store（懒初始化）。
 - [ ] 轻量模式（首帧 Hide + apitab 侧缓存释放）+ 三态 RSS/CPU 基线（§7）。
 - [ ] `send` 走后端引擎（等最终结果 + 超时），保持 `--json` 形状。
