@@ -37,7 +37,15 @@ extern char** environ;
 
 #include "control.h"
 
+// MSVC 例外：`import asio;` 在该工具链下会让本 TU 走文本包含路径并与模块配置冲突
+// （CI windows-x86_64 实证：asio/io_context.hpp 的 service 基类消失）。与
+// src/ui/tcp_session.cpp 同一取舍——那里也是 MSVC 退回纯头文件，实现仍在 asio 库里
+// （ASIO_SEPARATE_COMPILATION，由 asio 目标 PUBLIC 定义）。
+#ifdef _MSC_VER
+#include <asio.hpp>
+#else
 import asio;
+#endif
 import nlohmann.json;
 import apitab.config;
 
