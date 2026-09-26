@@ -47,11 +47,16 @@ UI 层        src/ui/*.cpp（普通 C++ + HuxerUI codegen）、src/app_main.cpp
 | 请求头表 / MIME 体 | 每次请求的栈上 RAII（`HeaderList` / `MimeHandle`） | `run()` | `run()` 返回时 | curl 不复制内容：必须活到 `curl_easy_perform` 返回 |
 | 结果槽 / 进度槽 | `CurlEngine` | 引擎构造 | 引擎析构 | `resultMutex_` 保护；UI 轮询读、工作线程写 |
 | SQLite 连接 | `RequestStore::db_`（`unique_ptr<db::Db>`） | store 构造 | store 析构 | 进程内单连接；GUI/CLI 两进程靠 SQLite 文件锁串行 |
-| k6 子进程 + 输出管道 | `K6Engine` | `start()` | 监视线程 EOF 收尾（waitpid / WaitForSingleObject + close） | `stop()` 置标志；监视线程 3s 宽限后 SIGKILL |
-| k6 临时脚本 | `K6Engine::scriptPath_` | `start()` | 监视线程结束前删除 | 文件名带 pid，避免多实例互踩 |
+| k6 子进程 | `K6Engine::child_`（`ChildProcess`，RAII） | `spawn()` | 监视线程 `reap()`；析构兜底"强杀 + 回收" | 终止信号可从 UI 线程发（`stop()`），句柄是原子的；`reap()` 在监视线程 |
+| k6 输出管道 | `K6Engine::readPipe_`（`ChildPipe`，RAII） | `spawn()` | 监视线程 `close()`；析构兜底关闭 | 父进程只持读端；子进程写端在 `spawn()` 内随局部 guard 关闭（不关则读端永远等不到 EOF） |
+| k6 临时脚本 | `K6Engine::scriptPath_` | `start()` | 监视线程结束前 `remove`；启动/线程失败路径同步删除 | 文件名带 pid，避免多实例互踩 |
 | WS 会话 | 页面协程 `State<shared_ptr<WsSession>>` | 页面 | 页面卸载 / 重连替换 | IX 回调只投递事件队列，UI 泵 drain |
 | TCP 会话 | 页面协程 `State<shared_ptr<TcpSession>>` | 页面 | 同上 | 同步 asio，只准在任务线程调用；`close()` 任意线程幂等 |
 | 单实例锁 | 平台入口 `SingleInstance` | `main()` | 进程退出析构 | fd/HANDLE 由 RAII 释放 |
+| 任务线程池 | `detail::TaskPool` 进程级静态 | 首次 `RunOnTaskThread` | 进程退出静态析构（stop + join） | worker 起不齐时构造内先 stop + join 已起的线程，再把异常抛出去 |
+| 响应下载临时文件 | `TemporaryFileGuard`（`request_editor.cpp`，协程帧内） | 保存响应前 | 作用域退出（含协程被取消）同步 `File::Delete()` | 全程 UI 线程；析构不抛出 |
+| 头像裁剪临时 PNG | `AvatarCropOutput`（`settings_avatar_crop.cpp`） | 任务线程跑 `magick` 后 | 结果销毁时 `remove`（成功路径先 `rename` 走） | `shared_ptr` 跨 `RunOnTaskThread` 回 UI 线程 |
+| `popen` 流 / 注册表键 | `cfg::PopenPipe` / `cfg::RegKey`（`config.cppm`） | `systemPrefersDark()` | 作用域退出析构 | 仅启动时调用一次 |
 
 ## 4. 单次请求（curl）要不要池化？
 
@@ -97,13 +102,46 @@ UI 层        src/ui/*.cpp（普通 C++ + HuxerUI codegen）、src/app_main.cpp
 - `curl_engine.cpp`：`CurlGlobal`（全局状态，引用计数决定 cleanup 时机，避免静态
   析构顺序把 `curl_global_cleanup` 提到 `curl_easy_cleanup` 之前）、`EasyHandle`、
   `HeaderList`、`MimeHandle`；
+- `k6_engine.cpp`：`ChildProcess`（子进程句柄，析构兜底"强杀 + 回收"不留僵尸）、
+  `ChildPipe`（管道端，`adopt()` / `release()` 移交）、`SpawnFileActions`
+  （`posix_spawn` 文件动作表，生命周期跨会抛 `bad_alloc` 的 argv 构造）；
+- `config.cppm`：`PopenPipe`（`popen` 流，析构 `pclose`）、`RegKey`（Win32 注册表键，
+  析构 `RegCloseKey`）；
 - `RequestStore`：`std::unique_ptr<db::Db>` / `std::unique_ptr<api::ApiEngine>`；
-- `WsSession` / `TcpSession`：pimpl `unique_ptr` + 析构里 stop/close；
+- `WsSession` / `TcpSession` / `Db`：pimpl `unique_ptr` + 析构里 stop/close；
 - 线程：一律"谁起谁 join"（`CurlEngine`、`K6Engine`、`TaskPool` 静态析构）；
+  `TaskPool` 构造函数在 worker 起不齐时先 stop + join 再把异常抛出去——否则
+  未完成构造不会走析构，而 `vector<std::thread>` 析构碰上 joinable 线程会
+  `std::terminate`；
+- 临时文件：`AvatarCropOutput`（`settings_avatar_crop.cpp`）、`TemporaryFileGuard`
+  （`request_editor.cpp`，协程帧内，覆盖"保存对话框开着就切页/关标签"的取消路径）；
 - `SingleInstance`：fd / HANDLE 由析构释放。
 
 `run()` 的异常兜底（`runSafely`）只解决"线程不能死、结果槽必须填"，**不能**代替
 资源释放。
+
+### 5.1 审计结论（2026-09-26）
+
+按"每个获取点是否由类型持有"全量核查了 `src/`、`platform/`、`tests/` 的
+`fd` / `HANDLE` / `pid` / `FILE*` / 线程 / 临时文件 / 第三方句柄，结果：
+
+- 所有资源都已由 RAII 类型或 `unique_ptr` / `shared_ptr` 持有，**没有裸句柄成员，
+  也没有在函数末尾手写 cleanup 的代码**（唯一"手写"的是 `SingleInstance` 自己的
+  析构体 —— 那个类本身就是包装类型）。
+- 本轮修掉的四处"包装不彻底"：
+  1. `k6_engine.cpp` 的 `childProcess_` / `readPipe_` / `childPid_` / `readFd_`
+     原本是裸成员、由监视线程手写收尾，且 Windows 分支在宽字符转换失败时漏掉
+     刚建的两根管道句柄；现改由 `ChildProcess` / `ChildPipe` 持有；
+  2. `K6Engine::start()` 里 `std::thread` 构造抛 `system_error` 时，子进程会活着
+     且无人回收；现已在该分支强杀 + 回收 + 清临时脚本；
+  3. `config.cppm::systemPrefersDark()` 原本手写 `pclose` / `RegCloseKey`；现由
+     `PopenPipe` / `RegKey` 持有；
+  4. `TaskPool` 构造函数与 `request_editor.cpp` 的下载临时文件（协程被取消时
+     末尾的 `DeleteAsync()` 根本不会执行）；分别改为"起不齐就自己 join 再抛"与
+     协程帧内的 `TemporaryFileGuard`。
+- 未改动的已知良性项：`LoopbackHttpServer`（`tests/test_curl_engine.cpp`）的
+  `listenFd_` 是裸成员，但该对象自身是 RAII 包装（析构 `stop()` 关 fd + join），
+  所有失败路径都在对象存活期内，无泄漏。
 
 ## 6. 已知缺口
 

@@ -50,6 +50,136 @@ constexpr auto kWakeThrottle = std::chrono::milliseconds(150);
 // stop() 后等 k6 优雅退出的宽限，超时强杀。
 constexpr auto kGracePeriod = std::chrono::seconds(3);
 
+// ---- 子进程资源的 RAII 包装 -------------------------------------------------
+// k6 子进程与它的输出管道必须由类型持有，禁止在本类里手写 cleanup：
+// start() 的每一步都可能失败（posix_spawn 之后的 argv 构造会抛 bad_alloc、
+// CreateProcessW 之前的宽字符转换会失败、监视线程创建会抛 system_error），
+// 手写 cleanup 只要漏一条分支，管道句柄/进程句柄就漏在引擎的整个生命周期里
+// （Windows 上 CreatePipe 的两根句柄尤其容易漏）。析构兜底 = 强杀 + 回收，
+// 绝不留僵尸进程。
+
+#ifdef _WIN32
+using NativeProcess = HANDLE;
+using NativePipe = HANDLE;
+constexpr NativeProcess kNoProcess = nullptr;
+constexpr NativePipe kNoPipe = nullptr;
+#else
+using NativeProcess = pid_t;
+using NativePipe = int;
+constexpr NativeProcess kNoProcess = -1;
+constexpr NativePipe kNoPipe = -1;
+#endif
+
+// 管道的一端（父进程侧）。析构关闭；release() 把所有权移交出去（装配流程里
+// "成功才交给成员"靠它，失败路径由局部 guard 自动收尾）。
+class ChildPipe {
+public:
+    ChildPipe() = default;
+    explicit ChildPipe(NativePipe handle) : handle_(handle) {}
+    ~ChildPipe() { close(); }
+
+    ChildPipe(const ChildPipe&) = delete;
+    ChildPipe& operator=(const ChildPipe&) = delete;
+
+    NativePipe get() const { return handle_; }
+
+    void adopt(NativePipe handle) {
+        close();
+        handle_ = handle;
+    }
+
+    NativePipe release() {
+        const NativePipe handle = handle_;
+        handle_ = kNoPipe;
+        return handle;
+    }
+
+    void close() {
+        if (handle_ == kNoPipe) return;
+#ifdef _WIN32
+        ::CloseHandle(handle_);
+#else
+        ::close(handle_);
+#endif
+        handle_ = kNoPipe;
+    }
+
+private:
+    NativePipe handle_ = kNoPipe;
+};
+
+// 子进程句柄（Windows: 进程 HANDLE；POSIX: pid）。
+// - terminate()：发终止信号（POSIX graceful=SIGINT，否则 SIGKILL；Windows 直接
+//   TerminateProcess——没有可靠的跨进程 Ctrl+C）；
+// - reap()：阻塞等到退出并回收（POSIX waitpid 收僵尸 / Windows Wait + CloseHandle），
+//   幂等，已回收后再调用是空操作；
+// - 析构：仍持有就强杀 + 回收，保证任何提前返回/异常路径都不留僵尸。
+// 句柄用原子量：terminate() 由 UI 线程调用（stop()），reap() 在监视线程。
+class ChildProcess {
+public:
+    ChildProcess() = default;
+    ~ChildProcess() { abandon(); }
+
+    ChildProcess(const ChildProcess&) = delete;
+    ChildProcess& operator=(const ChildProcess&) = delete;
+
+    void adopt(NativeProcess process) {
+        abandon();
+        process_.store(process);
+    }
+    bool running() const { return process_.load() != kNoProcess; }
+
+    void terminate(bool graceful) {
+        const NativeProcess process = process_.load();
+        if (process == kNoProcess) return;
+#ifdef _WIN32
+        (void)graceful;
+        ::TerminateProcess(process, 1);
+#else
+        ::kill(process, graceful ? SIGINT : SIGKILL);
+#endif
+    }
+
+    void reap() {
+        const NativeProcess process = process_.exchange(kNoProcess);
+        if (process == kNoProcess) return;
+#ifdef _WIN32
+        ::WaitForSingleObject(process, INFINITE);
+        ::CloseHandle(process);
+#else
+        int status = 0;
+        while (::waitpid(process, &status, 0) < 0 && errno == EINTR) {}
+#endif
+    }
+
+private:
+    void abandon() {
+        if (!running()) return;
+        terminate(false);
+        reap();
+    }
+
+    std::atomic<NativeProcess> process_{kNoProcess};
+};
+
+#ifndef _WIN32
+// posix_spawn 的文件动作表：init 内部持有分配，必须 destroy。它的生命周期跨越
+// argv 构造（会抛 bad_alloc），所以同样要 RAII，不能靠 spawn 后手写 destroy。
+class SpawnFileActions {
+public:
+    SpawnFileActions() { ::posix_spawn_file_actions_init(&actions_); }
+    ~SpawnFileActions() { ::posix_spawn_file_actions_destroy(&actions_); }
+
+    SpawnFileActions(const SpawnFileActions&) = delete;
+    SpawnFileActions& operator=(const SpawnFileActions&) = delete;
+
+    posix_spawn_file_actions_t* get() { return &actions_; }
+
+private:
+    posix_spawn_file_actions_t actions_;
+};
+#endif
+
 // ---- k6 脚本生成 ----
 // URL / header / body 一律经 nlohmann dump 成 JSON 字符串字面量 —— 合法 JS，
 // 转义问题一次解决。
@@ -222,13 +352,27 @@ public:
 
         startedAt_ = std::chrono::steady_clock::now();
         running_.store(true);
-        monitor_ = std::thread([this] { monitorLoop(); });
+        try {
+            monitor_ = std::thread([this] { monitorLoop(); });
+        } catch (const std::exception& error) {
+            // 线程起不来：子进程与管道由 RAII 兜底，引擎绝不能带着一个没人读
+            // 输出、也没人回收的活子进程停在"已启动"状态。
+            running_.store(false);
+            stopRequested_.store(true);
+            child_.terminate(false);
+            child_.reap();
+            readPipe_.close();
+            std::error_code ec;
+            std::filesystem::remove(scriptPath_, ec);
+            failFast(std::string{"k6 监视线程创建失败: "} + error.what());
+            return;
+        }
     }
 
     void stop() override {
         if (!running_.load()) return;
         stopRequested_.store(true);
-        terminateChild(/*graceful=*/true);  // POSIX=SIGINT；监视线程超时后强杀
+        child_.terminate(/*graceful=*/true);  // POSIX=SIGINT；监视线程超时后强杀
     }
 
     bool running() const override { return running_.load(); }
@@ -248,14 +392,9 @@ public:
     }
 
 private:
-    // ---- 子进程句柄（平台各一份）----
-#ifdef _WIN32
-    HANDLE childProcess_ = nullptr;
-    HANDLE readPipe_ = nullptr;
-#else
-    pid_t childPid_ = -1;
-    int readFd_ = -1;
-#endif
+    // ---- 子进程资源（RAII：见上方 ChildProcess / ChildPipe）----
+    ChildProcess child_;
+    ChildPipe readPipe_;
 
     void joinMonitor() {
         if (monitor_.joinable()) monitor_.join();
@@ -275,15 +414,20 @@ private:
         SECURITY_ATTRIBUTES sa{};
         sa.nLength = sizeof(sa);
         sa.bInheritHandle = TRUE;
-        HANDLE writePipe = nullptr;
-        if (!CreatePipe(&readPipe_, &writePipe, &sa, 0)) return false;
-        SetHandleInformation(readPipe_, HANDLE_FLAG_INHERIT, 0);
+        HANDLE readRaw = nullptr;
+        HANDLE writeRaw = nullptr;
+        if (!CreatePipe(&readRaw, &writeRaw, &sa, 0)) return false;
+        // 局部 guard：下面任一提前 return 都自动关掉两端句柄（旧实现在宽字符
+        // 转换失败时两处 return 都漏掉了刚建好的管道）。
+        ChildPipe readPipe{readRaw};
+        ChildPipe writePipe{writeRaw};
+        SetHandleInformation(readPipe.get(), HANDLE_FLAG_INHERIT, 0);
 
         STARTUPINFOW si{};
         si.cb = sizeof(si);
         si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdOutput = writePipe;
-        si.hStdError = writePipe;
+        si.hStdOutput = writePipe.get();
+        si.hStdError = writePipe.get();
         si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
 
         const int binaryLength = MultiByteToWideChar(CP_UTF8, 0, binary_.data(),
@@ -299,24 +443,23 @@ private:
         cmdBuf.push_back(L'\0');
         const BOOL ok = CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE,
                                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
-        CloseHandle(writePipe);
-        if (!ok) {
-            CloseHandle(readPipe_);
-            readPipe_ = nullptr;
-            return false;
-        }
-        childProcess_ = pi.hProcess;
-        CloseHandle(pi.hThread);
+        // 写端随 writePipe 析构关闭：父进程必须放手，否则子进程退出后读端也等
+        // 不到 EOF（句柄仍被父进程持有）。
+        if (!ok) return false;
+        child_.adopt(pi.hProcess);
+        ::CloseHandle(pi.hThread);  // 线程句柄无人使用，立即关
+        readPipe_.adopt(readPipe.release());
         return true;
 #else
         int pipefd[2];
         if (::pipe(pipefd) != 0) return false;
+        ChildPipe readPipe{pipefd[0]};
+        ChildPipe writePipe{pipefd[1]};
 
-        posix_spawn_file_actions_t actions;
-        posix_spawn_file_actions_init(&actions);
-        posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDOUT_FILENO);
-        posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDERR_FILENO);
-        posix_spawn_file_actions_addclose(&actions, pipefd[0]);
+        SpawnFileActions actions;
+        ::posix_spawn_file_actions_adddup2(actions.get(), pipefd[1], STDOUT_FILENO);
+        ::posix_spawn_file_actions_adddup2(actions.get(), pipefd[1], STDERR_FILENO);
+        ::posix_spawn_file_actions_addclose(actions.get(), pipefd[0]);
 
         std::string bin = binary_;
         std::string script = scriptPath_.string();
@@ -325,28 +468,15 @@ private:
         for (auto& a : argsStorage) argv.push_back(a.data());
         argv.push_back(nullptr);
 
-        const int rc = posix_spawnp(&childPid_, bin.c_str(), &actions, nullptr,
-                                    argv.data(), environ);
-        posix_spawn_file_actions_destroy(&actions);
-        ::close(pipefd[1]);
-        if (rc != 0) {
-            ::close(pipefd[0]);
-            childPid_ = -1;
-            return false;
-        }
-        readFd_ = pipefd[0];
+        pid_t child = kNoProcess;
+        const int rc = ::posix_spawnp(&child, bin.c_str(), actions.get(), nullptr,
+                                      argv.data(), environ);
+        // 写端随 writePipe 析构关闭：父进程必须放手，否则 k6 退出后读端也等不到
+        // EOF（写端仍被父进程持有 → poll 永不 POLLHUP → 监视线程挂死）。
+        if (rc != 0) return false;
+        child_.adopt(child);
+        readPipe_.adopt(readPipe.release());
         return true;
-#endif
-    }
-
-    // graceful=true：POSIX 发 SIGINT 让 k6 优雅收尾（仍会打印 summary）；
-    // 监视线程宽限期后强杀。Windows 无可靠的跨进程 Ctrl+C，直接 Terminate。
-    void terminateChild(bool graceful) {
-#ifdef _WIN32
-        (void)graceful;
-        if (childProcess_) TerminateProcess(childProcess_, 1);
-#else
-        if (childPid_ > 0) ::kill(childPid_, graceful ? SIGINT : SIGKILL);
 #endif
     }
 
@@ -382,18 +512,18 @@ private:
 #ifdef _WIN32
             char buf[4096];
             DWORD n = 0;
-            if (!ReadFile(readPipe_, buf, sizeof(buf), &n, nullptr) || n == 0) break;
+            if (!ReadFile(readPipe_.get(), buf, sizeof(buf), &n, nullptr) || n == 0) break;
             splitLines(pending, buf, n);
 #else
-            pollfd pfd{readFd_, POLLIN, 0};
+            pollfd pfd{readPipe_.get(), POLLIN, 0};
             const int pr = ::poll(&pfd, 1, 200);
             if (pr == 0) {
-                if (stopRequested_.load() && childPid_ > 0) {
+                if (stopRequested_.load() && child_.running()) {
                     const auto now = std::chrono::steady_clock::now();
                     if (killDeadline == std::chrono::steady_clock::time_point::max()) {
                         killDeadline = now + kGracePeriod;  // 首次观察到 stop → 起宽限
                     } else if (now >= killDeadline) {
-                        ::kill(childPid_, SIGKILL);
+                        child_.terminate(/*graceful=*/false);
                         killDeadline = std::chrono::steady_clock::time_point::max();  // 只杀一次
                     }
                 }
@@ -403,13 +533,13 @@ private:
             if (pfd.revents & (POLLHUP | POLLERR)) {
                 // 排干残留后退出
                 char buf[4096];
-                const ssize_t n = ::read(readFd_, buf, sizeof(buf));
+                const ssize_t n = ::read(readPipe_.get(), buf, sizeof(buf));
                 if (n > 0) splitLines(pending, buf, static_cast<size_t>(n));
                 break;
             }
             if (pfd.revents & POLLIN) {
                 char buf[4096];
-                const ssize_t n = ::read(readFd_, buf, sizeof(buf));
+                const ssize_t n = ::read(readPipe_.get(), buf, sizeof(buf));
                 if (n <= 0) break;
                 splitLines(pending, buf, static_cast<size_t>(n));
             }
@@ -418,28 +548,10 @@ private:
 
         if (!pending.empty()) pushLine(std::move(pending));
 
-        // 收尾：等退出码，清理句柄与临时脚本。
-#ifdef _WIN32
-        if (childProcess_) {
-            WaitForSingleObject(childProcess_, INFINITE);
-            CloseHandle(childProcess_);
-            childProcess_ = nullptr;
-        }
-        if (readPipe_) {
-            CloseHandle(readPipe_);
-            readPipe_ = nullptr;
-        }
-#else
-        int status = 0;
-        if (childPid_ > 0) {
-            while (::waitpid(childPid_, &status, 0) < 0 && errno == EINTR) {}
-            childPid_ = -1;
-        }
-        if (readFd_ >= 0) {
-            ::close(readFd_);
-            readFd_ = -1;
-        }
-#endif
+        // 收尾：等退出码并回收子进程、关闭管道、删除临时脚本。全部经 RAII 类型，
+        // 任何提前退出/异常都不会把这些资源留在引擎里。
+        child_.reap();
+        readPipe_.close();
         std::error_code ec;
         std::filesystem::remove(scriptPath_, ec);
 

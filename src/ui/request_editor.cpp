@@ -16,6 +16,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ui.h"
@@ -30,6 +31,37 @@ import apitab.utils;
 import nlohmann.json;
 
 namespace apitab::ui {
+
+namespace {
+
+// 临时响应文件的 RAII 守卫。协程在 co_await 悬挂点被取消（页面卸载、TaskScope
+// 取消）时栈展开照常执行析构，所以"保存对话框还开着就切页/关标签"不会把临时文件
+// 留在临时目录里。析构用同步 File::Delete()（桌面通道可用），绝不允许抛出。
+class TemporaryFileGuard {
+public:
+    explicit TemporaryFileGuard(huxerui::File file) : file_(std::move(file)) {}
+    ~TemporaryFileGuard() {
+        if (!held_) return;
+        held_ = false;
+        try {
+            (void)file_.Delete();
+        } catch (...) {
+            // 析构不得抛出：临时文件删不掉只影响磁盘占用。
+        }
+    }
+
+    TemporaryFileGuard(const TemporaryFileGuard&) = delete;
+    TemporaryFileGuard& operator=(const TemporaryFileGuard&) = delete;
+
+    // 交出所有权：调用方已自行删除（成功路径走异步 DeleteAsync）。
+    void release() { held_ = false; }
+
+private:
+    huxerui::File file_;
+    bool held_ = true;
+};
+
+} // namespace
 
 // ---- KV 桥接：api::KeyValue（模块类型）⇄ KvRow --------------------------
 // 签名含模块类型，按 CLAUDE.md 模块约束留在调用 TU、不进普通头；与
@@ -229,6 +261,9 @@ huxerui::View SplitActionButton(
                 toast.Show("准备响应下载目录失败");
                 co_return;
             }
+            // 从这一刻起临时文件归守卫管：写失败、保存被取消、协程被取消（切页/
+            // 关标签会在悬挂点销毁协程帧）都走同一份清理，不靠末尾那行手写删除。
+            TemporaryFileGuard cleanup{*temporary};
             if (!co_await temporary->WriteStringAsync(std::move(body))) {
                 toast.Show("准备响应下载文件失败");
                 co_return;
@@ -240,6 +275,7 @@ huxerui::View SplitActionButton(
                     .filter = huxerui::FilePickerFilter{.name = "响应文件",
                                                         .extensions = {"txt", "json"}}});
             (void)co_await temporary->DeleteAsync();
+            cleanup.release();  // 已异步删除（含 Web 持久化路径），守卫不必再删
             toast.Show(saved ? "响应已下载" : "已取消下载");
         };
 

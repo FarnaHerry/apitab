@@ -272,7 +272,7 @@ ctest --test-dir build             # 冒烟 + 引擎契约测试（test_smoke / 
 |------|------|------|
 | `apitab.api_engine` | `src/api_engine.cppm` | 抽象接口 `ApiEngine` / `LoadEngine` / `WebSocketEngine` / `TcpEngine` + `RequestSpec` / `ResponseView` / `LoadOptions` / `LoadSummary` |
 | `apitab.curl_engine` | `src/curl_engine.cppm/.cpp` | 单次请求引擎的 curl 实现（常驻工作线程；send 纯入队、代际丢弃、cancel 协作打断且丢弃排队请求、取消后结果不投递；run 全 try/catch 兜底填错误结果）；传输期正文/头部累积进进度槽供 `takeProgress` 增量快照（SSE 用），头部块识别 `text/event-stream` 即关闭总超时（长连接唯一例外，取消仍走协作打断）；**常驻单个 easy 句柄跨请求复用**（连接/DNS/TLS 会话缓存挂在句柄内，每请求先 `curl_easy_reset` 复位选项——串行工作线程下 1 个句柄即最大复用率，不做 N 路池），全局状态与头表/MIME 走 RAII 包装（`CurlGlobal`/`EasyHandle`/`HeaderList`/`MimeHandle`，异常路径不泄漏），`spec.proxy` 每请求显式下发（空串 = 直连且关掉环境变量代理探测）；`makeCurlEngine()` 工厂，curl 头只进实现单元 |
-| `apitab.k6_engine` | `src/k6_engine.cppm/.cpp` | 压测引擎：生成 k6 脚本（`handleSummary` 打印 `K6SUMMARY {json}` 行）→ spawn 子进程 → 监视线程拆 `\r`/`\n` 行入队；stop=SIGINT，3s 宽限后 SIGKILL |
+| `apitab.k6_engine` | `src/k6_engine.cppm/.cpp` | 压测引擎：生成 k6 脚本（`handleSummary` 打印 `K6SUMMARY {json}` 行）→ spawn 子进程 → 监视线程拆 `\r`/`\n` 行入队；stop=SIGINT，3s 宽限后 SIGKILL；子进程/管道走 RAII（`ChildProcess`/`ChildPipe`/`SpawnFileActions`，析构兜底强杀 + 回收，见 §关键约定 9） |
 | `apitab.db` | `src/db.cppm/.cpp` | SQLiteCpp：requests / history / load_tests 三表；KV 序列化为 JSON |
 | `apitab.config` | `src/config.cppm` | 数据目录（~/.local/share/apitab）/ k6 二进制解析 |
 | `apitab.utils` | `src/utils.cppm` | 纯 string/number 帮助函数 + percentEncode / appendQuery |
@@ -326,6 +326,31 @@ TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结
    它会和兄弟平分剩余空间（曾把首页挤到右半屏）。占位用空 `Row{}`/`Column{}`；
    岛屿布局的根链必须层层有界：外壳根 Column 要 `CrossAlign(Stretch)`，页面根
    `Grow(1.0F)`，岛占满分区块、内容在岛内滚动（不要 ScrollView 套自包含岛）。
+9. **资源一律 RAII 包裹（无例外）**：任何"获取 → 使用 → 释放"的东西都必须由一个
+   类型持有、在析构里释放。**禁止在函数末尾手写 cleanup，禁止把裸句柄
+   （`int fd` / `HANDLE` / `pid_t` / `FILE*` / 裸指针）存成成员或跨语句传递。**
+   本仓有常驻工作线程、常驻监视线程和可被取消的 UI 协程：一次 `std::bad_alloc`、
+   一次提前 `return`、一次取消就足以让泄漏累积到进程结束。既有包装与完整清单见
+   `docs/architecture.md` §3（所有权矩阵）与 §5（RAII 约定）：
+   - **C 句柄**：curl（`CurlGlobal` / `EasyHandle` / `HeaderList` / `MimeHandle`）、
+     子进程与管道（k6：`ChildProcess` / `ChildPipe` / `SpawnFileActions`）、
+     `popen` 输出流与 Win32 注册表键（config.cppm：`PopenPipe` / `RegKey`）、
+     单实例锁（`SingleInstance` 持有 lock fd / mutex HANDLE）、
+     SQLite（SQLiteCpp 的 `Database` / `Statement`，本身就是 RAII）；
+   - **C++ 资源**：对象生命周期交 `unique_ptr` / `shared_ptr`；pimpl
+     （`WsSession` / `TcpSession` / `Db`）在析构里 stop / close；
+   - **线程"谁起谁 join"**：起线程的构造函数要么把 worker 起齐，要么自己置停止位
+     并 join 已起的线程后再把异常抛出去——凑不齐时若让异常逸出，未完成构造的
+     `TaskPool` 不会走析构，而 `vector<std::thread>` 析构碰上 joinable 线程会
+     直接 `std::terminate`；
+   - **临时文件/目录**用局部守卫：`settings_avatar_crop.cpp` 的
+     `AvatarCropOutput`、`request_editor.cpp` 的 `TemporaryFileGuard`。协程里尤其
+     要紧——页面卸载/TaskScope 取消会在 `co_await` 悬挂点销毁协程帧，末尾那行
+     `DeleteAsync()` 根本不会执行，同步清理必须挂在守卫析构上；
+   - **多步装配**（如 k6 spawn：建管道 → 建子进程 → 移交成员）统一用"局部 guard
+     持有 + 成功后 `adopt()` / `release()` 移交成员"，失败路径与中间抛异常都由
+     guard 收尾；析构兜底要做"强杀 + 回收"，不留僵尸进程。
+   新增或替换资源时，同步更新 `docs/architecture.md` 的资源所有权矩阵。
 
 ## CMake 迁移备注（原 mcpp 行为对照）
 

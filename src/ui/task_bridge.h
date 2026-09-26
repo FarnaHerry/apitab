@@ -58,8 +58,25 @@ private:
         const unsigned hw = std::thread::hardware_concurrency();
         const std::size_t n = std::clamp<std::size_t>(hw == 0 ? 4 : hw, 2, 8);
         workers_.reserve(n);
-        for (std::size_t i = 0; i < n; ++i) {
-            workers_.emplace_back([this] { WorkerLoop(); });
+        try {
+            for (std::size_t i = 0; i < n; ++i) {
+                workers_.emplace_back([this] { WorkerLoop(); });
+            }
+        } catch (...) {
+            // 线程创建失败（system_error）：本构造函数若就此抛出，未完成的
+            // TaskPool 不会走析构，而 vector 析构会销毁"仍 joinable"的 thread
+            // → std::terminate。这里自己收尾：置停止位唤醒已起的 worker 再 join，
+            // 让异常以正常方式向上传播。
+            {
+                std::lock_guard lock{mu_};
+                stop_ = true;
+            }
+            cv_.notify_all();
+            for (std::thread& t : workers_) {
+                if (t.joinable()) t.join();
+            }
+            workers_.clear();
+            throw;
         }
     }
 
