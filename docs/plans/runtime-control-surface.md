@@ -272,6 +272,14 @@ agent 的数据类命令（orgs/projects/requests/show/send/history）全部可�
       `CreateProcessW` 再跑一次自己（GUI 路径），轮询端点最多 30s；已在跑则直接复用
       （实测复用耗时 24ms）。默认仍是报错 + 退出码 1。
 
+已完成（第三轮）：
+
+- [x] **日志落文件、不进库**（用户定调，防与 SQLite 抢 WAL 唯一写者）：新增
+      `src/log.h/.cpp`（`<dataDir>/logs/apitab-YYYYMMDD.log`，追加 + 每行 flush +
+      当日 8 MiB 上限 + POSIX 0600 + 绝不抛异常），控制面生命周期与每条 agent 命令
+      （参数/退出码/耗时/失败原因）都记进去；库里**不加**任何 log 表。
+      实测：`--cli orgs` / 失败命令 / `lightweight` 均落行，SQLite 表清单无 log 表。
+
 下一轮：
 
 - [ ] `help` 离线可用（不依赖实例）。

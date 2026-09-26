@@ -34,6 +34,7 @@
 
 #include "cli.h"
 #include "control.h"
+#include "log.h"
 #include "ui/lightweight.h"
 
 import asio;
@@ -156,6 +157,13 @@ void RunCommandOnApplicationThread(std::vector<std::string> args,
                                    std::shared_ptr<Exchange> exchange) {
     CollectSink sink;
     int code = 1;
+    const auto started_at = std::chrono::steady_clock::now();
+    // 审计用的参数快照（下面 args 会被 move 走）。
+    std::string audit_args;
+    for (const std::string& item : args) {
+        if (!audit_args.empty()) audit_args.push_back(' ');
+        audit_args += item;
+    }
     try {
         // 轻量模式属于"实例进程形态"操作，不是数据命令：由控制面自己处理
         // （cli::run 只管 apitab 领域命令）。
@@ -173,6 +181,22 @@ void RunCommandOnApplicationThread(std::vector<std::string> args,
         sink.stderr_ += std::string{"命令执行异常: "} + error.what();
     } catch (...) {
         sink.stderr_ += "命令执行未知异常";
+    }
+    // 审计/诊断落**文件**（不进 SQLite：日志是高频追加的运维信息，塞进库会与领域
+    // 读写抢 WAL 的唯一写者，见 CLAUDE.md 关键约定 10）。
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - started_at)
+                                .count();
+    if (code == 0) {
+        log::Info("control cmd [" + audit_args + "] exit=0 " + std::to_string(elapsed_ms) + "ms");
+    } else {
+        std::string detail = sink.stderr_;
+        if (const auto newline = detail.find('\n'); newline != std::string::npos) {
+            detail.resize(newline);
+        }
+        log::Warn("control cmd [" + audit_args + "] exit=" + std::to_string(code) + " " +
+                  std::to_string(elapsed_ms) + "ms" +
+                  (detail.empty() ? std::string{} : " :: " + detail));
     }
     {
         std::lock_guard lock{exchange->mutex};
@@ -293,6 +317,7 @@ private:
         }
 
         if (authorization != "Bearer " + token_) {
+            log::Warn("控制面拒绝连接：token 不匹配或缺失");
             SendJson(socket, 401, json{{"error", "unauthorized"}});
             return;
         }
@@ -408,9 +433,18 @@ void InstallControlServer(huxerui::ApplicationContext& context) {
     std::string error;
     if (!server->Start(error)) {
         // 控制面起不来不该拖垮 GUI：agent 侧会看到"端点不可达"，GUI 照常可用。
+        log::Error("控制面启动失败: " + error);
         std::fprintf(stderr, "apitab 控制面启动失败: %s\n", error.c_str());
         return;
     }
+    log::Info("控制面已启动: " + EndpointFilePath() + "（pid " +
+              std::to_string(static_cast<long long>(
+#ifdef _WIN32
+                  ::GetCurrentProcessId()
+#else
+                  ::getpid()
+#endif
+                  )) + "）");
     context.Provide(server);  // 活到应用关闭 → 停线程 + 删端点文件
 }
 

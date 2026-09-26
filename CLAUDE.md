@@ -365,6 +365,13 @@ TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结
      guard 收尾；析构兜底要做"强杀 + 回收"，不留僵尸进程。
    新增或替换资源时，同步更新 `docs/architecture.md` 的资源所有权矩阵。
 
+10. **日志一律落文件，不进 SQLite**：诊断/审计信息（控制面命令、失败原因、启动事件）
+    写 `<dataDir>/logs/apitab-YYYYMMDD.log`（`src/log.h`，追加 + 每行 flush + 当日 8 MiB
+    上限 + 0600）。理由：日志是高频追加的运维信息，塞进库会与领域读写抢 WAL 的**唯一
+    写者**、把库文件撑大，而它对应用查询毫无价值。**领域数据才进库**（组织/项目/请求/
+    环境/历史/压测记录/自动化用例）；排查问题时先看日志文件，不要在库里加 `log` 表。
+    日志实现本身不得抛异常：写文件失败降级 stderr，绝不反过来影响调用方。
+
 ## CMake 迁移备注（原 mcpp 行为对照）
 
 - Windows：HuxerUI 运行时 dll 在 POST_BUILD 拷到 exe 旁；OpenSSL 走 chocolatey，
@@ -383,8 +390,10 @@ TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结
 
 ## CLI（agent 可用）
 
-无 GUI 的命令行模式：`./build/apitab --cli <子命令> [参数]`（`help`/`orgs`/`projects`/
-`requests`/`show`/`send [--json]`/`history`）。与 GUI 共用 `~/.local/share/apitab` 的
-SQLite 与 settings.ini，同一套项目/组织/环境上下文；headless 可读状态、发请求。
-完整用法、退出码约定、`--json` 输出形状与实现备注见
-`docs/apitab-cli.md`（AI 批量操作前先读）。
+`./build/apitab --cli <子命令> [参数]` 是**运行中实例的薄客户端**（阶段 0 起，
+`src/control_client.cpp` + `src/control.cpp`）：命令经本机 loopback 控制面发给实例，
+在它的应用线程上执行，读写的正是用户眼前的会话（当前组织/项目/环境）。客户端不发起
+数据库读写、不进事件循环；实例没在跑就报错退出 1，`--ensure` 可先拉起再执行。
+子命令：`help`/`orgs`/`projects`/`requests`/`show`/`send [--json]`/`history`/
+`lightweight [off]`。完整用法、退出码约定、`--json` 输出形状见 `docs/apitab-cli.md`，
+设计与路线见 `docs/plans/runtime-control-surface.md`（AI 批量操作前先读前者）。

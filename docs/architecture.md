@@ -57,6 +57,8 @@ UI 层        src/ui/*.cpp（普通 C++ + HuxerUI codegen）、src/app_main.cpp
 | 响应下载临时文件 | `TemporaryFileGuard`（`request_editor.cpp`，协程帧内） | 保存响应前 | 作用域退出（含协程被取消）同步 `File::Delete()` | 全程 UI 线程；析构不抛出 |
 | 头像裁剪临时 PNG | `AvatarCropOutput`（`settings_avatar_crop.cpp`） | 任务线程跑 `magick` 后 | 结果销毁时 `remove`（成功路径先 `rename` 走） | `shared_ptr` 跨 `RunOnTaskThread` 回 UI 线程 |
 | `popen` 流 / 注册表键 | `cfg::PopenPipe` / `cfg::RegKey`（`config.cppm`） | `systemPrefersDark()` | 作用域退出析构 | 仅启动时调用一次 |
+| 应用日志文件 | `apitab::log`（`src/log.cpp`，进程级单例） | 首次写入（惰性建目录） | 进程退出（追加写，无需显式关闭） | mutex 串行；**日志不进 SQLite**（不与领域写抢 WAL 唯一写者），见 CLAUDE.md 关键约定 10 |
+| 控制面服务（loopback + 端点文件） | `apitab::control::ControlServer`（应用安装期 Provide） | `AppOptions::application_hooks` | 应用关闭析构（停线程 + 删端点文件） | IO 线程收发；命令经 `ApplicationPoster`（`TaskScope::Post`）回应用线程执行 |
 
 ## 4. 单次请求（curl）要不要池化？
 
