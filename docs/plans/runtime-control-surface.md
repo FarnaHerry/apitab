@@ -219,3 +219,29 @@ agent 的数据类命令（orgs/projects/requests/show/send/history）全部可�
 2. 隐藏态下 runtime 定时器/任务仍在跑（写一条请求后恢复窗口，UI 立即是新状态）。
 3. 三态基线（可见 / 隐藏 / 轻量）RSS + CPU 记录成回归数据。
 4. 启动闪烁时长实测（present → Hide 的间隔），作为是否催上游 `start_hidden` 的依据。
+
+## 9. 阶段 0 进度
+
+已完成（2026-09-26，提交 `feat(control): run --cli commands inside the running instance`）：
+
+- [x] GUI 进程起控制面：loopback HTTP（一次性端口 + 随机 token）+ 端点文件
+      `$XDG_RUNTIME_DIR/apitab-control.json`（0600，退出删除），只绑 127.0.0.1、
+      拒无 token 请求（401）。
+- [x] 命令在应用线程执行：`TaskScope::Post` 经 `ApplicationPoster` 注入（安装期还没有
+      组合作用域，所以由根组合挂载时注入、卸载时清空）；60s 超时 → 504。
+- [x] `cli::run(args, Sink&)` 单一实现：进程直跑写标准流，控制面收集成字符串回传——
+      stdout/stderr 分流、退出码、`--json` 形状天然一致。
+- [x] `apitab --cli` 变薄客户端：不构造 store、不碰数据库、不进事件循环；
+      实例未运行时 stderr 提示 + 退出码 1。
+- [x] 实测：`orgs` / `projects` / `requests` / `history --limit` 输出与旧实现一致；
+      无实例路径错误可读。
+
+下一轮：
+
+- [ ] `--ensure` 拉起 + 端点位就绪等待（默认仍是报错）；"启动即隐藏"依赖上游
+      `WindowOptions::start_hidden`（见 §8 的 TODO）。
+- [ ] 只读子命令不回写会话：现在 `projects`/`requests` 经 `ensureContext` 会切换实例
+      的当前项目（用户眼前的 GUI 会跳项目）——改成按参数取上下文。
+- [ ] `help` 离线可用（不依赖实例），并让 CLI 进程彻底不构造 store（懒初始化）。
+- [ ] 轻量模式（首帧 Hide + apitab 侧缓存释放）+ 三态 RSS/CPU 基线（§7）。
+- [ ] `send` 走后端引擎（等最终结果 + 超时），保持 `--json` 形状。
