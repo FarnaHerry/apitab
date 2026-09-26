@@ -11,13 +11,23 @@ import apitab.utils;
 
 export class LoadStore {
 public:
-    LoadStore()
-        : engine_(makeK6Engine(cfg::k6Binary().string())) {
+    // 与 RequestStore 同理：静态初始化保持廉价，打开是显式的（见 requests.cppm）。
+    // 否则 CLI 客户端进程仅因模块级全局构造就会打开数据库。引擎（k6 路径解析）也在
+    // Open 里做——压测结果落库属于 GUI 进程的事。
+    LoadStore() = default;
+
+    // 打开库与 k6 引擎（幂等）。GUI 进程在进事件循环前调用一次。
+    void Open() {
+        if (opened_) return;
+        opened_ = true;
+        engine_ = makeK6Engine(cfg::k6Binary().string());
         const Status initialized = captureResult([&] {
             db_ = std::make_unique<db::Db>(cfg::databaseFile());
         });
         if (!initialized) startupError_ = initialized.error();
     }
+
+    [[nodiscard]] bool opened() const { return opened_; }
 
     LoadStore(const LoadStore&) = delete;
     LoadStore& operator=(const LoadStore&) = delete;
@@ -144,6 +154,7 @@ private:
     std::int64_t selectedAutomationId_ = 0;
     std::vector<db::AutomationTest> automationTests_;
     std::optional<AppError> startupError_;
+    bool opened_ = false;
 
     // 在途压测的落库上下文。
     std::int64_t pendingRequestId_ = 0;
@@ -152,4 +163,5 @@ private:
     api::LoadOptions pendingOpts_;
 };
 
-export LoadStore g_loadtest;  // 领域单例
+// 领域单例。打开同样是显式的：GUI 进程进事件循环前 Open()，CLI 客户端不调用。
+export LoadStore g_loadtest;

@@ -280,14 +280,23 @@ agent 的数据类命令（orgs/projects/requests/show/send/history）全部可�
       （参数/退出码/耗时/失败原因）都记进去；库里**不加**任何 log 表。
       实测：`--cli orgs` / 失败命令 / `lightweight` 均落行，SQLite 表清单无 log 表。
 
-下一轮：
+已完成（第四轮）：
 
-- [ ] `help` 离线可用（不依赖实例）。
-- [ ] **store 懒初始化**：`RequestStore` 是模块级全局（`src/store/requests.cppm:932`），
-      静态初始化就开库 + 起 curl 工作线程——实测 `--cli` 客户端用假 HOME 跑会建出
-      空库。要让"客户端不碰库"名副其实，需要把构造体挪进 `EnsureOpen()` 并由各入口
-      （`databaseResult`/`guarded`/缓存访问器）触发；注意 `healthy_`/`startupError_`
-      的语义与 const 访问器，得单独一步做。
+- [x] **store 懒初始化**：`RequestStore` / `LoadStore` 的构造函数改为空壳，打开挪到显式
+      `Open()`；GUI 入口在 `RunApplication()` 前 `g_requests.Open(); g_loadtest.Open();`，
+      读库命令各自兜一次（`ensureContext` / `cmdOrgs` / `cmdHistory`）。
+      实测：`--cli` 客户端用假 HOME 跑（help + orgs + projects）**建出 0 个文件**，
+      实例侧一切照常。
+- [x] `help` 离线可用：客户端对无参数/`help`/`--help`/`-h`（含子命令 `--help`）直接在
+      本地打印，不需要实例、不碰数据库（实测：无实例 + 无 runtime dir → 打印帮助、exit 0）。
+- [x] **就绪探测（ping）**：端点文件在监听成功后立刻写出，而命令投递口要等首次组合
+      才挂上——中间那段窗口里发命令会拿到 503。现在 `InstanceRunning()` 用 `ping`
+      走完整链路（含应用线程投递）作为判据，`--ensure` 冷启动 3/3 稳定通过。
+- [x] **拉起的实例与调用者标准流解耦**：`posix_spawn` 把子进程 stdin/stdout/stderr 接到
+      `/dev/null`（Windows 用 `DETACHED_PROCESS`）。否则 `out=$(apitab --cli --ensure …)`
+      会一直等管道关闭（= 等实例退出），对 agent 就是"命令挂住"——本轮实测踩到过。
+
+下一轮：
 - [x] 轻量模式落地：控制面 `lightweight [off]` 命令 + 托盘菜单项「轻量模式（隐藏并释放
       缓存）」，隐藏窗口 + 释放应用侧可再生缓存；实测见 §7.5（CPU 归零成立，内存收益
       空闲态≈0，需按 §7.5 的修正下一步扩大释放集）。

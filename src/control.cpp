@@ -167,7 +167,13 @@ void RunCommandOnApplicationThread(std::vector<std::string> args,
     try {
         // 轻量模式属于"实例进程形态"操作，不是数据命令：由控制面自己处理
         // （cli::run 只管 apitab 领域命令）。
-        if (!args.empty() && args.front() == "lightweight") {
+        // 就绪探测：与 lightweight 一样由控制面自己处理。它必须经 poster 投递，
+        // 所以能回答"应用线程投递口已挂载"——客户端据此判断实例是否真的可服务
+        // （端点文件在监听成功后立刻写出，但投递口要等首次组合才挂上）。
+        if (!args.empty() && args.front() == "ping") {
+            sink.Out("pong");
+            code = 0;
+        } else if (!args.empty() && args.front() == "lightweight") {
             const bool off = args.size() > 1 && args[1] == "off";
             const ui::LightweightResult result =
                 off ? ui::ExitLightweightMode() : ui::EnterLightweightMode();

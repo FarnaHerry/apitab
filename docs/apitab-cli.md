@@ -17,11 +17,12 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**�
   `docs/plans/runtime-control-surface.md`）：`--cli` 是运行中实例的**薄客户端**，
   命令在实例的应用线程上执行，结果经本机 loopback 控制面回传。
   实例未运行时打印一行错误并以 `1` 退出（后续会加 `--ensure` 自动拉起）。
-- 客户端进程**不进事件循环**，也不再自己发起任何数据库读写（命令全在实例里执行），
-  所以跨进程读写同一个库的 BUSY 问题消失。
-  ⚠️ 已知待办：`RequestStore` 是模块级全局，静态初始化仍会打开数据库并起 curl 工作
-  线程（实测客户端用假 HOME 跑会建出空库）——CLI 进程要做到"完全不碰库"，需要把
-  store 改成懒初始化，见 `docs/plans/runtime-control-surface.md` §9。
+- 客户端进程**不进事件循环，也不打开数据库**：`RequestStore`/`LoadStore` 的打开是显式的
+  （GUI 进程在进事件循环前 `Open()`），客户端只做控制面转发。实测客户端用假 HOME 跑
+  `help`/`orgs`/`projects` **不产生任何文件**，所以跨进程读写同一个库的 BUSY 问题消失。
+- `help`（含子命令 `--help`）在本地打印，**不需要实例**；其余命令需要实例。
+- `--ensure` 拉起的实例会把 stdin/stdout/stderr 接到 `/dev/null`（Windows
+  `DETACHED_PROCESS`），不会吊住调用者的管道（`out=$(apitab --cli --ensure …)` 可正常返回）。
 - 端点：`$XDG_RUNTIME_DIR/apitab-control.json`（0600，含端口与随机 token），
   随实例退出删除；控制面只绑 127.0.0.1 且拒绝无 token 请求。
 - 命令在**有状态的实例**上执行：读的是它当前的组织/项目/环境与打开的项目标签。

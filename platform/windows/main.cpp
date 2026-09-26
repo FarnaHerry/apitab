@@ -15,6 +15,8 @@
 #include <cstdio>
 
 import apitab.preferences;
+import apitab.store.loadtest;
+import apitab.store.requests;
 
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "--cli") {
@@ -43,5 +45,9 @@ int main(int argc, char** argv) {
         return 1;
     }
     loadSessionPreferences();
+    // 领域 store 只在有 GUI（=有 runtime）的进程里打开：库与 curl 工作线程只属于这个
+    // 进程，`--cli` 客户端不打开（见 src/store/requests.cppm 的 RequestStore::Open）。
+    g_requests.Open();
+    g_loadtest.Open();
     return huxerui::RunApplication();
 }

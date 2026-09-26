@@ -178,6 +178,9 @@ Options parseOptions(const std::vector<std::string>& args, bool allowOrg,
 //   --org：selectOrg；原活动项目若不属于该组织则自动打开其第一个项目（不回写）；
 //   都不给：从 session active_project 恢复（不回写）。
 int ensureContext(const Options& opt) {
+    // 领域 store 的打开是显式的（GUI 进程进事件循环前已打开）；读库的命令各自兜一次。
+    // help 路径不经过这里 —— 因此 help 可以离线打印，CLI 客户端进程也永不碰库。
+    g_requests.Open();
     const auto projects = g_requests.allProjects();
     if (!projects) {
         err("读取项目失败: " + projects.error().message);
@@ -369,6 +372,7 @@ ID / 时间 / 方法 / 状态 / 耗时 / 大小 / URL /（错误）/ 关联请�
 // ---- orgs / projects / requests ----------------------------------------------
 
 int cmdOrgs(const Options& opt) {
+    g_requests.Open();
     if (opt.help) { printOrgsHelp(); return 0; }
     if (!opt.positional.empty()) { err("orgs 不接受参数（见 apitab --cli help）"); return 1; }
     for (const db::Org& o : g_requests.orgs()) {
@@ -684,6 +688,7 @@ int cmdSend(const Options& opt) {
 // ---- history -------------------------------------------------------------------
 
 int cmdHistory(const Options& opt) {
+    g_requests.Open();
     if (opt.help) { printHistoryHelp(); return 0; }
     if (!opt.positional.empty()) { err("history 不接受位置参数（见 --help）"); return 1; }
     int limit = 20;

@@ -182,8 +182,17 @@ std::vector<SetCookieField> parseSetCookies(const std::vector<api::KeyValue>& he
 
 export class RequestStore {
 public:
-    RequestStore()
-        : engine_(makeCurlEngine()) {
+    // 静态初始化保持**廉价**：只建一个空壳。CLI 客户端进程（`apitab --cli …`）只做
+    // 控制面转发，不该因为模块级全局构造就打开数据库、起 curl 工作线程（旧实现在
+    // 客户端用假 HOME 跑会建出空库，正是"两进程抢 WAL 写者"的来源）。
+    RequestStore() = default;
+
+    // 打开库与引擎（幂等）。GUI 进程在进事件循环前调用一次；控制面命令入口再兜一次
+    // （服务端命令跑到这里时库早已打开，这只是一次 bool 检查）。
+    void Open() {
+        if (opened_) return;
+        opened_ = true;
+        engine_ = makeCurlEngine();
         const Status initialized = captureResult([&] {
             db_ = std::make_unique<db::Db>(cfg::databaseFile());
             // 迁移兜底：空库建默认组织/项目，游离请求归入默认项目。
@@ -195,6 +204,8 @@ public:
             startupError_ = initialized.error();
         }
     }
+
+    [[nodiscard]] bool opened() const { return opened_; }
 
     RequestStore(const RequestStore&) = delete;
     RequestStore& operator=(const RequestStore&) = delete;
@@ -926,7 +937,10 @@ private:
     std::int64_t currentEnvId_ = 0;
     std::unordered_map<std::int64_t, std::int64_t> selectedEnvByProject_;
     std::optional<AppError> startupError_;
+    bool opened_ = false;
     bool healthy_ = true;
 };
 
-export RequestStore g_requests;  // 领域单例（importers 间共享同一实体）
+// 领域单例（importers 间共享同一实体）。**打开是显式的**：GUI 进程在进事件循环前
+// 调 g_requests.Open()，控制面命令入口兜底；CLI 客户端进程不调用 → 不碰数据库。
+export RequestStore g_requests;
