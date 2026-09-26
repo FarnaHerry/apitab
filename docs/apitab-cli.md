@@ -23,6 +23,9 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**�
 - `help`（含子命令 `--help`）在本地打印，**不需要实例**；其余命令需要实例。
 - `--ensure` 拉起的实例会把 stdin/stdout/stderr 接到 `/dev/null`（Windows
   `DETACHED_PROCESS`），不会吊住调用者的管道（`out=$(apitab --cli --ensure …)` 可正常返回）。
+- **控制面并发**：一条连接一个线程，`send`（最长 120s）只占住它自己的连接；期间其它
+  命令（含 `ping`）照常返回。`send` 本身也拆成「应用线程准备 → 控制面线程等响应 →
+  应用线程收尾」，所以整段传输期间 GUI 不冻结（实测 3s 端点上并发 `ping` 24ms）。
 - 端点：`$XDG_RUNTIME_DIR/apitab-control.json`（0600，含端口与随机 token），
   随实例退出删除；控制面只绑 127.0.0.1 且拒绝无 token 请求。
 - 命令在**有状态的实例**上执行：读的是它当前的组织/项目/环境与打开的项目标签。

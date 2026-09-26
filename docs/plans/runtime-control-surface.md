@@ -302,8 +302,14 @@ agent 的数据类命令（orgs/projects/requests/show/send/history）全部可�
       空闲态≈0，需按 §7.5 的修正下一步扩大释放集）。
 - [ ] 轻量模式释放集扩到组合态对象（编辑器文档/响应正文/头像/列表 State）+
       "打开若干请求后再进轻量"的对照基线（§7.5）。
-- [ ] `send` 走后端引擎异步化：现在它在应用线程上同步等到响应，会把 GUI 卡住整个传输时长
-      （旧 CLI 是独立进程没这个问题）；保持 `--json` 形状不变。
+- [x] **`send` 三段式 + 控制面并发**（2026-09-26）：
+      `cli::BeginSend`（应用线程：读 store + finalizeSpec + 入队）/ `cli::WaitSend`
+      （控制面线程：只读引擎结果槽）/ `cli::FinishSend`（应用线程：Cookie 归集 + 落历史 +
+      输出），`SessionRestore` 随句柄带到 Finish 才释放。控制面改为**一条连接一个线程**
+      （长命令只挡住自己的连接，不再把 ping 排在后面）。
+      实测（本地 3s 延迟端点）：`send` 3.04s 返回；`send` 途中 `ping` **24ms**（修复前
+      2.5s 串行；编排里漏标 exchange 时 62s）；`send --project 2` 后实例当前项目仍是 1、
+      `active_project` 未变；发送途中杀实例 → 无 core、无残留进程。
 - [ ] 启动即隐藏仍等上游 `WindowOptions::start_hidden`（§8 TODO）：拉起的实例现在会闪一下窗口。
 - [ ] `help` 离线可用（不依赖实例），并让 CLI 进程彻底不构造 store（懒初始化）。
 - [ ] 轻量模式（首帧 Hide + apitab 侧缓存释放）+ 三态 RSS/CPU 基线（§7）。

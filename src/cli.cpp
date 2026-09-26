@@ -593,99 +593,200 @@ api::ResponseView mockResponse(const db::SavedRequest& saved) {
     return view;
 }
 
-int cmdSend(const Options& opt) {
-    if (opt.help) { printSendHelp(); return 0; }
-    if (opt.positional.size() != 1) { err("send 需要一个请求 ID（见 --help）"); return 1; }
+// ---- 发送三段式（契约见 cli.h）----------------------------------------------
+// send 会长时间等待传输（最长 120s）。整条命令跑在应用线程上会把 GUI 冻住整段
+// 传输时间，所以拆成：Begin（应用线程，只入队）→ Wait（IO 线程，只读结果槽）→
+// Finish（回到应用线程，写 store + 输出）。同步路径（进程内直跑、测试）等价于
+// 依次调用三段。
+
+} // namespace
+
+struct SendHandle {
+    db::SavedRequest saved;
+    api::RequestSpec final;
+    api::ResponseView view;
+    bool mock = false;
+    bool json = false;
+    bool got = false;
+    // send 同样经 ensureContext 临时切上下文：守卫在这里，由 FinishSend 在**应用线程**
+    // 上显式 release（不能靠句柄析构——最后一份 shared_ptr 可能在控制面线程上销毁）。
+    std::unique_ptr<SessionRestore> restore;
+};
+
+namespace {
+
+// 正文原样输出：Sink::Out 每行补 \n，所以按行切分（CRLF 的 \r 留在行内），
+// 与旧实现 std::cout << body 的字节完全一致。
+void printBody(Sink& sink, const std::string& body) {
+    std::size_t start = 0;
+    while (start < body.size()) {
+        const std::size_t newline = body.find('\n', start);
+        if (newline == std::string::npos) {
+            sink.Out(std::string_view{body}.substr(start));
+            return;
+        }
+        sink.Out(std::string_view{body}.substr(start, newline - start));
+        start = newline + 1;
+    }
+}
+
+// 同步等待的默认节拍（进程内直跑用；控制面把它换成 IO 线程上的等待）。
+constexpr auto kSendPollInterval = std::chrono::milliseconds{10};
+
+std::shared_ptr<SendHandle> BeginSendImpl(const Options& opt, Sink& sink, int& exitCode) {
+    if (opt.help) { printSendHelp(); exitCode = 0; return nullptr; }
+    if (opt.positional.size() != 1) { sink.Err("send 需要一个请求 ID（见 --help）"); exitCode = 1; return nullptr; }
     const std::optional<std::int64_t> id = parseI64(opt.positional[0]);
-    if (!id || *id <= 0) { err("请求 ID 需要是正整数"); return 1; }
-    if (const int rc = ensureContext(opt); rc != 0) return rc;
+    if (!id || *id <= 0) { sink.Err("请求 ID 需要是正整数"); exitCode = 1; return nullptr; }
+    auto restore = std::make_unique<SessionRestore>();
+    if (const int rc = ensureContext(opt); rc != 0) { exitCode = rc; return nullptr; }
     const auto foundResult = locateRequest(*id);
-    if (!foundResult) { err("读取请求失败: " + foundResult.error().message); return 1; }
-    if (!*foundResult) { err("请求不存在: " + std::to_string(*id)); return 1; }
-    const db::SavedRequest& saved = **foundResult;
-    if (saved.kind != api::RequestKind::Http) {
-        err(std::format("条目 #{} 是 {} 请求，CLI send 仅支持 HTTP", saved.id,
-                        requestKindName(saved.kind)));
-        return 1;
-    }
-    if (const int rc = applyEnvOption(opt.env); rc != 0) return rc;
+    if (!foundResult) { sink.Err("读取请求失败: " + foundResult.error().message); exitCode = 1; return nullptr; }
+    if (!*foundResult) { sink.Err("请求不存在: " + std::to_string(*id)); exitCode = 1; return nullptr; }
 
-    // Mock 拦截：照抄 GUI——不发真实请求、不落历史、按定义直接"返回"。
-    if (saved.mock.enabled) {
-        if (saved.mock.delayMs > 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(saved.mock.delayMs));
-        }
-        const api::ResponseView view = mockResponse(saved);
-        if (opt.json) {
-            out(responseJson(saved.method, saved.url, view, /*mock=*/true).dump());
-        } else {
-            out(std::format("MOCK HTTP {} · {} · {}", view.status,
-                            formatMs(view.totalMs), formatBytes(view.sizeBytes)));
-            if (!view.body.empty()) {
-                std::cout << view.body;
-                if (!view.body.ends_with('\n')) std::cout << '\n';
-            }
-        }
-        return 0;
+    auto handle = std::make_shared<SendHandle>();
+    handle->restore = std::move(restore);
+    handle->saved = **foundResult;
+    handle->json = opt.json;
+    if (handle->saved.kind != api::RequestKind::Http) {
+        sink.Err(std::format("条目 #{} 是 {} 请求，CLI send 仅支持 HTTP", handle->saved.id,
+                             requestKindName(handle->saved.kind)));
+        exitCode = 1;
+        return nullptr;
+    }
+    if (const int rc = applyEnvOption(opt.env); rc != 0) { exitCode = rc; return nullptr; }
+
+    // Mock：不发真实请求、不落历史；延时也挪到 Wait（别占应用线程）。
+    if (handle->saved.mock.enabled) {
+        handle->mock = true;
+        exitCode = 0;
+        return handle;
     }
 
-    api::RequestSpec spec = specFromSaved(saved);
-    if (trim(spec.url).empty()) { err("URL 为空，无法发送"); return 1; }
+    api::RequestSpec spec = specFromSaved(handle->saved);
+    if (trim(spec.url).empty()) { sink.Err("URL 为空，无法发送"); exitCode = 1; return nullptr; }
     // finalizeSpec：当前环境的 {{变量}} 替换 + baseUrl/全局 Cookie/公共头合并 +
     // 全局超时/代理注入（与 GUI 发送前同一步）。
     const auto finalized = g_requests.finalizeSpec(spec);
-    if (!finalized) { err("组装请求失败: " + finalized.error().message); return 1; }
-    const api::RequestSpec& final = *finalized;
-    if (trim(final.url).empty()) { err("URL 为空（相对路径需当前环境配置 baseUrl，或用 --env 选择环境）"); return 1; }
+    if (!finalized) { sink.Err("组装请求失败: " + finalized.error().message); exitCode = 1; return nullptr; }
+    handle->final = *finalized;
+    if (trim(handle->final.url).empty()) {
+        sink.Err("URL 为空（相对路径需当前环境配置 baseUrl，或用 --env 选择环境）");
+        exitCode = 1;
+        return nullptr;
+    }
+    g_requests.sendViaEngine(handle->final);  // 纯入队，立即返回
+    exitCode = 0;
+    return handle;
+}
 
-    g_requests.sendViaEngine(final);
-    // 无 UI 事件循环：10ms 节拍轮询引擎结果槽；120s 墙钟兜底（curl 自身有
-    // 全局超时，兜底只为引擎线程异常挂死时仍能退出）。
-    api::ResponseView view;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
-    bool got = false;
-    while (!got) {
-        got = g_requests.takeResponse(view);
-        if (got) break;
-        if (std::chrono::steady_clock::now() > deadline) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+int FinishSendImpl(const std::shared_ptr<SendHandle>& handle, Sink& sink) {
+    if (handle->mock) {
+        const api::ResponseView view = mockResponse(handle->saved);
+        handle->view = view;
     }
-    if (!got) {
-        g_requests.cancelSend();  // 协作打断在途传输，别让引擎线程被甩在析构后
-        err("发送超时（>120s 未取回结果），已请求取消");
-        return 2;
-    }
-    // 响应 Cookie 归集进项目 Cookie + 落历史（与 GUI 一致；写失败给出诊断，
-    // 但保留传输结果输出）。CLI 与 GUI 是两条独立发送路径，两边都要调。
-    if (auto collected = g_requests.collectResponseCookies(view); !collected)
-        err("归集响应 Cookie 失败: " + collected.error().message);
-    if (Status recorded = g_requests.recordHistory(saved.id, final.method, final.url, view);
-        !recorded) {
-        err("写入请求历史失败: " + recorded.error().message);
-    }
-    if (!view.ok) {
-        if (opt.json) {
-            out(responseJson(final.method, final.url, view, /*mock=*/false).dump());
+    const api::ResponseView& view = handle->view;
+    if (handle->mock) {
+        if (handle->json) {
+            sink.Out(responseJson(handle->saved.method, handle->saved.url, view, true).dump());
+        } else {
+            sink.Out(std::format("MOCK HTTP {} · {} · {}", view.status, formatMs(view.totalMs),
+                                 formatBytes(view.sizeBytes)));
+            if (!view.body.empty()) printBody(sink, view.body);
         }
-        err("请求失败: " + view.error);
-        return 2;
-    }
-    if (opt.json) {
-        // error_handler_t::replace：二进制响应体可能含非法 UTF-8，dump 默认会抛。
-        out(responseJson(final.method, final.url, view, /*mock=*/false)
-                .dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
         return 0;
     }
-    out(std::format("HTTP {} · {} {} · {} · {}", view.status, final.method, final.url,
-                    formatMs(view.totalMs), formatBytes(view.sizeBytes)));
-    if (!view.body.empty()) {
-        std::cout << view.body;
-        if (!view.body.ends_with('\n')) std::cout << '\n';
+
+    // 响应 Cookie 归集进项目 Cookie + 落历史（与 GUI 一致；写失败给出诊断，
+    // 但保留传输结果输出）。
+    if (auto collected = g_requests.collectResponseCookies(view); !collected)
+        sink.Err("归集响应 Cookie 失败: " + collected.error().message);
+    if (Status recorded = g_requests.recordHistory(handle->saved.id, handle->final.method,
+                                                   handle->final.url, view);
+        !recorded) {
+        sink.Err("写入请求历史失败: " + recorded.error().message);
     }
+    if (!view.ok) {
+        if (handle->json) {
+            sink.Out(responseJson(handle->final.method, handle->final.url, view, false).dump());
+        }
+        sink.Err("请求失败: " + view.error);
+        return 2;
+    }
+    if (handle->json) {
+        // error_handler_t::replace：二进制响应体可能含非法 UTF-8，dump 默认会抛。
+        sink.Out(responseJson(handle->final.method, handle->final.url, view, false)
+                     .dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
+        return 0;
+    }
+    sink.Out(std::format("HTTP {} · {} {} · {} · {}", view.status, handle->final.method,
+                         handle->final.url, formatMs(view.totalMs), formatBytes(view.sizeBytes)));
+    if (!view.body.empty()) printBody(sink, view.body);
     return 0;
 }
 
-// ---- history -------------------------------------------------------------------
+} // namespace
+
+std::shared_ptr<SendHandle> BeginSend(const std::vector<std::string>& args, Sink& sink,
+                                      int& exitCode) {
+    g_requests.Open();
+    Options opt = parseOptions(args, false, true, true, false, true);
+    if (!opt.error.empty() && !opt.help) {
+        sink.Err(opt.error + "（该子命令 --help 查看详情）");
+        exitCode = 1;
+        return nullptr;
+    }
+    return BeginSendImpl(opt, sink, exitCode);
+}
+
+bool WaitSend(const std::shared_ptr<SendHandle>& handle, std::chrono::seconds timeout) {
+    if (handle->mock) {
+        if (handle->saved.mock.delayMs > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(handle->saved.mock.delayMs));
+        handle->got = true;
+        return true;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() <= deadline) {
+        if (g_requests.takeResponse(handle->view)) {
+            handle->got = true;
+            return true;
+        }
+        std::this_thread::sleep_for(kSendPollInterval);
+    }
+    g_requests.cancelSend();  // 协作打断在途传输，别让引擎线程被甩在析构后
+    return false;
+}
+
+int FinishSend(const std::shared_ptr<SendHandle>& handle, Sink& sink) {
+    // 恢复 send 期间临时切换的会话上下文（必须在应用线程上做，且只做一次）。
+    if (handle->restore) handle->restore.reset();
+    if (!handle->got) {
+        sink.Err("发送超时（>120s 未取回结果），已请求取消");
+        return 2;
+    }
+    return FinishSendImpl(handle, sink);
+}
+
+namespace {
+
+// 同步路径（进程内直跑 / 测试）的 send：把三段串起来。控制面不用它——那边把
+// Wait 放到 IO 线程，避免 send 期间冻住 GUI。
+// 把既有的 out()/err() 适配成 Sink（它们写当前绑定的汇，见 SinkScope）。
+class CurrentSink final : public Sink {
+public:
+    void Out(std::string_view line) override { out(line); }
+    void Err(std::string_view line) override { err(line); }
+};
+
+int cmdSend(const Options& opt) {
+    CurrentSink sink;
+    int exitCode = 0;
+    const std::shared_ptr<SendHandle> handle = BeginSendImpl(opt, sink, exitCode);
+    if (handle == nullptr) return exitCode;
+    (void)WaitSend(handle, std::chrono::seconds{120});
+    return FinishSend(handle, sink);
+}
 
 int cmdHistory(const Options& opt) {
     g_requests.Open();

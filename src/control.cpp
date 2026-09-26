@@ -214,6 +214,105 @@ void RunCommandOnApplicationThread(std::vector<std::string> args,
     exchange->changed.notify_all();
 }
 
+// 单阶段交换：控制面线程把一段工作投给应用线程并等它完成（用于 send 的两端）。
+struct Phase {
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool done = false;
+    std::shared_ptr<cli::SendHandle> handle;
+    int exit_code = 1;
+};
+
+bool WaitPhase(const std::shared_ptr<Phase>& phase, std::chrono::seconds timeout) {
+    std::unique_lock lock{phase->mutex};
+    return phase->changed.wait_for(lock, timeout, [&] { return phase->done; });
+}
+
+void CompletePhase(const std::shared_ptr<Phase>& phase) {
+    {
+        std::lock_guard lock{phase->mutex};
+        phase->done = true;
+    }
+    phase->changed.notify_all();
+}
+
+// send 的三段式编排（本函数跑在控制面线程上）：
+//   Begin（应用线程：读 store + finalizeSpec + 入队）→ Wait（本线程：只读结果槽）
+//   → Finish（应用线程：Cookie 归集 + 落历史 + 输出）。
+// 这样整段传输期间应用线程是自由的，GUI 不会冻结（单一应用线程上跑完整条命令是
+// 旧行为，传输最长 120s 就等于 GUI 卡 120s）。
+void RunSendCommand(const std::vector<std::string>& args, const std::shared_ptr<Exchange>& exchange,
+                    const std::shared_ptr<ApplicationPoster>& poster) {
+    const auto started_at = std::chrono::steady_clock::now();
+    std::string audit_args;
+    for (const std::string& item : args) {
+        if (!audit_args.empty()) audit_args.push_back(' ');
+        audit_args += item;
+    }
+    auto sink = std::make_shared<CollectSink>();
+    const std::vector<std::string> tail(args.begin() + 1, args.end());
+
+    // 所有出口都必须标记 exchange 完成：HandleConnection 在等它。漏标 = 客户端等满
+    // 命令超时才拿到 504，且控制面线程被这个连接占住（后续连接全部排队）。
+    const auto complete_exchange = [&exchange, &sink](int code, std::string stderr_text = {}) {
+        if (!stderr_text.empty()) sink->stderr_ = std::move(stderr_text);
+        std::lock_guard lock{exchange->mutex};
+        exchange->exit_code = code;
+        exchange->stdout_ = sink->stdout_;
+        exchange->stderr_ = sink->stderr_;
+        exchange->done = true;
+    };
+
+    auto phase = std::make_shared<Phase>();
+    if (!poster->PostTask([tail, sink, phase] {
+            phase->handle = cli::BeginSend(tail, *sink, phase->exit_code);
+            CompletePhase(phase);
+        })) {
+        complete_exchange(1, "实例未就绪（应用线程投递口未挂载）");
+        return;
+    }
+    if (!WaitPhase(phase, kCommandTimeout)) {
+        complete_exchange(2, "命令超时（实例未在预期时间内返回）");
+        return;
+    }
+    int code = phase->exit_code;
+    if (phase->handle != nullptr) {
+        // Wait 只读引擎结果槽（带锁），不碰 store —— 可以在控制面线程上做。
+        (void)cli::WaitSend(phase->handle, std::chrono::seconds{120});
+        auto finish = std::make_shared<Phase>();
+        const std::shared_ptr<cli::SendHandle> handle = phase->handle;
+        if (!poster->PostTask([handle, sink, finish] {
+                finish->exit_code = cli::FinishSend(handle, *sink);
+                CompletePhase(finish);
+            })) {
+            complete_exchange(1, "实例未就绪（应用线程投递口未挂载）");
+            return;
+        }
+        if (!WaitPhase(finish, kCommandTimeout)) {
+            complete_exchange(2, "命令超时（实例未在预期时间内返回）");
+            return;
+        }
+        code = finish->exit_code;
+    }
+
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - started_at)
+                                .count();
+    if (code == 0) {
+        log::Info("control cmd [" + audit_args + "] exit=0 " + std::to_string(elapsed_ms) + "ms");
+    } else {
+        std::string detail = sink->stderr_;
+        if (const auto newline = detail.find('\n'); newline != std::string::npos) {
+            detail.resize(newline);
+        }
+        log::Warn("control cmd [" + audit_args + "] exit=" + std::to_string(code) + " " +
+                  std::to_string(elapsed_ms) + "ms" +
+                  (detail.empty() ? std::string{} : " :: " + detail));
+    }
+    complete_exchange(code);
+    exchange->changed.notify_all();
+}
+
 // ---- 服务端 ----------------------------------------------------------------
 
 class ControlServer {
@@ -265,12 +364,19 @@ public:
 private:
     void Serve() {
         for (;;) {
-            asio::ip::tcp::socket socket{context_};
+            asio::ip::tcp::socket socket{*context_};
             asio::error_code ec;
             acceptor_.accept(socket, ec);
             if (ec) return;  // acceptor 已关闭 → 退出
             SetSocketTimeouts(socket);
-            HandleConnection(socket);
+            // 一条连接一个线程：长命令（send 最长 120s）只该挡住它自己的连接，不能把
+            // ping 等短命令排在后面。连接线程只捕获快照值 + io_context 的 shared_ptr，
+            // 不碰 ControlServer 本身，因此服务端析构后仍能安全收尾（socket 超时兜底）。
+            const std::string token = token_;
+            const std::shared_ptr<ApplicationPoster> poster = poster_;
+            std::thread([context = context_, socket = std::move(socket), token, poster]() mutable {
+                HandleConnection(socket, token, poster);
+            }).detach();
         }
     }
 
@@ -290,7 +396,8 @@ private:
 
     // 一次一条连接，串行处理：控制面是本机单用户的调试/自动化通道，不需要并发。
     // 解析用手工缓冲（本构建定义 ASIO_NO_IOSTREAM，asio::streambuf/read_until 不可用）。
-    void HandleConnection(asio::ip::tcp::socket& socket) {
+    static void HandleConnection(asio::ip::tcp::socket& socket, const std::string& token,
+                                 const std::shared_ptr<ApplicationPoster>& poster) {
         char chunk[4096];
         std::string request;
         asio::error_code ec;
@@ -322,7 +429,7 @@ private:
             else if (name == "Content-Length") content_length = static_cast<std::size_t>(std::atoll(value.c_str()));
         }
 
-        if (authorization != "Bearer " + token_) {
+        if (authorization != "Bearer " + token) {
             log::Warn("控制面拒绝连接：token 不匹配或缺失");
             SendJson(socket, 401, json{{"error", "unauthorized"}});
             return;
@@ -346,9 +453,13 @@ private:
         }
 
         auto exchange = std::make_shared<Exchange>();
-        if (!poster_->PostTask([args = std::move(args), exchange]() mutable {
-                RunCommandOnApplicationThread(std::move(args), std::move(exchange));
-            })) {
+        const bool is_send = !args.empty() && args.front() == "send";
+        if (is_send) {
+            // send 在控制面线程上编排三段（见 RunSendCommand），不整条占住应用线程。
+            RunSendCommand(args, exchange, poster);
+        } else if (!poster->PostTask([args = std::move(args), exchange]() mutable {
+                       RunCommandOnApplicationThread(std::move(args), std::move(exchange));
+                   })) {
             SendJson(socket, 503, json{{"error", "实例未就绪（应用线程投递口未挂载）"}});
             return;
         }
@@ -365,7 +476,7 @@ private:
         SendJson(socket, 200, response);
     }
 
-    void SendJson(asio::ip::tcp::socket& socket, int status, const json& payload) {
+    static void SendJson(asio::ip::tcp::socket& socket, int status, const json& payload) {
         const std::string body = payload.dump();
         std::string response = "HTTP/1.1 " + std::to_string(status) + " OK\r\n";
         response += "Content-Type: application/json\r\n";
@@ -378,8 +489,10 @@ private:
     }
 
     std::shared_ptr<ApplicationPoster> poster_;
-    asio::io_context context_;
-    asio::ip::tcp::acceptor acceptor_{context_};
+    // io_context 用 shared_ptr：连接线程可能比服务端对象活得久（detach），
+    // 它们共享这份 context 直到自己收尾。
+    std::shared_ptr<asio::io_context> context_ = std::make_shared<asio::io_context>();
+    asio::ip::tcp::acceptor acceptor_{*context_};
     std::thread thread_;
     std::atomic<bool> stopping_{false};
     std::string token_;
