@@ -16,7 +16,17 @@
 #include <thread>
 #include <vector>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+// winsock2 必须在 windows.h 之前：本 TU 直接用 setsockopt/SO_RCVTIMEO 做客户端超时。
+#include <winsock2.h>
+#include <windows.h>  // CreateProcessW / STARTUPINFOW / MAX_PATH / DETACHED_PROCESS
+#else
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/socket.h>
