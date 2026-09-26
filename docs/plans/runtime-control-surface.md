@@ -249,7 +249,12 @@ agent 的数据类命令（orgs/projects/requests/show/send/history）全部可�
 
 下一轮：
 
-- [ ] `help` 离线可用（不依赖实例），让 CLI 进程彻底不构造 store。
+- [ ] `help` 离线可用（不依赖实例）。
+- [ ] **store 懒初始化**：`RequestStore` 是模块级全局（`src/store/requests.cppm:932`），
+      静态初始化就开库 + 起 curl 工作线程——实测 `--cli` 客户端用假 HOME 跑会建出
+      空库。要让"客户端不碰库"名副其实，需要把构造体挪进 `EnsureOpen()` 并由各入口
+      （`databaseResult`/`guarded`/缓存访问器）触发；注意 `healthy_`/`startupError_`
+      的语义与 const 访问器，得单独一步做。
 - [ ] 轻量模式（首帧 Hide + apitab 侧缓存释放）+ 三态 RSS/CPU 基线（§7）。
 - [ ] `send` 走后端引擎异步化：现在它在应用线程上同步等到响应，会把 GUI 卡住整个传输时长
       （旧 CLI 是独立进程没这个问题）；保持 `--json` 形状不变。
