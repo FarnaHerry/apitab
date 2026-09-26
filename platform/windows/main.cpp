@@ -1,22 +1,33 @@
 // platform/windows/main.cpp — Windows 平台入口（HuxerUI CLI 生成格式）。
 // 会话偏好（主题/关闭行为/上次会话）必须在 RunApplication 之前加载。
 // 链接为 /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup（见顶层 CMakeLists），保留 main。
-// argv[1] == "--cli" 时走无 GUI 命令行模式（src/cli.cpp），不进事件循环；
+// argv[1] == "--cli" 时把命令转发给运行中的实例（控制面薄客户端，
+// 见 docs/plans/runtime-control-surface.md），本进程不进事件循环、不碰数据库；
 // GUI 路径先获取命名 Mutex，重复启动直接退出。
 #include <huxerui/app.h>
 
 #include <string_view>
 #include <vector>
 
-#include "cli.h"
+#include "control.h"
 #include "single_instance.h"
+
+#include <cstdio>
 
 import apitab.preferences;
 
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "--cli") {
-        loadSessionPreferences();
-        return apitab::cli::run(std::vector<std::string>(argv + 2, argv + argc));
+        // 薄客户端：命令发给运行中的实例执行（见 src/control_client.cpp）。
+        // 本进程不构造 store、不碰数据库——DB 的唯一属主是 GUI 进程。
+        std::string error;
+        const int code = apitab::control::ForwardCommand(
+            std::vector<std::string>(argv + 2, argv + argc), error);
+        if (!error.empty()) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 1;
+        }
+        return code;
     }
     const apitab::SingleInstance single_instance("dev.farna.apitab");
     if (single_instance.alreadyRunning()) {

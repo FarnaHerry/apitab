@@ -44,8 +44,26 @@ namespace {
 
 // ---- 小工具 ----------------------------------------------------------------
 
-void out(std::string_view line) { std::cout << line << '\n'; }
-void err(std::string_view line) { std::cerr << line << '\n'; }
+// 当前命令的输出汇。命令实现只在**应用线程串行**执行（控制面一次处理一条请求，
+// GUI 自己不会调 cli::run），所以用文件级指针而不是把 Sink 层层传参——既有的
+// out()/err() 调用点一个都不用改，输出契约天然与进程内直跑一致。
+Sink* g_sink = nullptr;
+
+void out(std::string_view line) {
+    if (g_sink != nullptr) g_sink->Out(line);
+}
+void err(std::string_view line) {
+    if (g_sink != nullptr) g_sink->Err(line);
+}
+
+// 绑定/恢复输出汇（异常路径也不留悬空指针）。
+struct SinkScope {
+    explicit SinkScope(Sink& sink) : previous_(std::exchange(g_sink, &sink)) {}
+    ~SinkScope() { g_sink = previous_; }
+    SinkScope(const SinkScope&) = delete;
+    SinkScope& operator=(const SinkScope&) = delete;
+    Sink* previous_;
+};
 
 std::optional<std::int64_t> parseI64(std::string_view s) {
     std::int64_t v = 0;
@@ -643,7 +661,23 @@ int cmdHistory(const Options& opt) {
 
 } // namespace
 
+// 进程入口的输出汇：直写标准流（`apitab --cli` 的客户端路径不再用它——命令在
+// 运行中实例里执行；保留它是为了 help 这类纯文本路径与本地调试）。
+namespace {
+class StreamSink final : public Sink {
+public:
+    void Out(std::string_view line) override { std::cout << line << '\n'; }
+    void Err(std::string_view line) override { std::cerr << line << '\n'; }
+};
+} // namespace
+
 int run(const std::vector<std::string>& args) {
+    StreamSink sink;
+    return run(args, sink);
+}
+
+int run(const std::vector<std::string>& args, Sink& sink) {
+    SinkScope sinkScope{sink};
     if (args.empty()) {
         printGeneralHelp();
         err("缺少子命令（用法如上；单条详情 apitab --cli <子命令> --help）");

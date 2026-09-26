@@ -5,18 +5,25 @@ description: "Operate apitab from the command line (headless, no GUI): list orgs
 
 # apitab CLI（agent 可用）
 
-apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。不启动 GUI、不进事件循环，
-与 GUI **共用同一套数据**（`~/.local/share/apitab` 的 SQLite `apitab.db` 与 `settings.ini`、
-同一个项目/组织/环境上下文），所以可用它做批量校验、状态读取与 headless 发送，
-结果与 GUI 行为一致。
+apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**运行中实例的薄客户端**：
+命令发给实例、在它的应用线程上执行，读写的正是你眼前那份状态（当前组织/项目/环境、
+打开的项目标签），所以 agent 看到的就是用户看到的。
 
 ## 使用前提
 
 - 二进制：CMake 直构产物 `./build/apitab`（本项目默认形态）；HuxerUI CLI 流程产物
   在 `.huxerui/build/linux/`（命名相同）。
-- 运行时不依赖 GUI/显示；首次构造会打开/创建数据库（数据目录不可写会报错退出 1）。
-- 与 GUI 同时运行安全：SQLite 按连接加锁，两进程读写靠锁串行，偶发 BUSY 已转成
-  错误字符串返回（不崩溃）。
+- **需要有一个运行中的 apitab 实例**（阶段 0 起，见
+  `docs/plans/runtime-control-surface.md`）：`--cli` 是运行中实例的**薄客户端**，
+  命令在实例的应用线程上执行，结果经本机 loopback 控制面回传。
+  实例未运行时打印一行错误并以 `1` 退出（后续会加 `--ensure` 自动拉起）。
+- 客户端进程**不打开数据库、不进事件循环**；数据库的唯一属主是 GUI 进程，
+  所以不再有跨进程读写库的 BUSY 问题。
+- 端点：`$XDG_RUNTIME_DIR/apitab-control.json`（0600，含端口与随机 token），
+  随实例退出删除；控制面只绑 127.0.0.1 且拒绝无 token 请求。
+- 命令在**有状态的实例**上执行：读的是它当前的组织/项目/环境与打开的项目标签。
+  ⚠️ 已知待办：只读子命令（projects/requests）当前经 `ensureContext` 会切换实例的
+  当前项目，下一轮改为「按参数取上下文、不回写会话」。
 
 ## 子命令速查
 

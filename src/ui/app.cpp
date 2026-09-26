@@ -26,6 +26,7 @@
 
 #include "ui.h"
 #include "app.h"
+#include "control.h"
 #include "app_resources.h"
 
 import apitab.config;
@@ -517,6 +518,15 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     // 这里在组合期订阅，可用性翻转后本作用域重组、托盘随后注册。
     const bool trayAvailable = tray.IsAvailable();
     auto tasks = huxerui::UseTaskScope();
+    // 控制面（`apitab --cli` 的服务端）在应用安装期起来，那时还没有组合作用域；
+    // 这里把根作用域的 TaskScope::Post 注入它的投递口，命令才能回到应用线程执行。
+    const auto controlPoster = huxerui::UseService<apitab::control::ApplicationPoster>();
+    huxerui::Lifecycle(
+        [controlPoster, tasks] {
+            controlPoster->Set([tasks](std::function<void()> task) { tasks.Post(std::move(task)); });
+            return [controlPoster] { controlPoster->Clear(); };
+        },
+        0);
     auto loggedIn = huxerui::UseState(true);
     auto loginDialog = huxerui::UseDialog();
     // UseState 的 initial 参数在重组时仍会先求值；用一个一次性门闩避免把启动恢复

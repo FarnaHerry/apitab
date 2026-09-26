@@ -3,6 +3,7 @@
 // UI 内容在 src/ui/*.cpp（composable 普通源，经 huxerui_add_app 的 codegen 处理）。
 #include <huxerui/huxerui.h>
 
+#include "control.h"
 #include "ui/app.h"
 
 // EUI 时代由框架提供的 UI 唤醒钩子。HuxerUI 是 State 驱动失效模型，
@@ -27,6 +28,8 @@ const huxerui::Application application{
         },
         // 托盘激活处理器是应用级一次性注册（见 ui/app.h 的 InstallSystemTray），
         // 必须在安装钩子里注册，不能放进会重组的 AppRoot。
-        .application_hooks = {apitab::ui::InstallSystemTray},
+        // 控制面（`apitab --cli` 的服务端）同样在安装期起，活到应用关闭。
+        .application_hooks = {apitab::ui::InstallSystemTray,
+                              apitab::control::InstallControlServer},
     },
 };
