@@ -46,6 +46,7 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**�
 | `show <请求ID> [--project ID]` | 单请求全字段：params/headers/cookies/body（含表单字段）/测试用例/Mock 配置 | `apitab --cli show 14 --project 5` |
 | `send <请求ID> [--project ID] [--env ID\|名字] [--json]` | 组装→finalizeSpec（环境变量替换+baseUrl 与目录 Path 链拼接+合并全局 Cookie/公共头+全局超时/代理）→curl 引擎发送→10ms 轮询取回（120s 兜底），成功落历史并把响应 `Set-Cookie` 归集进项目 Cookie | `apitab --cli send 14 --project 5 --json` |
 | `history [--limit N]` | 最近发送历史（默认 20 条，最新在前：ID/时间/方法/状态/耗时/大小/URL/错误/关联请求） | `apitab --cli history --limit 5` |
+| `lightweight [off]` | **进程形态**操作（不进 `cli::run`）：进入/退出轻量模式——隐藏窗口（停止出帧，CPU→0）+ 释放应用侧可再生缓存；控制面继续服务，其它子命令照常可用。幂等。托盘菜单也有「轻量模式（隐藏并释放缓存）」入口 | `apitab --cli lightweight` / `apitab --cli lightweight off` |
 
 ### send 的要点
 
