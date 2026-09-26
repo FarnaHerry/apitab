@@ -230,6 +230,53 @@ int ensureContext(const Options& opt) {
     return 0;
 }
 
+// ---- 会话保护 ----------------------------------------------------------------
+
+// 命令跑在**运行中实例**的应用线程上：ensureContext/locateRequest 会 selectOrg /
+// selectProjectInOrg / selectEnv，甚至回写 active_project。那等于替用户切项目——
+// GUI 会跟着跳、下次启动的活动项目也被改掉。所以整条命令外面套一层快照/恢复：
+// 命令期间临时切换（整条命令在应用线程同步执行、不让出事件循环，组合观察不到中间
+// 态），返回前把组织/项目/环境与 active_project 偏好还原。
+class SessionRestore {
+public:
+    SessionRestore()
+        : orgId_(g_requests.currentOrgId()),
+          projectId_(g_requests.currentProjectId()),
+          envId_(g_requests.currentEnvId()),
+          activeProject_(sessionPreference("active_project")) {}
+
+    ~SessionRestore() { Restore(); }
+
+    SessionRestore(const SessionRestore&) = delete;
+    SessionRestore& operator=(const SessionRestore&) = delete;
+
+    void Restore() {
+        if (restored_) return;
+        restored_ = true;
+        if (orgId_ > 0 && g_requests.currentOrgId() != orgId_) {
+            (void)g_requests.selectOrg(orgId_);
+        }
+        // projectId_ == 0 表示原本没有打开项目；store 没有"取消选择"的入口，
+        // 这种情况保持命令后的状态（GUI 实例启动即有默认项目，实际不会走到）。
+        if (projectId_ > 0 && g_requests.currentProjectId() != projectId_) {
+            (void)g_requests.selectProjectInOrg(orgId_, projectId_);
+        }
+        if (envId_ > 0 && g_requests.currentEnvId() != envId_) {
+            (void)g_requests.selectEnv(envId_);
+        }
+        if (sessionPreference("active_project") != activeProject_) {
+            saveSessionPreference("active_project", activeProject_);
+        }
+    }
+
+private:
+    std::int64_t orgId_ = 0;
+    std::int64_t projectId_ = 0;
+    std::int64_t envId_ = 0;
+    std::string activeProject_;
+    bool restored_ = false;
+};
+
 // 在当前项目找请求；找不到则跨项目自动定位（临时切上下文、不回写偏好）。
 // 返回副本——切项目会重载 store 缓存，不能把 find() 的裸指针带出本函数。
 Result<std::optional<db::SavedRequest>> locateRequest(std::int64_t id) {
@@ -266,8 +313,9 @@ void printGeneralHelp() {
 约定:
   stdout 数据（列表一行一条）；stderr 错误。
   退出码 0=成功 1=用法/数据错误 2=请求传输失败（HTTP >=400 不算失败）。
-  与 GUI 共用 ~/.local/share/apitab（SQLite + settings.ini）；--project
-  覆盖会回写 active_project，影响下次 GUI 启动的活动项目。)");
+  命令在**运行中实例**上执行（本机控制面）：读的是它当前的组织/项目/环境，
+  但命令对上下文的临时切换与 active_project 回写都会在返回前还原，
+  不会改动你眼前的 GUI 会话。)");
 }
 
 void printOrgsHelp() {
@@ -278,7 +326,7 @@ void printProjectsHelp() {
     out(R"(用法: apitab --cli projects [--org ID]
 
 列出组织（默认当前）下的项目，* 标注当前活动项目。
---org ID 切换组织上下文（不回写会话偏好）。)");
+--org ID 临时切换组织上下文；命令结束即还原，不动 GUI 会话。)");
 }
 
 void printRequestsHelp() {
@@ -678,6 +726,8 @@ int run(const std::vector<std::string>& args) {
 
 int run(const std::vector<std::string>& args, Sink& sink) {
     SinkScope sinkScope{sink};
+    // 命令不得改动运行中实例的会话（见 SessionRestore）。
+    SessionRestore sessionRestore;
     if (args.empty()) {
         printGeneralHelp();
         err("缺少子命令（用法如上；单条详情 apitab --cli <子命令> --help）");
