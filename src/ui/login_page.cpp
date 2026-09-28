@@ -50,19 +50,15 @@ huxerui::TextField ConfigurePasswordField(huxerui::TextField field,
     auto passwordVisible = huxerui::UseState(false);
     auto passwordFieldHovered = huxerui::UseState(false);
     auto error = huxerui::UseState(std::string{});
-    auto tasks = huxerui::UseTaskScope();
 
-    auto submit = [account, password, error, loggedIn, tasks, ctx] {
-        tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            if (account.Get().text == "admin" && password.Get().text == "admin") {
-                error = {};
-                loggedIn = true;
-                ctx.Dismiss();
-            } else {
-                error = "账号或密码错误（演示账号：admin / admin）";
-            }
-        });
+    auto submit = [account, password, error, loggedIn, ctx] {
+        if (account.Get().text == "admin" && password.Get().text == "admin") {
+            error = {};
+            loggedIn = true;
+            ctx.Dismiss();
+        } else {
+            error = "账号或密码错误（演示账号：admin / admin）";
+        }
     };
 
     // 尾部动作只在整个密码框悬停时进入布局；离开字段即隐藏，避免常态视觉干扰。
@@ -84,7 +80,7 @@ huxerui::TextField ConfigurePasswordField(huxerui::TextField field,
             .Variant(huxerui::TextFieldVariant::Outlined)
             .OnChanged([account](const huxerui::TextEditingValue& value) { account = value; })
             .With(huxerui::Frame{.height = 48.0F}),
-        std::move(passwordField),
+        passwordField,
         error.Get().empty() ? huxerui::View{huxerui::Row{}}
                             : huxerui::View{huxerui::Text(error.Get(), huxerui::TextRole::Body)
                                                 .With(huxerui::Foreground(theme.colors.error))},

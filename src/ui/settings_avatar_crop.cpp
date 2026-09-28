@@ -49,8 +49,8 @@ float ClampCropValue(float value, float lower, float upper) {
     return std::clamp(value, lower, upper);
 }
 
-// HCG 不允许在 [[composable]] 函数体内使用条件编译，因此 SDK 版本差异
-// 收敛在普通 C++ 辅助函数中。离线 0.2.0 SDK 没有这些事件时仍保留点击选图和
+// HCG 不允许在 [[composable]] 函数体内使用条件编译，因此 SDK 能力差异
+// 收敛在普通 C++ 辅助函数中。SDK 没有这些事件时仍保留点击选图和
 // 触控板变换手势。
 template <typename ClampOffset>
 huxerui::View WithCropScrollZoom(huxerui::View stage, huxerui::State<float> imageScale,
@@ -288,7 +288,7 @@ struct AvatarCropOutput {
         saving = true;
         tasks.Launch([=]() -> huxerui::Task<void> {
             try {
-                auto result = co_await RunOnTaskThread([sourceArg, side, x, y, outputPath] {
+                auto result = co_await huxerui::RunWorker([sourceArg, side, x, y, outputPath] {
                     auto output = std::make_shared<AvatarCropOutput>();
                     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
                     output->path = std::filesystem::path(outputPath).parent_path() /

@@ -135,8 +135,7 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
 // 请求代理弹窗：单行 Outlined TextField（初值 = 当前 request_proxy）+ 说明 +
 // 取消/保存。保存 = saveSessionPreference("request_proxy")（存储键与 store 契约
 // 一致：finalizeSpec/globalProxy() 读该键并自行 trim）+ toast + 关弹窗；
-// bump version 让状态条摘要文本随重组刷新。写 KV/State 均不卸载子树，同步安全
-// （约定 6 只约束会导致点击节点卸载的写）。
+// bump version 让状态条摘要文本随重组刷新。回调直接写 KV/State。
 [[huxerui::composable]] huxerui::View RequestProxyDialogContent(
     huxerui::DialogContext ctx, huxerui::State<int> version) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -179,7 +178,7 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
 // 每字符一次 SQLite upsert、失败时 toast 刷屏，且重组回读 store 只剩纯文本会丢
 // 光标。改为：文本改动只进缓冲，「保存」按钮统一落库（小表整表 upsert，不 diff；
 // 名称非空才物化，空名行丢弃）；Checkbox 启用/禁用与删除图标是离散操作即点即落库
-// （删除图标所在行会卸载，KvTable 内部负责推迟出指针事件路径，约定 6）。
+// （删除图标所在行会卸载，KvTable 在回调中直接更新行状态）。
 // 编辑表使用共享 KvTable（同为缓冲 + 统一保存 + 虚拟末行）。
 [[huxerui::composable]] huxerui::View GlobalCookieDialogContent(
     huxerui::DialogContext ctx, huxerui::State<int> version) {

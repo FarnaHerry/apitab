@@ -261,12 +261,9 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                                                 : huxerui::Color::Rgb(107, 203, 119);
     const huxerui::Color failColor = theme.colors.error;
 
-    // ---- 运行流程（照抄 request_page 发送：推迟出指针事件路径 + PollWhile）----
+    // ---- 运行流程：事件回调启动运行，PollWhile 将引擎结果带回 UI 线程 ----
     const auto runCases = [tasks, drafts, index, toast, running, results, runGen] {
         tasks.Launch([=]() -> huxerui::Task<void> {
-            // 翻转运行中状态会重组按钮子树：State 写入整体推迟出指针事件路径
-            // （CLAUDE.md 约定 6）。
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
             if (running.Get()) co_return;
             const std::vector<RequestDraft> current = drafts.Get();
             if (index >= current.size()) co_return;
@@ -303,8 +300,13 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                 co_await PollWhile(std::chrono::duration<double>{0.03},
                                    [&view] { return !g_requests.takeResponse(view); });
                 // 在途期间用例被删改（代际变化）→ 下标已错位，结果作废。
-                if (gen == runGen.Get())
-                    ReplaceCaseResults(results, EvaluateCases(draft.cases, view));
+                if (gen == runGen.Get()) {
+                    const std::vector<CaseResult> evaluated = co_await huxerui::RunWorker(
+                        [cases = draft.cases, view = std::move(view)] {
+                            return EvaluateCases(cases, view);
+                        });
+                    if (gen == runGen.Get()) ReplaceCaseResults(results, evaluated);
+                }
                 running = false;
             });
         });
@@ -403,21 +405,17 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                     })
                     .With(huxerui::Grow(1.0F)),
                 badge,
-                AppIconButton(app::images::close, "删除测试用例", [tasks, caseItems, drafts, index, ci,
+                AppIconButton(app::images::close, "删除测试用例", [caseItems, drafts, index, ci,
                                                         results, runGen] {
-                    // 删除会卸载本按钮所在卡片：写回推迟出指针事件路径（约定 6）；
                     // 结果向量与用例按下标对齐，删一行会整体错位 → 清空结果并升代际
                     // （作废在途运行的回写）。
-                    tasks.Launch([=]() -> huxerui::Task<void> {
-                        co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        if (ci < caseItems.Size()) caseItems.Erase(ci);
-                        MutateDraft(drafts, index, [ci](RequestDraft& d) {
-                            if (ci < d.cases.size())
-                                d.cases.erase(d.cases.begin() + static_cast<long>(ci));
-                        });
-                        results.Clear();
-                        runGen = runGen.Get() + 1;
+                    if (ci < caseItems.Size()) caseItems.Erase(ci);
+                    MutateDraft(drafts, index, [ci](RequestDraft& d) {
+                        if (ci < d.cases.size())
+                            d.cases.erase(d.cases.begin() + static_cast<long>(ci));
                     });
+                    results.Clear();
+                    runGen = runGen.Get() + 1;
                 }, AppIconButtonShape::Bare),
             };
 
@@ -524,16 +522,11 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                         phantom
                             ? huxerui::View{huxerui::Row{}.With(kAssertActionWidth)}
                             : AppIconButton(app::images::close, "删除断言",
-                                  [tasks, rows = c.asserts, i, ci, setCaseAsserts] {
-                                      // 删除会移除本按钮所在行：推迟出指针事件路径。
-                                      tasks.Launch([=]() -> huxerui::Task<void> {
-                                          co_await huxerui::Delay(
-                                              std::chrono::duration<double>{0});
-                                          std::vector<KvRow> copy = rows;
-                                          if (i < copy.size())
-                                              copy.erase(copy.begin() + static_cast<long>(i));
-                                          setCaseAsserts(ci, std::move(copy));
-                                      });
+                                  [rows = c.asserts, i, ci, setCaseAsserts] {
+                                      std::vector<KvRow> copy = rows;
+                                      if (i < copy.size())
+                                          copy.erase(copy.begin() + static_cast<long>(i));
+                                      setCaseAsserts(ci, std::move(copy));
                                   }, AppIconButtonShape::Bare),
                     }
                         .With(huxerui::Spacing(theme.spacing.small),

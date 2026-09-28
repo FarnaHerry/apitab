@@ -162,7 +162,6 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
     huxerui::State<int> listVersion, bool vertical, float horizontalWidth) {
 
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    auto tasks = huxerui::UseTaskScope();
     auto addPopup = huxerui::UsePopup(); // 新建菜单（自绘 PopupMenu，卡片观感统一）
     auto ctxMenu = huxerui::UsePopup(); // 行右键菜单（自绘 PopupMenu）：ShowAt 无需锚点，所有行共享
     auto dialog = huxerui::UseDialog();
@@ -201,12 +200,12 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
     // 重命名弹窗（请求/分组共用）：预填当前名，apply 回调落库并返回错误串
     // （空 = 成功），成功后 bump listVersion 重组本岛。布局同「新建分组」弹窗。
     auto showRenameDialog =
-        [dialog, tasks, toast, listVersion, renameValue](
+        [dialog, toast, listVersion, renameValue](
             const std::string& currentName,
             const std::function<std::string(const std::string&)>& apply) {
             renameValue = huxerui::TextEditingValue{currentName};
             dialog.Show(
-                [tasks, toast, listVersion, renameValue,
+                [toast, listVersion, renameValue,
                  apply](huxerui::DialogContext ctx) -> huxerui::View {
                     return DialogCard(huxerui::Column {
                         huxerui::Text("重命名", huxerui::TextRole::Title),
@@ -219,23 +218,18 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                         huxerui::Row {
                             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
                             huxerui::Button("确定")
-                                .OnClick([ctx, tasks, toast, listVersion, renameValue, apply] {
+                                .OnClick([ctx, toast, listVersion, renameValue, apply] {
                                     const std::string name = renameValue.Get().text;
                                     if (name.empty()) {
                                         toast.Show("名称不能为空");
                                         return;
                                     }
+                                    if (const std::string err = apply(name); !err.empty()) {
+                                        toast.Show("重命名失败: " + err);
+                                        return;
+                                    }
+                                    listVersion = listVersion.Get() + 1;
                                     ctx.Dismiss();
-                                    // 落库后重组左岛：推迟出指针事件路径
-                                    tasks.Launch([=]() -> huxerui::Task<void> {
-                                        co_await huxerui::Delay(
-                                            std::chrono::duration<double>{0});
-                                        if (const std::string err = apply(name); !err.empty()) {
-                                            toast.Show("重命名失败: " + err);
-                                            co_return;
-                                        }
-                                        listVersion = listVersion.Get() + 1;
-                                    });
                                 }),
                         }
                             .With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
@@ -249,13 +243,13 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
     // 接口目录编辑：与“新建接口目录”保持同一名称/路径契约。路径为空即仅名称目录，
     // 非空即 Path 目录；一次提交原子更新 name/mode/path，避免 URL 仍拼旧路径。
     auto showGroupEditDialog =
-        [dialog, tasks, toast, listVersion, groupNameValue,
+        [dialog, toast, listVersion, groupNameValue,
          groupPathValue](const db::Group& group) {
             groupNameValue = huxerui::TextEditingValue{group.name};
             groupPathValue = huxerui::TextEditingValue{group.path};
             const std::int64_t gid = group.id;
             dialog.Show(
-                [tasks, toast, listVersion, groupNameValue, groupPathValue,
+                [toast, listVersion, groupNameValue, groupPathValue,
                  gid](huxerui::DialogContext ctx) -> huxerui::View {
                     return DialogCard(huxerui::Column {
                         huxerui::Text("编辑接口目录", huxerui::TextRole::Title),
@@ -276,7 +270,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                         huxerui::Row {
                             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
                             huxerui::Button("保存").OnClick(
-                                [ctx, tasks, toast, listVersion, groupNameValue,
+                                [ctx, toast, listVersion, groupNameValue,
                                  groupPathValue, gid] {
                                     const std::string name = trim(groupNameValue.Get().text);
                                     const std::string path = trim(groupPathValue.Get().text);
@@ -284,18 +278,14 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                         toast.Show("名称不能为空");
                                         return;
                                     }
+                                    if (auto result = g_requests.updateGroup(gid, name, path);
+                                        !result) {
+                                        toast.Show("保存接口目录失败: " + result.error().message);
+                                        return;
+                                    }
+                                    toast.Show("接口目录已更新");
+                                    listVersion = listVersion.Get() + 1;
                                     ctx.Dismiss();
-                                    tasks.Launch([=]() -> huxerui::Task<void> {
-                                        co_await huxerui::Delay(
-                                            std::chrono::duration<double>{0});
-                                        if (auto result = g_requests.updateGroup(gid, name, path);
-                                            !result) {
-                                            toast.Show("保存接口目录失败: " + result.error().message);
-                                            co_return;
-                                        }
-                                        toast.Show("接口目录已更新");
-                                        listVersion = listVersion.Get() + 1;
-                                    });
                                 }),
                         }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
                     }.With(huxerui::Spacing(12.0F), huxerui::Frame{.width = 320.0F},
@@ -306,7 +296,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
 
     // 请求行的菜单条目（重命名/删除）：行尾更多按钮与右键菜单共用，
     // 按行现场构造，避免两处逻辑分叉。自绘 PopupMenu：删除项 hover 才显红。
-    auto requestEntries = [showRenameDialog, dialog, tasks, drafts, activeTab,
+    auto requestEntries = [showRenameDialog, dialog, drafts, activeTab,
                            listVersion, toast](const db::SavedRequest& r) {
         const std::int64_t id = r.id;
         return std::vector<AppMenuItem>{
@@ -330,20 +320,17 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                 }},
             AppMenuItem{
                 .label = "删除",
-                .onClick = [dialog, tasks, drafts, activeTab, listVersion, id, toast,
+                .onClick = [dialog, drafts, activeTab, listVersion, id, toast,
                             name = r.name] {
                     // 删除前先弹危险确认框（确认按钮染红）；真正删行仍在确认回调里
-                    // 推迟出指针事件路径。
+                    // 直接更新 store 和草稿状态。
                     ShowDangerConfirm(dialog, "删除请求",
                                       "确定删除请求「" + (name.empty() ? "未命名" : name) +
                                           "」吗？此操作不可恢复。",
-                                      "删除", [tasks, drafts, activeTab, listVersion, id, toast] {
-                                          tasks.Launch([=]() -> huxerui::Task<void> {
-                                              co_await huxerui::Delay(
-                                                  std::chrono::duration<double>{0});
+                                      "删除", [drafts, activeTab, listVersion, id, toast] {
                                               if (auto result = g_requests.remove(id); !result) {
                                                   toast.Show("删除请求失败: " + result.error().message);
-                                                  co_return;
+                                                  return;
                                               }
                                               std::vector<RequestDraft> copy = drafts.Get();
                                               for (std::size_t i = 0; i < copy.size(); ++i) {
@@ -358,14 +345,13 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                               }
                                               drafts = copy;
                                               listVersion = listVersion.Get() + 1;
-                                          });
                                       });
                 },
                 .tone = AppMenuTone::DangerHover}};
     };
 
             // 接口目录菜单：行尾更多按钮与右键共用同一条目模型和双字段编辑流程。
-    auto groupEntries = [showGroupEditDialog, tasks, toast, listVersion](const db::Group& g) {
+    auto groupEntries = [showGroupEditDialog, toast, listVersion](const db::Group& g) {
         const std::int64_t gid = g.id;
         return std::vector<AppMenuItem>{
             AppMenuItem{
@@ -373,17 +359,13 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                 .onClick = [showGroupEditDialog, g] { showGroupEditDialog(g); }},
             AppMenuItem{
                 .label = "删除接口目录",
-                .onClick = [tasks, toast, listVersion, gid] {
-                    // 删除接口目录会重组本岛：推迟出指针事件路径
-                    // （组内请求移到未分组，子分组一并删除）。
-                    tasks.Launch([=]() -> huxerui::Task<void> {
-                        co_await huxerui::Delay(std::chrono::duration<double>{0});
+                .onClick = [toast, listVersion, gid] {
+                    // 组内请求移到未分组，子分组一并删除。
                         if (auto result = g_requests.deleteGroup(gid); !result) {
                             toast.Show("删除接口目录失败: " + result.error().message);
-                            co_return;
+                            return;
                         }
                         listVersion = listVersion.Get() + 1;
-                    });
                 },
                 .tone = AppMenuTone::DangerHover}};
     };
@@ -587,7 +569,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                    huxerui::Text("请求", huxerui::TextRole::Title)
                                        .With(huxerui::Grow(1.0F)),
                                    AppIconButton(app::images::add, "新建请求",
-                                                 [addPopup, dialog, tasks, toast, drafts,
+                                                 [addPopup, dialog, toast, drafts,
                                                   activeTab, listVersion, newGroupName,
                                                   newGroupPath] {
                                        auto pushDraft = [drafts, activeTab](int kind) {
@@ -613,12 +595,12 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                            .on_click = [pushDraft] { pushDraft(3); }});
                                        items.push_back(PopupMenuItem{
                                            .label = "新建接口目录…",
-                                           .on_click = [dialog, tasks, toast, listVersion,
+                                           .on_click = [dialog, toast, listVersion,
                                                         newGroupName, newGroupPath] {
                                                newGroupName = huxerui::TextEditingValue{};
                                                newGroupPath = huxerui::TextEditingValue{};
                                                dialog.Show(
-                                                   [tasks, toast, listVersion, newGroupName,
+                                                   [toast, listVersion, newGroupName,
                                                     newGroupPath](huxerui::DialogContext ctx)
                                                        -> huxerui::View {
                                                        return DialogCard(huxerui::Column {
@@ -654,7 +636,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                                                        ctx.Dismiss();
                                                                    }),
                                                                huxerui::Button("创建")
-                                                                   .OnClick([ctx, tasks, toast,
+                                                                   .OnClick([ctx, toast,
                                                                              listVersion,
                                                                              newGroupName,
                                                                              newGroupPath] {
@@ -666,26 +648,20 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                                                            toast.Show("名称不能为空");
                                                                            return;
                                                                        }
+                                                                       if (auto result =
+                                                                               g_requests.createGroup(
+                                                                                   name,
+                                                                                   path.empty()
+                                                                                       ? db::GroupMode::Name
+                                                                                       : db::GroupMode::Path,
+                                                                                   0, path);
+                                                                           !result) {
+                                                                           toast.Show("新建接口目录失败: " + result.error().message);
+                                                                           return;
+                                                                       }
+                                                                       toast.Show("已新建接口目录");
+                                                                       listVersion = listVersion.Get() + 1;
                                                                        ctx.Dismiss();
-                                                                       // 建目录重组左岛：推迟出指针
-                                                                       // 事件路径（约定 6）。
-                                                                       tasks.Launch([=]() -> huxerui::Task<void> {
-                                                                           co_await huxerui::Delay(
-                                                                               std::chrono::duration<double>{0});
-                                                                           if (auto result =
-                                                                                   g_requests.createGroup(
-                                                                                       name,
-                                                                                       path.empty()
-                                                                                           ? db::GroupMode::Name
-                                                                                           : db::GroupMode::Path,
-                                                                                       0, path);
-                                                                               !result) {
-                                                                               toast.Show("新建接口目录失败: " + result.error().message);
-                                                                               co_return;
-                                                                           }
-                                                                           toast.Show("已新建接口目录");
-                                                                           listVersion = listVersion.Get() + 1;
-                                                                       });
                                                                    }),
                                                            }
                                                                .With(huxerui::MainAlign(
@@ -725,34 +701,26 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                        .With(huxerui::DropTarget::Accepts<RequestDragPayload>(),
                                              huxerui::DropTarget::Accepts<GroupDragPayload>())
                                        .On<huxerui::DropEvents<RequestDragPayload>::Dropped>(
-                                           [tasks, toast, listVersion](
+                                           [toast, listVersion](
                                                const RequestDragPayload& p,
                                                const huxerui::DropEvent&) {
-                                               tasks.Launch([=]() -> huxerui::Task<void> {
-                                                   co_await huxerui::Delay(
-                                                       std::chrono::duration<double>{0});
                                                    if (auto result = g_requests.moveToGroup(p.requestId, 0);
                                                        !result) {
                                                        toast.Show("移动失败: " + result.error().message);
-                                                       co_return;
+                                                       return;
                                                    }
                                                    listVersion = listVersion.Get() + 1;
-                                               });
                                            })
                                        .On<huxerui::DropEvents<GroupDragPayload>::Dropped>(
-                                           [tasks, toast, listVersion](
+                                           [toast, listVersion](
                                                const GroupDragPayload& p,
                                                const huxerui::DropEvent&) {
-                                               tasks.Launch([=]() -> huxerui::Task<void> {
-                                                   co_await huxerui::Delay(
-                                                       std::chrono::duration<double>{0});
                                                    if (auto result = g_requests.moveGroup(p.groupId, 0);
                                                        !result) {
                                                        toast.Show("移动失败: " + result.error().message);
-                                                       co_return;
+                                                       return;
                                                    }
                                                    listVersion = listVersion.Get() + 1;
-                                               });
                                            })
                                    .With(huxerui::Grow(1.0F)),
                            }

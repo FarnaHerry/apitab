@@ -50,7 +50,7 @@ struct ProjectTabDragPayload {
 
 // 单个顶级标签：激活态 = 最高层级容器底 + 主文字色；未激活 = 略深容器底 + 次级文字色。
 // 整块外层只负责激活与切换（点击会卸载内容子树，切换统一经 actions.activate 的
-// AppRoot 推迟任务执行，CLAUDE.md 约定 6）；内层用两个兄弟节点分别承载「切换」与
+// AppRoot 同步处理）；内层用两个兄弟节点分别承载「切换」与
 // 「关闭」，避免各自做一次整标签的背景重绘。主页标签（kind=Home）不可关闭、不挂
 // 拖拽，位置恒定最左；项目标签（kind=Project）可关闭、挂拖拽换位；设置单例标签
 // （kind=GlobalSettings）可关闭、不挂拖拽——拖拽 payload 只接受项目，设置不参与
@@ -93,8 +93,8 @@ struct ProjectTabDragPayload {
     const huxerui::Color tabForeground =
         active ? theme.colors.on_primary_container : theme.colors.on_surface_variant;
 
-    // 激活/关闭统一走 AppRoot 注入的 actions（推迟任务里完成顶级标签状态写回与
-    // 领域同步）；本项目不再直接持有任何顶级状态写入。
+    // 激活/关闭统一走 AppRoot 注入的 actions，由 AppRoot 同步完成顶级标签状态写回
+    // 与领域同步；本项目不再直接持有任何顶级状态写入。
     const auto activate = [actions, tab] { actions.activate(tab); };
 
     const auto badgeFont =
@@ -112,7 +112,7 @@ struct ProjectTabDragPayload {
     huxerui::View tabView = huxerui::Row {
         // 切换区：点击 = 激活本标签。max_width 给行尾关闭动作留出位置
         // （固定宽 140 内：切换区 ≤100 + 28pt 命中区 + 间隙）。
-        huxerui::Row {std::move(leading),
+        huxerui::Row {leading,
                       iconOnly
                           ? huxerui::View{huxerui::Row{}}
                           : huxerui::View{huxerui::Text(name, huxerui::TextRole::Label)
@@ -138,7 +138,7 @@ struct ProjectTabDragPayload {
         // agent 的部分）：固定 28pt 命中区在 24pt 标题栏里上下各溢出 2pt——允许
         // （Bare hover 底轻微出血可接受），不回退成文本按钮。Opacity 只改绘制不动
         // 结构，避免悬停重组换子节点类型引起抖动；enabled=hovered 门控透明占位的
-        // 点击（关闭会卸载本标签，AppRoot 侧再经推迟任务执行，约定 6）。
+        // 点击后由 AppRoot 同步更新顶级标签状态。
         // 键盘缺口（P1-B0.4 如实记录）：enabled=hovered 使未悬停的关闭动作为 disabled，
         // disabled 节点不参与 Tab 遍历（runtime.cpp CollectFocusableNodes 要求
         // enabled && focusable）→ 键盘无法到达关闭动作，关设置/项目标签暂只能鼠标完成
@@ -259,22 +259,16 @@ struct ProjectTabDragPayload {
                               }
                               saveSessionPreference("open_projects", csv);
                           })
-                      // 结束/取消：归零会移除覆盖层节点（卸载），推迟出指针事件路径。
+                      // 结束/取消：归零会移除覆盖层节点。
                       .On<huxerui::DragSourceEvents::Ended>(
-                          [tasks, dragId, dragDx](const huxerui::DragDropResult&) {
-                              tasks.Launch([=]() -> huxerui::Task<void> {
-                                  co_await huxerui::Delay(std::chrono::duration<double>{0});
-                                  dragId = 0;
-                                  dragDx = 0.0F;
-                              });
+                          [dragId, dragDx](const huxerui::DragDropResult&) {
+                              dragId = 0;
+                              dragDx = 0.0F;
                           })
                       .On<huxerui::DragSourceEvents::Canceled>(
-                          [tasks, dragId, dragDx](const huxerui::DragEvent&) {
-                              tasks.Launch([=]() -> huxerui::Task<void> {
-                                  co_await huxerui::Delay(std::chrono::duration<double>{0});
-                                  dragId = 0;
-                                  dragDx = 0.0F;
-                              });
+                          [dragId, dragDx](const huxerui::DragEvent&) {
+                              dragId = 0;
+                              dragDx = 0.0F;
                           });
     }
     return tabView;
@@ -482,7 +476,7 @@ struct ProjectTabDragPayload {
         static_cast<float>(entries.size()) * tabStride;
 
     return huxerui::Row {
-        std::move(homeTab),
+        homeTab,
         tabDivider(homeDividerVisible),
         // Stack 包裹：拖动时覆盖层克隆叠在标签行之上（绘制最上层），随
         // ScrollView 一起滚动（Offset 只平移绘制，布局原点仍在内容坐标系）。
@@ -491,7 +485,7 @@ struct ProjectTabDragPayload {
                                     .With(huxerui::Spacing(theme.spacing.small),
                                           huxerui::CrossAlign(
                                               huxerui::CrossAxisAlignment::Center)),
-                                std::move(overlayTab),
+                                overlayTab,
                             })
             .ScrollAxis(huxerui::Axis::Horizontal)
             .With(huxerui::ScrollBar{}, huxerui::Grow(1.0F)),

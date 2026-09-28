@@ -26,14 +26,31 @@ struct DraftTabDragPayload {
     std::uint64_t uid = 0;
 };
 
+void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
+                     huxerui::State<std::size_t> activeTab, std::uint64_t uid) {
+    std::vector<RequestDraft> copy = drafts.Get();
+    const auto removed = std::ranges::find(copy, uid, &RequestDraft::uid);
+    if (removed == copy.end()) return;
+
+    const std::size_t index = static_cast<std::size_t>(std::distance(copy.begin(), removed));
+    const std::size_t active = activeTab.Get();
+    copy.erase(removed);
+    const std::size_t remaining = copy.size();
+    drafts = std::move(copy);
+    if (remaining == 0)
+        activeTab = 0;
+    else if (index == active)
+        activeTab = std::min(index, remaining - 1);
+    else if (index < active)
+        activeTab = active - 1;
+}
+
 // 标签页选择弹层（"⌄"下拉）：顶部搜索框 + 过滤后的标签列表，行样式与 chips 对齐
 // （方法徽标按 MethodColor 着色 + 草稿名），当前标签高亮。选中后关层并切换标签：
-// 关层会卸载被点的行节点，所以 activeTab 的写入必须推迟出指针事件路径（约定 6）；
-// 任务派给标签条自己的 TaskScope —— 弹层作用域随关层销毁，不能用它。
+// 选择与关闭都直接更新 State；弹层会在事件处理完成后随组合更新关闭。
 [[huxerui::composable]] huxerui::View TabPickerContent(
     huxerui::PopupContext ctx, huxerui::State<std::vector<RequestDraft>> drafts,
-    huxerui::State<std::size_t> activeTab, huxerui::State<bool> newTabOpen,
-    huxerui::TaskScope tasks) {
+    huxerui::State<std::size_t> activeTab, huxerui::State<bool> newTabOpen) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const huxerui::MenuStyle menuStyle = huxerui::UseEnvironment<huxerui::MenuStyle>();
     const huxerui::Font badgeFont =
@@ -69,26 +86,10 @@ struct DraftTabDragPayload {
                     .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
                 // 行内关闭动作：与 chips 上的 ✕ 同一行为（关掉这个草稿；关的是当前
                 // 标签则顺延到相邻标签，关的是前面的标签则当前标签下标跟着前移）。
-                // 删除会卸载本行 → 推迟出指针事件路径；弹层不关，可连续关多个。
+                // 弹层不关闭，可连续关闭多个草稿。
                 AppIconButton(app::images::close, "关闭标签页",
-                              [tasks, drafts, activeTab, uid = all[i].uid] {
-                                  tasks.Launch([drafts, activeTab, uid]() -> huxerui::Task<void> {
-                                      co_await huxerui::Delay(std::chrono::duration<double>{0});
-                                      std::vector<RequestDraft> copy = drafts.Get();
-                                      for (std::size_t k = 0; k < copy.size(); ++k) {
-                                          if (copy[k].uid != uid) continue;
-                                          const std::size_t active = activeTab.Get();
-                                          copy.erase(copy.begin() + static_cast<long>(k));
-                                          drafts = copy;
-                                          if (copy.empty())
-                                              activeTab = 0;
-                                          else if (k == active)
-                                              activeTab = std::min(k, copy.size() - 1);
-                                          else if (k < active)
-                                              activeTab = active - 1;
-                                          break;
-                                      }
-                                  });
+                              [drafts, activeTab, uid = all[i].uid] {
+                                  CloseDraftByUid(drafts, activeTab, uid);
                               },
                               AppIconButtonShape::Bare, 24.0F)
                     // 行内 ✕ 不进焦点序：弹层里 12 行就是 12 个焦点停靠点，
@@ -103,18 +104,15 @@ struct DraftTabDragPayload {
                       huxerui::Frame{.min_height = menuStyle.minimum_item_height},
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                       menuStyle.item_indication)
-                .OnClick([ctx, tasks, drafts, activeTab, newTabOpen, uid = all[i].uid] {
-                    ctx.Dismiss(); // 关层会卸载本行：activeTab 写入推迟出指针事件路径
-                    tasks.Launch([drafts, activeTab, newTabOpen, uid]() -> huxerui::Task<void> {
-                        co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        const std::vector<RequestDraft> now = drafts.Get();
-                        for (std::size_t k = 0; k < now.size(); ++k) {
-                            if (now[k].uid != uid) continue;
-                            activeTab = k;
-                            newTabOpen = false;
-                            break;
-                        }
-                    });
+                .OnClick([ctx, drafts, activeTab, newTabOpen, uid = all[i].uid] {
+                    const std::vector<RequestDraft> now = drafts.Get();
+                    for (std::size_t k = 0; k < now.size(); ++k) {
+                        if (now[k].uid != uid) continue;
+                        activeTab = k;
+                        newTabOpen = false;
+                        break;
+                    }
+                    ctx.Dismiss();
                 })
                 .Key(static_cast<std::int64_t>(all[i].uid)));
     }
@@ -135,7 +133,7 @@ struct DraftTabDragPayload {
             .Placeholder("搜索标签页")
             .Variant(huxerui::TextFieldVariant::Outlined)
             .OnChanged([query](const huxerui::TextEditingValue& value) { query = value; }),
-        std::move(list),
+        list,
     }
         .With(huxerui::Spacing(theme.spacing.small),
               huxerui::Frame{.width = 260.0F},
@@ -153,14 +151,14 @@ struct DraftTabDragPayload {
 // 标签后面，标签放不下时整个动作组被 TabTrailingProbe 移到行右缘固定。
 [[huxerui::composable]] huxerui::View TabOverflowButton(
     huxerui::State<std::vector<RequestDraft>> drafts, huxerui::State<std::size_t> activeTab,
-    huxerui::State<bool> newTabOpen, huxerui::TaskScope tasks) {
+    huxerui::State<bool> newTabOpen) {
     auto popup = huxerui::UsePopup();
     return AppIconButton(
                app::images::chevron_down, "全部标签页",
-               [popup, drafts, activeTab, newTabOpen, tasks] {
+               [popup, drafts, activeTab, newTabOpen] {
                    popup.Show(
-                       [drafts, activeTab, newTabOpen, tasks](huxerui::PopupContext ctx) {
-                           return TabPickerContent(ctx, drafts, activeTab, newTabOpen, tasks);
+                       [drafts, activeTab, newTabOpen](huxerui::PopupContext ctx) {
+                           return TabPickerContent(ctx, drafts, activeTab, newTabOpen);
                        },
                        huxerui::PopupOptions{.placement = {huxerui::AnchorSide::Below,
                                                            huxerui::AnchorAlignment::End}});
@@ -183,7 +181,7 @@ struct DraftTabDragPayload {
     // 回写落位必须在组合期之外：Lifecycle 在帧提交后运行，且只在 overflow 变化时
     // 重跑（State 等值写入本身也是 no-op）。
     huxerui::Lifecycle([pinned, overflow] { pinned = overflow; }, overflow);
-    return pinned.Get() ? std::move(group) : huxerui::View{huxerui::Row{}};
+    return pinned.Get() ? group : huxerui::View{huxerui::Row{}};
 }
 
 // 悬停滚动指示条：内容溢出且悬停标签条时，在标签行底部画一条自绘横向滚动条。
@@ -337,17 +335,8 @@ struct DraftTabDragPayload {
                 // 关闭钮：常驻、透明占位，悬停才显示（Opacity 只改绘制不动结构，
                 // 避免悬停重组换子节点类型引起抖动）。透明时 enabled=false、不是
                 // 命中目标，点在这里落到外层整 chip 热区 = 切换本标签。
-                AppIconButton(app::images::close, "关闭请求标签", [tasks, drafts, activeTab, i] {
-                        // 关闭会卸载本按钮所在标签：推迟出指针事件路径
-                        tasks.Launch([=]() -> huxerui::Task<void> {
-                            co_await huxerui::Delay(std::chrono::duration<double>{0});
-                            std::vector<RequestDraft> copy = drafts.Get();
-                            if (i >= copy.size()) co_return;
-                            copy.erase(copy.begin() + static_cast<long>(i));
-                            drafts = copy;
-                            if (!copy.empty() && activeTab.Get() >= copy.size())
-                                activeTab = copy.size() - 1;
-                        });
+                AppIconButton(app::images::close, "关闭请求标签", [drafts, activeTab, uid = snapshot[i].uid] {
+                        CloseDraftByUid(drafts, activeTab, uid);
                     }, AppIconButtonShape::Bare, 28.0F, false, chipHovered)
                     .With(huxerui::Opacity(chipHovered ? 1.0F : 0.0F)),
             }
@@ -424,22 +413,16 @@ struct DraftTabDragPayload {
                                                    static_cast<long>(n > 0 ? n - 1 : 0));
                         moveDraftTo(uid, static_cast<std::size_t>(desired));
                     })
-                // 结束/取消：归零会移除覆盖层节点（卸载），推迟出指针事件路径。
+                // 结束/取消：归零会移除覆盖层节点。
                 .On<huxerui::DragSourceEvents::Ended>(
-                    [tasks, dragUid, dragDx](const huxerui::DragDropResult&) {
-                        tasks.Launch([=]() -> huxerui::Task<void> {
-                            co_await huxerui::Delay(std::chrono::duration<double>{0});
-                            dragUid = 0;
-                            dragDx = 0.0F;
-                        });
+                    [dragUid, dragDx](const huxerui::DragDropResult&) {
+                        dragUid = 0;
+                        dragDx = 0.0F;
                     })
                 .On<huxerui::DragSourceEvents::Canceled>(
-                    [tasks, dragUid, dragDx](const huxerui::DragEvent&) {
-                        tasks.Launch([=]() -> huxerui::Task<void> {
-                            co_await huxerui::Delay(std::chrono::duration<double>{0});
-                            dragUid = 0;
-                            dragDx = 0.0F;
-                        });
+                    [dragUid, dragDx](const huxerui::DragEvent&) {
+                        dragUid = 0;
+                        dragDx = 0.0F;
                     })
                 // Key 用稳定 uid：未保存草稿 savedId 恒为 0，不能再用下标兜底。
                 .Key(static_cast<std::int64_t>(snapshot[i].uid)));
@@ -467,11 +450,8 @@ struct DraftTabDragPayload {
                     .Style(huxerui::TextStyle{.font = chipFont,
                                               .foreground = theme.colors.on_surface}),
                 huxerui::Spacer{},
-                AppIconButton(app::images::close, "关闭新建请求标签", [tasks, newTabOpen] {
-                    tasks.Launch([newTabOpen]() -> huxerui::Task<void> {
-                        co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        newTabOpen = false;
-                    });
+                AppIconButton(app::images::close, "关闭新建请求标签", [newTabOpen] {
+                    newTabOpen = false;
                 }, AppIconButtonShape::Bare),
             }
                 .With(huxerui::Spacing(0.0F),
@@ -504,7 +484,7 @@ struct DraftTabDragPayload {
     auto buildTrailingGroup = [&, newTabButton]() mutable {
         return huxerui::Row {
             newTabButton,
-            TabOverflowButton(drafts, activeTab, newTabOpen, tasks),
+            TabOverflowButton(drafts, activeTab, newTabOpen),
         }
             .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
@@ -575,9 +555,12 @@ struct DraftTabDragPayload {
     auto selectedEnvId = huxerui::UseState<std::optional<std::string>>(
         std::to_string(g_requests.currentEnvId()));
     const std::string storeEnvId = std::to_string(g_requests.currentEnvId());
-    if (!selectedEnvId.Get() || *selectedEnvId.Get() != storeEnvId) {
-        selectedEnvId = storeEnvId;
-    }
+    huxerui::Lifecycle(
+        [selectedEnvId, storeEnvId] {
+            if (!selectedEnvId.Get() || *selectedEnvId.Get() != storeEnvId)
+                selectedEnvId = storeEnvId;
+        },
+        storeEnvId);
 
     // 统一切环境出口：菜单点击/键盘 Enter 唯一命中都走这里，失败只弹 toast；
     // 成功 bump envVersion，让闭合态标签和 URL 基础地址同步刷新。
@@ -662,7 +645,7 @@ struct DraftTabDragPayload {
             huxerui::Row(std::move(chips))
                 .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-            std::move(overlayChip),
+            overlayChip,
             TabScrollIndicator(tabsScroll, tabsHovered),
         })
             .ScrollAxis(huxerui::Axis::Horizontal)
@@ -682,13 +665,13 @@ struct DraftTabDragPayload {
                 tabsHovered = event.type != huxerui::HoverEventType::Leave;
             })
             .With(huxerui::ClipChildren(), huxerui::Grow(1.0F)),
-        TabTrailingProbe(tabsScroll, trailingPinned, std::move(pinnedGroup)),
+        TabTrailingProbe(tabsScroll, trailingPinned, pinnedGroup),
         huxerui::Row {
-            std::move(envTrigger),
+            envTrigger,
             // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用半透明档。
             huxerui::Column{}.With(huxerui::Frame{.width = 1.0F},
                                    huxerui::Background(islands.outline_hair)),
-            std::move(envSettingsTrigger),
+            envSettingsTrigger,
         }
             .With(huxerui::Spacing(0.0F),
                   huxerui::Border(theme.colors.outline, 1.0F),

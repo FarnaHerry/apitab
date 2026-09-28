@@ -52,20 +52,24 @@ enum PageIndex : std::size_t {
     kProjectSettings = 3,
 };
 
-[[huxerui::composable]] huxerui::View PageFor(std::size_t index,
-                                              huxerui::State<std::int64_t> activeProject) {
-    switch (index) {
-        case kLoad:
-            return LoadTestPage();
-        case kHistory:
-            return HistoryPage();
-        case kProjectSettings:
-            return ProjectSettingsPage();
-        case kRequest:
-        default:
-            // 主页已整宽覆盖侧栏：未打开项目时本页不可达，无需兜底。
-            return RequestPage(activeProject);
-    }
+[[huxerui::composable]] huxerui::View ProjectPages(
+    huxerui::State<std::size_t> selectedPage,
+    huxerui::State<std::int64_t> activeProject) {
+    std::vector<huxerui::View> pages;
+    pages.reserve(4);
+    pages.push_back(RequestPage(activeProject)
+                        .Key(std::size_t{kRequest})
+                        .With(huxerui::Grow(1.0F)));
+    pages.push_back(LoadTestPage()
+                        .Key(std::size_t{kLoad})
+                        .With(huxerui::Grow(1.0F)));
+    pages.push_back(HistoryPage()
+                        .Key(std::size_t{kHistory})
+                        .With(huxerui::Grow(1.0F)));
+    pages.push_back(ProjectSettingsPage()
+                        .Key(std::size_t{kProjectSettings})
+                        .With(huxerui::Grow(1.0F)));
+    return huxerui::IndexedPages(std::move(pages), selectedPage.Get());
 }
 } // namespace pages
 
@@ -182,17 +186,16 @@ huxerui::ThemeSpec OceanLightThemeSpec() {
     return spec;
 }
 
-// 主题边界：MaterialThemeDefinition(spec) 之上用 typed style 覆盖组件样式，
-// 让普通控件、输入框和弹出层共享设计稿的圆角与玻璃表面。
-huxerui::View OceanThemed(bool dark, huxerui::View content) {
-    const huxerui::ThemeSpec spec = dark ? OceanDarkThemeSpec() : OceanLightThemeSpec();
-    huxerui::ThemeDefinition definition = huxerui::MaterialThemeDefinition(spec);
+// 组件样式从当前 Material 值复制，再覆盖品牌需要的字段，保留未自定义的行为。
+[[huxerui::composable]] huxerui::View OceanThemeStyles(huxerui::View content) {
+    const huxerui::ThemeSpec& spec = huxerui::UseTheme();
+    huxerui::ThemeDefinition definition;
     const auto withAlpha = [](huxerui::Color c, float a) {
         c.alpha = a;
         return c;
     };
 
-    huxerui::ButtonStyle buttons = huxerui::ButtonStyle::Default();
+    huxerui::ButtonStyle buttons = huxerui::UseEnvironment<huxerui::ButtonStyle>();
     buttons.background = spec.colors.primary;
     buttons.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                              spec.colors.on_primary};
@@ -207,7 +210,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     };
     definition.Set(buttons);
 
-    huxerui::IconButtonStyle icons = huxerui::IconButtonStyle::Default();
+    huxerui::IconButtonStyle icons = huxerui::UseEnvironment<huxerui::IconButtonStyle>();
     icons.foreground = spec.colors.on_surface_variant;
     icons.disabled_foreground = withAlpha(spec.colors.on_surface, 0.38F);
     icons.icon_size = 16.0F;
@@ -220,7 +223,8 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     };
     definition.Set(icons);
 
-    huxerui::SegmentedButtonStyle segments = huxerui::SegmentedButtonStyle::Default();
+    huxerui::SegmentedButtonStyle segments =
+        huxerui::UseEnvironment<huxerui::SegmentedButtonStyle>();
     segments.background = spec.colors.surface;
     segments.selected_background = spec.colors.primary;
     segments.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
@@ -233,7 +237,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     segments.corner_radii = huxerui::CornerRadii{spec.shapes.medium};
     definition.Set(segments);
 
-    huxerui::ChipStyle chips = huxerui::ChipStyle::Default();
+    huxerui::ChipStyle chips = huxerui::UseEnvironment<huxerui::ChipStyle>();
     chips.background = spec.colors.surface_container_low;
     chips.selected_background = spec.colors.primary_container;
     chips.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kChip),
@@ -246,7 +250,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     chips.corner_radii = huxerui::CornerRadii{spec.shapes.full};
     definition.Set(chips);
 
-    huxerui::TabsStyle tabs = huxerui::TabsStyle::Default();
+    huxerui::TabsStyle tabs = huxerui::UseEnvironment<huxerui::TabsStyle>();
     tabs.background = huxerui::Color::Transparent();
     tabs.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                           spec.colors.on_surface_variant};
@@ -265,7 +269,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     tabs.indicator_animation_duration = spec.motion.normal;
     definition.Set(tabs);
 
-    huxerui::TreeViewStyle tree = huxerui::TreeViewStyle::Default();
+    huxerui::TreeViewStyle tree = huxerui::UseEnvironment<huxerui::TreeViewStyle>();
     tree.background = huxerui::Color::Transparent();
     tree.foreground = spec.colors.on_surface;
     tree.disabled_foreground = withAlpha(spec.colors.on_surface, 0.42F);
@@ -280,12 +284,12 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     };
     definition.Set(tree);
 
-    huxerui::DividerStyle divider = huxerui::DividerStyle::Default();
+    huxerui::DividerStyle divider = huxerui::UseEnvironment<huxerui::DividerStyle>();
     divider.color = spec.colors.outline;
     divider.thickness = 1.0F;
     definition.Set(divider);
 
-    huxerui::TextFieldStyle fields = huxerui::TextFieldStyle::Default();
+    huxerui::TextFieldStyle fields = huxerui::UseEnvironment<huxerui::TextFieldStyle>();
     fields.text_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                            spec.colors.on_surface};
     fields.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
@@ -321,7 +325,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     // 这里的覆盖保留为内置形态的兜底主题。
     // 叠加层（hover/press）改用 on_surface/on_primary 派生的半透明色，
     // 保持深浅主题和玻璃表面的对比度。
-    huxerui::DialogStyle dialogs = huxerui::DialogStyle::Default();
+    huxerui::DialogStyle dialogs = huxerui::UseEnvironment<huxerui::DialogStyle>();
     dialogs.background = spec.colors.surface_container_high;
     dialogs.title_style = huxerui::TextStyle{
         huxerui::Font::System(font_size::kTitle).WithWeight(huxerui::FontWeight::Bold),
@@ -350,7 +354,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     // 下拉选择（Select，全局设置页/历史页在用）跟随主题：触发框与弹出菜单
     // 使用中等圆角，和请求参数行、卡片保持同一视觉节奏。
     // 叠加层沿用 DialogStyle 的 on_surface 半透明做法，不用 M3 ripple。
-    huxerui::SelectStyle selects = huxerui::SelectStyle::Default();
+    huxerui::SelectStyle selects = huxerui::UseEnvironment<huxerui::SelectStyle>();
     selects.background = spec.colors.surface_container_highest;
     selects.foreground = spec.colors.on_surface;
     selects.border = huxerui::Border{spec.colors.outline, 1.0F};
@@ -383,7 +387,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     // 菜单类弹层统一品牌圆角。自绘的三点菜单、方法/类型选择菜单读取
     // MenuStyle；系统 Select 使用上面的 SelectStyle；可搜索环境选择读取
     // ComboBoxStyle。三条路径保持相同表面、阴影和交互反馈。
-    huxerui::MenuStyle menus = huxerui::MenuStyle::Default();
+    huxerui::MenuStyle menus = huxerui::UseEnvironment<huxerui::MenuStyle>();
     menus.background = spec.colors.surface_container;
     menus.foreground = spec.colors.on_surface;
     menus.icon_tint = spec.colors.on_surface_variant;
@@ -393,7 +397,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     menus.item_indication = selectIndication;
     definition.Set(menus);
 
-    huxerui::ComboBoxStyle combos = huxerui::ComboBoxStyle::Default();
+    huxerui::ComboBoxStyle combos = huxerui::UseEnvironment<huxerui::ComboBoxStyle>();
     combos.popup_background = spec.colors.surface_container;
     combos.foreground = spec.colors.on_surface;
     combos.active_item_background = withAlpha(spec.colors.primary, 0.08F);
@@ -405,7 +409,12 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
     combos.item_indication = selectIndication;
     definition.Set(combos);
 
-    return huxerui::Theme(std::move(definition), content);
+    return huxerui::Theme(definition, content);
+}
+
+huxerui::View OceanThemed(bool dark, huxerui::View content) {
+    const huxerui::ThemeSpec spec = dark ? OceanDarkThemeSpec() : OceanLightThemeSpec();
+    return huxerui::MaterialTheme(spec, OceanThemeStyles(content));
 }
 
 // TitleBarLogo / TopTab / TopTabStrip 已移至 title_bar.cpp（P1-C2 纯搬移），此处保留占位注释。
@@ -413,7 +422,7 @@ huxerui::View OceanThemed(bool dark, huxerui::View content) {
 
 // 单个顶级标签：激活态 = 最高层级容器底 + 主文字色；未激活 = 略深容器底 + 次级文字色。
 // 整块外层只负责激活与切换（点击会卸载内容子树，切换统一经 actions.activate 的
-// AppRoot 推迟任务执行，CLAUDE.md 约定 6）；内层用两个兄弟节点分别承载「切换」与
+// AppRoot 同步处理）；内层用两个兄弟节点分别承载「切换」与
 // 「关闭」，避免各自做一次整标签的背景重绘。主页标签（kind=Home）不可关闭、不挂
 // 拖拽，位置恒定最左；项目标签（kind=Project）可关闭、挂拖拽换位；设置单例标签
 // （kind=GlobalSettings）可关闭、不挂拖拽——拖拽 payload 只接受项目，设置不参与
@@ -436,7 +445,6 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
 
 [[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    auto tasks = huxerui::UseTaskScope();
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     struct Item {
         huxerui::ImageResource icon;
@@ -459,13 +467,7 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
         buttons.push_back(
             huxerui::Row{
                 huxerui::IconButton(icon, item.tooltip)
-                    .OnClick([tasks, navPage, page] {
-                        // 切页会卸载内容子树：推迟出指针事件路径
-                        tasks.Launch([=]() -> huxerui::Task<void> {
-                            co_await huxerui::Delay(std::chrono::duration<double>{0});
-                            navPage = page;
-                        });
-                    }),
+                    .OnClick([navPage, page] { navPage = page; }),
             }
                 .With(huxerui::Frame{.width = 40.0F, .height = 40.0F},
                       huxerui::Background(selected ? theme.colors.primary_container
@@ -631,10 +633,9 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     // 不再重复执行启动恢复的数据库查询与领域重载。
     huxerui::Lifecycle([initialized] { initialized = true; });
 
-    // ---- 顶级标签操作（事件回调只做 tasks.Launch 推迟，CLAUDE.md 约定 6）----
-    // 变更本体（领域写入 + State 写回）在推迟任务里同步完成：切到 Project(id) 时
-    // 先做领域写入再写 activeTopTab，同一任务内两者一致、重组无中间帧（§13.2
-    // 不变量 1）。*Now 函数只能从推迟语境调用（组合体内禁止写 State）。
+    // ---- 顶级标签操作 ----
+    // 变更本体（领域写入 + State 写回）在事件回调内同步完成：切到 Project(id) 时
+    // 先做领域写入再写 activeTopTab，同一回调内两者一致（§13.2 不变量 1）。
 
     // TopTabState 快照（与上面的 State 一一对应，见 ui.h TopTabState）。
     auto topTabSnapshot = [=]() -> TopTabState {
@@ -723,29 +724,18 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
         commitTopTab(before, after);
     };
 
-    // 事件入口包装：切/关标签会卸载被点节点，推迟出指针事件路径（约定 6）。
-    auto activateTopTab = [tasks, activateTopTabNow](TopTabId target) {
-        tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            activateTopTabNow(target);
-        });
-    };
-    auto closeTopTab = [tasks, closeTopTabNow](TopTabId target) {
-        tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            closeTopTabNow(target);
-        });
-    };
+    auto activateTopTab = activateTopTabNow;
+    auto closeTopTab = closeTopTabNow;
     TopTabActions topTabActions{activateTopTab, closeTopTab};
 
-    // HomePage 打开项目回调：ProjectCard 的推迟任务在完成领域写入后调用（仍在
-    // 推迟语境），内部走同一 activateTopTabNow——新增/激活顶级项目标签 + State
+    // HomePage 打开项目回调：ProjectCard 在完成领域写入后调用，内部走同一
+    // activateTopTabNow——新增/激活顶级项目标签 + State
     // 写回 + open_projects 按需持久化（格式与原 CSV 一致）。
     std::function<void(std::int64_t)> onOpenProject = [activateTopTabNow](std::int64_t id) {
         activateTopTabNow(TopTabId{TopTabKind::Project, id});
     };
 
-    // HomePage 删除项目回调（卡片菜单「删除」确认后，已在推迟语境）：先关掉该项目
+    // HomePage 删除项目回调（卡片菜单「删除」确认后）：先关掉该项目
     // 已打开的顶级标签——CloseTopTab 负责 active/last_project 回退与领域清零，避免
     // 留下指向已删项目的空标签——再从库里删（级联删其分组/请求/环境）。返回空串 =
     // 成功，非空 = 错误消息（卡片 toast）。
@@ -795,7 +785,7 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
                 menuEntries.push_back(
                     huxerui::MenuItem("显示主窗口", [window] { window.Activate(); }));
                 // 轻量模式（伪纯 CLI 形态）：隐藏窗口 + 释放应用侧缓存，控制面继续服务。
-                // 与关闭到托盘同理，Hide 推迟出菜单回调，避免在回调栈上拆窗口。
+                // Hide 在系统托盘回调返回后执行，避免回调栈内销毁窗口。
                 menuEntries.push_back(huxerui::MenuItem(
                     "轻量模式（隐藏并释放缓存）", [tasks] {
                         tasks.Launch([]() -> huxerui::Task<void> {
@@ -833,7 +823,9 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     for (std::int64_t id : tabs.Get()) {
         const std::size_t idx = indexed.size();
         projIdx[id] = idx;
-        indexed.push_back(pages::PageFor(navPage.Get(), activeProject).Key(id).With(huxerui::Grow(1.0F)));
+        indexed.push_back(pages::ProjectPages(navPage, activeProject)
+                              .Key(id)
+                              .With(huxerui::Grow(1.0F)));
     }
     if (settingsOpen.Get()) {
         indexed.push_back(GlobalSettingsPage(themeMode, closeBehavior, settingsCategory, avatarImage)
@@ -897,8 +889,8 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
             // 偏上的根因：gear.svg 画布 24x24，大于 14pt 的 Frame——未指定
             // Fit 时按画布原始尺寸绘制并从边缘锚定。显式 Fit(Contain) +
             // Align(Center, Center) 让图案缩放后钉在框中心。
-            // 齿轮：打开/激活设置单例标签（未开则开、已开仅激活，§13.1）；激活
-            // 经 activateTopTab 的推迟任务（约定 6），顶级状态写回见上。
+            // 齿轮：打开/激活设置单例标签（未开则开、已开仅激活，§13.1）；顶级
+            // 状态写回见上。
             huxerui::Row {
                 huxerui::Image(app::images::gear)
                     .Fit(huxerui::ImageFit::Contain)
@@ -916,15 +908,11 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
                       huxerui::Focusable(true),
                       huxerui::Semantics{.role = huxerui::SemanticRole::Button,
                                          .label = "全局设置"})
-                .OnClick([tasks, activateTopTab] {
-                    // 切标签会卸载内容子树：推迟出指针事件路径（约定 6）
-                    tasks.Launch([=]() -> huxerui::Task<void> {
-                        co_await huxerui::Delay(std::chrono::duration<double>{0});
-                        activateTopTab(TopTabId{TopTabKind::GlobalSettings, 0});
-                    });
+                .OnClick([activateTopTab] {
+                    activateTopTab(TopTabId{TopTabKind::GlobalSettings, 0});
                 }),
             // 用户头像：固定圆形命中区；点击打开登录弹窗。
-            std::move(topAvatar),
+            topAvatar,
         }
             // 标题栏不做岛（§2.2 停靠区域）：壳层导航直接落在窗口背景上，不再
             // 用玻璃表面/描边自成一层。垂直零内边距：内容本身 24pt 高，与
@@ -963,7 +951,7 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
 
     // 主题边界走 OceanThemed：自定义品牌 spec + 组件 typed style 覆盖。
     // 关闭询问弹窗宿主挂在 provider 之下（AppRoot 自身读不到主题，CloseGuard 能）。
-    return OceanThemed(dark, CloseGuard(closeBehavior, closeDialogOpen, std::move(content)));
+    return OceanThemed(dark, CloseGuard(closeBehavior, closeDialogOpen, content));
 
 }
 

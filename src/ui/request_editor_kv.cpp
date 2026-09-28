@@ -348,7 +348,6 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
     huxerui::StateList<KvRow> stateRows, const huxerui::ThemeSpec& theme,
     std::string keyLabel, std::string valueLabel, std::function<void()> onChanged,
     KvTableOptions options) {
-    auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
     const auto commitRows = [stateRows, onChanged](std::vector<KvRow> updated) {
         const std::size_t common = std::min(stateRows.Size(), updated.size());
@@ -456,14 +455,10 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
         }
         rowViews.push_back(phantom
                     ? huxerui::View{huxerui::Row{}.With(actionWidth)}
-                    : AppIconButton(app::images::close, "删除此行", [tasks, stateRows, i, commitRows] {
-                        // 删除会移除本按钮所在行：推迟出指针事件路径
-                        tasks.Launch([=]() -> huxerui::Task<void> {
-                            co_await huxerui::Delay(std::chrono::duration<double>{0});
+                    : AppIconButton(app::images::close, "删除此行", [stateRows, i, commitRows] {
                             std::vector<KvRow> copy = SnapshotKvRows(stateRows);
                             if (i < copy.size()) copy.erase(copy.begin() + static_cast<long>(i));
                             commitRows(std::move(copy));
-                        });
                     }, AppIconButtonShape::Bare).With(actionWidth));
         return huxerui::Column{
                    huxerui::Divider(),
@@ -491,7 +486,7 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
                    .With(huxerui::Spacing(theme.spacing.small),
                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                          huxerui::Foreground(theme.colors.on_surface_variant)),
-               std::move(list),
+               list,
                huxerui::Divider(),
            }
         .With(huxerui::Grow(1.0F),

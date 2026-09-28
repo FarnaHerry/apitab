@@ -3,8 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 apitab 是一个 **C++23 模块化 GUI 工具**：API 测试（单次请求走 curl 引擎抽象
-`api::ApiEngine`）+ k6 压测 + SQLite 存储，用 **CMake** 构建。前端为 **HuxerUI 0.2.0**（组件式声明 UI，源码/官方 SDK 双通道）；迁移地图见 `docs/huxerui-migration.md`。分层：UI（src/ui/*.cpp +
-app_main.cpp，普通 C++ 源走 hcg codegen）/ 领域 store（apitab.* 模块）/ 引擎
+`api::ApiEngine`）+ k6 压测 + SQLite 存储，用 **CMake** 构建。前端为 **HuxerUI 0.3.0**（组件式声明 UI，源码/官方 SDK 双通道）；项目约定见 `docs/huxerui-migration.md`。分层：UI（src/ui/*.cpp +
+src/app.cpp + platform/<platform>/main.cpp，普通 C++ UI 源走 hcg codegen）/ 领域 store（apitab.* 模块）/ 引擎
 三层，引擎自保留在 store 单例中。
 
 ## HuxerUI 开发参考
@@ -32,7 +32,7 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   上游更新 `git pull` 即可；不入库，.gitignore 已忽略）。CLI 注入的已安装 SDK
   `HUXERUI_HOME` 不得压过仓库源码；只有 `HUXERUI_HOME` 明确指向源码目录时优先于
   仓库源码。源码目录不存在或 Linux 缺 GTK ≥4.14 / libepoxy ≥1.5 / libsoup ≥3.0 开发包时才自动回落
-  `third_party/tarballs` 的 Linux 0.2.0 预编译 SDK（`find_package(HuxerUI 0.2.0 CONFIG REQUIRED
+  `third_party/tarballs` 的 Linux 0.3.0 预编译 SDK（`find_package(HuxerUI 0.3.0 CONFIG REQUIRED
   COMPONENTS shared)`，`HuxerUI_DIR` 指向 `build/vendor/huxerui/...`）。
   源码模式编译 Linux 后端需要 `sudo dnf install gtk4-devel libepoxy-devel libsoup3-devel`。
   强制回落已安装/离线 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`；该通道是兼容与发布门禁，
@@ -117,7 +117,8 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   均建议反馈作者：sweetedit 需跟进 HuxerUI main 的 Event/Stroke/键盘
   API 变化，并支持官方主题配色入口；os_log 路径应显式门控 __clang__。
 - UI 层是**普通 .cpp**（不要 .cppm：codegen 只扫 .cpp/.cc/.cxx）；composable
-  函数不加 `inline`；入口/根写在 src/app_main.cpp + src/ui/app.cpp。
+  函数不加 `inline`；应用声明在 `src/app.cpp`，平台 `main()` 位于
+  `platform/<platform>/main.cpp`，根 composable 在 `src/ui/app.cpp`。
 - 主题从 MaterialTheme/MaterialDarkTheme 等内置主题定制；受控值以应用状态为
   权威；动态兄弟用稳定 Key。
 - 框架资源：resources.bin 拷到 `<exe>.resources/huxerui/`（POST_BUILD 完成）。
@@ -137,9 +138,9 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   `docs/plans/project-tab-tear-off-window.md`）；不更新则无需检索。
 - **源码 main 937efb1 新能力（2026-09-02）**：新增受控可编辑 `ComboBox`
   （自由输入 + 应用提供候选，`OnChanged` 与 `OnSelected` 分离）、Snackbar，以及
-  嵌套滚动/overscroll 统一。本仓 0.2.0 预编译 SDK 尚不含这些 main 能力；开发期
-  默认源码通道可以使用，合并/发布前必须刷新 SDK 并完成三通道验证。应用场景与边界见
-  `docs/plans/island-structure-theme.md` §十四。
+  嵌套滚动/overscroll 统一。当前构建按 SDK 实际头文件检测 ComboBox 等 API，并在源码
+  与离线 SDK 通道选择兼容实现；CMake configure 输出会报告检测结果。新增 HuxerUI API
+  后仍需在源码与发布 SDK 通道验证。应用场景与边界见 `docs/plans/island-structure-theme.md` §十四。
 - **托盘激活改「应用级一次性注册」（2026-09-24 上游 08acc36 `refactor(runtime):
   separate application and window ownership`，本仓 pin 0c51262 起生效）**：
   `SystemTrayHandle::OnActivate` 从**组合期订阅**变成**应用级主激活处理器**——
@@ -260,7 +261,7 @@ ctest --test-dir build             # 冒烟 + 引擎契约测试（test_smoke / 
 - **依赖全部 vendor 在 `third_party/`**（tarball + SHA256，configure 期解包到
   `build/vendor/`，离线可复现；版本与原 mcpp.lock 一致，清单见
   `third_party/README.md`）：HuxerUI（**优先 `third_party/huxerui` 源码
-  clone 编译**，或由 `HUXERUI_HOME` 选择已安装 0.2.0 SDK；Linux 离线回落同为 0.2.0）、
+  clone 编译**，或由 `HUXERUI_HOME` 选择已安装 0.3.0 SDK；Linux 离线回落同为 0.3.0）、
   Asio 1.38.1（`import asio` 模块在 `cmake/asio.cppm`）、IXWebSocket 12.0.1
   （client-only、无 TLS/zlib）、SQLiteCpp 3.3.3
   （内置 amalgamation）、nlohmann::json 3.12.0（`import nlohmann.json` 模块在
@@ -293,10 +294,11 @@ ctest --test-dir build             # 冒烟 + 引擎契约测试（test_smoke / 
 | `apitab.store.loadtest` | `src/store/loadtest.cppm` | 领域 store：`g_loadtest` 持有 k6 引擎；start/stop/drainOutput/pollSummary（落压测记录） |
 | `apitab.preferences` | `src/preferences.cppm` | 会话偏好（settings.ini 的 session.*），跨会话状态恢复 |
 | `apitab.ui.*`（普通 C++） | `src/ui/*.cpp` | HuxerUI 前端：app（导航壳）/ home_page / request_page / common；ws_session/tcp_session（WS/TCP 会话，页面协程持有）、task_bridge.h（线程协程桥） |
-| `src/app_main.cpp` | 普通 TU | 入口：`Application{AppRoot, AppOptions}` + `RunApplication()`；`requestUiUpdate` no-op 钩子 |
+| `src/app.cpp` | 普通 TU | 声明 `Application{AppRoot, AppOptions}`；保留 `requestUiUpdate` no-op 钩子 |
+| `platform/<platform>/main.cpp` | 普通 TU | 平台入口：加载会话偏好并调用 `RunApplication()` |
 
 **入口**：`huxerui_add_app(apitab SOURCES ...)` 生成 app 目标并启用 hcg codegen；
-领域层模块经 FILE_SET 追加到同一目标，`main()` 在 `src/app_main.cpp`。
+领域层模块经 FILE_SET 追加到同一目标，`main()` 在 `platform/<platform>/main.cpp`。
 
 **事件驱动**：HuxerUI 是 State 驱动失效模型。UI 线程 ↔ 任务线程的分离由
 `src/ui/task_bridge.h` 的协程桥承担：单次 HTTP 请求由 store 持有的 curl 引擎
@@ -304,10 +306,11 @@ ctest --test-dir build             # 冒烟 + 引擎契约测试（test_smoke / 
 drain `takeProgress` 增量快照——SSE/分块正文在传输中实时呈现在响应区流式
 视图，完成后才落只读编辑器；恢复点恒为 UI 线程）；WS/TCP 会话由
 页面协程直接持有（`ws_session`/`tcp_session`，应用侧不拥有线程：IX 自管线程，
-TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结果经
+TCP 全同步 asio 经 `huxerui::RunWorker` 上框架 worker 执行）；k6 引擎异步结果经
 `PollWhile` 轮询 `pollSummary/drainOutput` 并在 UI 线程写 State；阻塞/CPU
-重活经 `RunOnTaskThread` 派到任务线程池。旧 `requestUiUpdate` 唤醒钩子保留
-为 no-op（仅 k6 引擎仍引用）。
+重活用 `huxerui::RunWorker` 执行。Worker closure 只捕获普通值，不读写 State 或构造/操作
+View；`co_await` 恢复后再由 UI 协程更新 State。其他线程通过 `TaskScope::Post` 投递
+UI 工作。旧 `requestUiUpdate` 唤醒钩子保留为 no-op（仅 k6 引擎仍引用）。
 
 ## 关键约定（改代码前必读）
 
@@ -324,15 +327,17 @@ TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结
    （prefer/require/query 的 static_instance）在 GCC 下会重复定义。
 5. **受控值以应用状态为权威**（官方 skill：controlled values）；TextField 保留
    完整 TextEditingValue；动态兄弟用稳定 `.Key(...)`。
-6. **异步结果**：线程契约与协程桥在 `src/ui/task_bridge.h`——State 只在 UI
-   线程读写；引擎结果用 `PollWhile(interval, tick)` 按节拍取回（tick 内
-   drain/poll + 写 State）；阻塞/CPU 重活用 `co_await RunOnTaskThread(fn)`
-   派给任务线程池，结果/异常回 UI 线程恢复。`requestUiUpdate` 是 no-op
-   钩子（app_main.cpp），不要新加调用。
-   **事件处理器内禁止同步写会导致点击节点被卸载的 State**（如切页/关标签/
-   切主题）——pointer-up 处理中同步重组会卸载按钮子树，框架随后 erase
-   PointerSession 段错误。必须经 `tasks.Launch` + `co_await Delay(0)` 推迟；
-   组合体内也不要写 State（挂载路径重入），初始值在 UseState 之前算好。
+6. **State 与异步工作**：State 只在 UI 线程读写；composable 组合阶段保持纯，不要
+   直接赋值 State。初始值先计算再传给 `UseState`；需在挂载后同步外部值时使用
+   `Lifecycle`。UI 事件处理器运行在 UI 线程，纯状态/界面操作（导航、关闭标签、选择项）
+   直接同步更新 State，让框架在 handler 返回后重组；不要仅为这些更新包装
+   `TaskScope::Launch` + `Delay(0)`。引擎结果用 `PollWhile(interval, tick)` 按节拍取回
+   （tick 内 drain/poll 并写 State）；阻塞或 CPU 密集工作用
+   `co_await huxerui::RunWorker(fn)`，worker closure 不访问 State/View，恢复后在 UI
+   协程更新 State。来自框架外线程的回调通过 `TaskScope::Post` 回到 UI 线程。
+   原生关闭/托盘回调中会立即隐藏或销毁窗口的操作，按 `app_dialogs.cpp` 的处理方式
+   推迟到原生回调返回后执行。`requestUiUpdate` 是 no-op 钩子（`src/app.cpp`），不要
+   新增调用。
 7. **k6 指标**：Trend 汇总默认只带 avg/min/med/max/p(90)/p(95)——脚本 options 里
    已声明 `summaryTrendStats` 加 p(99)，p50 用 `med` 键（没有 `p(50)`）。
 8. **Spacer 自带 Grow(1)**：零宽/零高占位绝不能用 `Spacer().With(Frame{...})`——
@@ -352,10 +357,11 @@ TCP 全同步 asio 经 `RunOnTaskThread` 上任务线程）；k6 引擎异步结
      SQLite（SQLiteCpp 的 `Database` / `Statement`，本身就是 RAII）；
    - **C++ 资源**：对象生命周期交 `unique_ptr` / `shared_ptr`；pimpl
      （`WsSession` / `TcpSession` / `Db`）在析构里 stop / close；
-   - **线程"谁起谁 join"**：起线程的构造函数要么把 worker 起齐，要么自己置停止位
+   - **线程"谁起谁 join"**：应用自己起线程的构造函数要么把 worker 起齐，要么自己置停止位
      并 join 已起的线程后再把异常抛出去——凑不齐时若让异常逸出，未完成构造的
-     `TaskPool` 不会走析构，而 `vector<std::thread>` 析构碰上 joinable 线程会
-     直接 `std::terminate`；
+     对象不会走析构，而 `vector<std::thread>` 析构碰上 joinable 线程会直接
+     `std::terminate`。阻塞/CPU 工作使用 HuxerUI 的 `RunWorker`；worker 生命周期由
+     框架 Runtime 管理，应用不自建或保存线程池；
    - **临时文件/目录**用局部守卫：`settings_avatar_crop.cpp` 的
      `AvatarCropOutput`、`request_editor.cpp` 的 `TemporaryFileGuard`。协程里尤其
      要紧——页面卸载/TaskScope 取消会在 `co_await` 悬挂点销毁协程帧，末尾那行

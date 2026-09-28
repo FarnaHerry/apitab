@@ -1,6 +1,6 @@
 // tcp_session.h — TCP / TCPS 会话：全同步 asio，不拥有任何线程。
 // 会话由页面 TaskScope 协程直接持有（State<shared_ptr<TcpSession>>）：
-// connect/send/read 是阻塞调用，只准经 RunOnTaskThread 在任务线程上执行；
+// connect/send/read 是阻塞调用，只准经 huxerui::RunWorker 在 worker 线程上执行；
 // 恢复点恒为 UI 线程，状态/事件在那里写 State（见 task_bridge.h 线程契约）。
 // close() 可从任意线程调用：shutdown + close 唤醒阻塞中的 read/connect。
 #pragma once

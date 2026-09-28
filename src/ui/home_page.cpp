@@ -4,8 +4,7 @@
 // 打开项目 = selectProjectInOrg（领域状态）+ onOpenProject 回调（AppRoot 注入：
 // 新增/激活顶级项目标签 + tabs/activeTopTab/lastProjectTab 写回 + open_projects
 // 按需持久化，见 app.cpp）；未打开前，依赖项目的页面（请求集合等）一律不可用。
-// 所有会触发重组卸载被点击节点的写 State / 领域变更（切组织、新建、删除、打开项目）
-// 一律经 tasks.Launch + Delay(0) 推迟出指针事件路径（CLAUDE.md 约定 6）。
+// 交互回调在 UI 线程直接更新 State 与领域 store；页面在事件处理后组合新状态。
 #include <huxerui/huxerui.h>
 
 #include <algorithm>
@@ -32,12 +31,11 @@ namespace {
 // 仍只触发删除动作，行选择与删除是独立事件目标）。悬停反馈走 Hover 事件通道（非独占，
 // 悬停动作图标也触发）驱动整行底色；行自身压掉默认 Indication 避免双层叠加，删除动作保留
 // 自己的高亮。子节点按声明顺序即焦点序（文本 → 动作区），无打乱顺序的包装。
-// 删除/切换都会重组卸载本行，故均推迟执行。
+// 删除/切换在点击回调内完成。
 [[huxerui::composable]] huxerui::View OrgRow(const db::Org& org, bool selected,
                                              huxerui::State<int> refresh) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
-    auto tasks = huxerui::UseTaskScope();
     auto hovered = huxerui::UseState(false);
     return huxerui::Row {
         // 主内容：组织名，左对齐 Grow 撑开，把固定动作区推到行右缘。
@@ -46,16 +44,12 @@ namespace {
                   huxerui::Foreground(selected ? theme.colors.on_surface
                                                : theme.colors.on_surface_variant)),
         // 固定动作区：删除组织（Bare 28pt，保留自身 hover/press 高亮）。
-        TrailingActionGroup({AppIconButton(app::images::close, "删除组织", [tasks, toast, refresh, id = org.id] {
-                // 删除组织级联删项目与请求，并卸载本行：推迟出指针事件路径
-                tasks.Launch([=]() -> huxerui::Task<void> {
-                    co_await huxerui::Delay(std::chrono::duration<double>{0});
+        TrailingActionGroup({AppIconButton(app::images::close, "删除组织", [toast, refresh, id = org.id] {
                     if (auto result = g_requests.deleteOrg(id); !result) {
                         toast.Show("删除组织失败: " + result.error().message);
-                        co_return;
+                        return;
                     }
                     refresh = refresh.Get() + 1;
-                });
             }, AppIconButtonShape::Bare)}),
     }
         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
@@ -66,16 +60,12 @@ namespace {
                              ? huxerui::Background(theme.colors.surface_container)
                              : huxerui::Background(huxerui::Color::Transparent()),
               huxerui::Indication{})
-        .OnClick([tasks, toast, refresh, id = org.id] {
-            // 切组织会级联切项目并重载列表：重组卸载本行，推迟出指针事件路径
-            tasks.Launch([=]() -> huxerui::Task<void> {
-                co_await huxerui::Delay(std::chrono::duration<double>{0});
+        .OnClick([toast, refresh, id = org.id] {
                 if (auto result = g_requests.selectOrg(id); !result) {
                     toast.Show("切换组织失败: " + result.error().message);
-                    co_return;
+                    return;
                 }
                 refresh = refresh.Get() + 1;
-            });
         })
         .On<huxerui::ViewEvents::Hover>([hovered](const huxerui::HoverEvent& e) {
             if (e.type == huxerui::HoverEventType::Enter)
@@ -113,7 +103,6 @@ namespace {
     huxerui::State<int> refresh) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
-    auto tasks = huxerui::UseTaskScope();
     auto menu = huxerui::UsePopup();    // 右键菜单（ShowAt 不需要锚点，本卡片专用）
     auto dialog = huxerui::UseDialog(); // 重命名 / 删除确认
     auto renameName = huxerui::UseState(huxerui::TextEditingValue{});
@@ -127,32 +116,26 @@ namespace {
     const bool highlight = hovered.Get() || focused.Get();
 
     // 打开项目：点击卡片与菜单「打开项目」同一路径。
-    auto openProject = [tasks, toast, onOpenProject, id] {
-        // 推迟出指针事件路径：本点击会切顶级标签（卸载本卡片子树），
-        // 在 pointer-up 处理中同步写 State 会触发框架段错误。
-        tasks.Launch([=]() -> huxerui::Task<void> {
-            co_await huxerui::Delay(std::chrono::duration<double>{0});
-            // 领域写入先行（§13.2 不变量 1：领域同步完成后才渲染项目工作区）。
-            if (auto result = g_requests.selectProjectInOrg(g_requests.currentOrgId(), id);
-                !result) {
-                toast.Show("打开失败: " + result.error().message);
-                co_return;
-            }
-            if (auto result = g_loadtest.setProject(id); !result)
-                toast.Show("加载项目压测配置失败: " + result.error().message);
-            saveSessionPreference("active_project", std::to_string(id));
-            // 顶级标签新增/激活 + State 写回 + open_projects 按需持久化由
-            // AppRoot 的 onOpenProject 完成；同一推迟任务内执行，重组无中间帧。
-            onOpenProject(id);
-        });
+    auto openProject = [toast, onOpenProject, id] {
+        // 领域写入先行（§13.2 不变量 1：领域同步完成后才渲染项目工作区）。
+        if (auto result = g_requests.selectProjectInOrg(g_requests.currentOrgId(), id);
+            !result) {
+            toast.Show("打开失败: " + result.error().message);
+            return;
+        }
+        if (auto result = g_loadtest.setProject(id); !result)
+            toast.Show("加载项目压测配置失败: " + result.error().message);
+        saveSessionPreference("active_project", std::to_string(id));
+        // 顶级标签新增/激活 + State 写回 + open_projects 按需持久化由 AppRoot 完成。
+        onOpenProject(id);
     };
 
     // 重命名弹窗：与「新建项目」同款 DialogCard，预填当前名字。保存走
     // renameProject（写库 + store 重载项目列表），成功后刷新本页卡片。
-    auto showRenameDialog = [dialog, tasks, toast, refresh, id, name, renameName] {
+    auto showRenameDialog = [dialog, toast, refresh, id, name, renameName] {
         renameName = huxerui::TextEditingValue{name};
         dialog.Show(
-            [tasks, toast, refresh, id, renameName](huxerui::DialogContext ctx)
+            [toast, refresh, id, renameName](huxerui::DialogContext ctx)
                 -> huxerui::View {
                 return DialogCard(huxerui::Column {
                     huxerui::Text("重命名项目", huxerui::TextRole::Title),
@@ -165,24 +148,19 @@ namespace {
                     huxerui::Row {
                         huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
                         huxerui::Button("保存")
-                            .OnClick([ctx, tasks, toast, refresh, id, renameName] {
+                            .OnClick([ctx, toast, refresh, id, renameName] {
                                 if (renameName.Get().text.empty()) {
                                     toast.Show("项目名称不能为空");
                                     return;
                                 }
+                                if (auto result = g_requests.renameProject(
+                                        id, renameName.Get().text);
+                                    !result) {
+                                    toast.Show("重命名失败: " + result.error().message);
+                                    return;
+                                }
+                                refresh = refresh.Get() + 1;
                                 ctx.Dismiss();
-                                // 改名会换掉本页卡片：推迟出指针事件路径
-                                tasks.Launch([=]() -> huxerui::Task<void> {
-                                    co_await huxerui::Delay(
-                                        std::chrono::duration<double>{0});
-                                    if (auto result = g_requests.renameProject(
-                                            id, renameName.Get().text);
-                                        !result) {
-                                        toast.Show("重命名失败: " + result.error().message);
-                                        co_return;
-                                    }
-                                    refresh = refresh.Get() + 1;
-                                });
                             }),
                     }
                         // 两端对齐：取消在左、保存在右；内容列 CrossAlign(Stretch)
@@ -199,7 +177,7 @@ namespace {
 
     // 菜单条目：⋮ 与右键共用同一份（避免两处逻辑分叉）；删除走危险确认弹窗，
     // 条目常态普通色、悬停显红（与请求树行菜单同一约定）。
-    auto entries = [openProject, showRenameDialog, dialog, tasks, toast, refresh,
+    auto entries = [openProject, showRenameDialog, dialog, toast, refresh,
                     onDeleteProject, id, name]() -> std::vector<AppMenuItem> {
         return std::vector<AppMenuItem>{
             AppMenuItem{.label = "打开项目", .onClick = openProject},
@@ -207,23 +185,20 @@ namespace {
                         .onClick = [showRenameDialog] { showRenameDialog(); }},
             AppMenuItem{
                 .label = "删除",
-                .onClick = [dialog, tasks, toast, refresh, onDeleteProject, id, name] {
+                .onClick = [dialog, toast, refresh, onDeleteProject, id, name] {
                     // 删除前先弹危险确认框（确认按钮染红）；真正删库在确认回调里
-                    // 推迟出指针事件路径——关标签与删库都在 AppRoot 侧完成。
+                    // 关标签与删库都在 AppRoot 侧完成。
                     ShowDangerConfirm(
                         dialog, "删除项目",
                         "确定删除项目「" + (name.empty() ? "未命名" : name) +
                             "」吗？其下的接口目录与请求会一并删除，此操作不可恢复。",
-                        "删除", [tasks, toast, refresh, onDeleteProject, id] {
-                            tasks.Launch([=]() -> huxerui::Task<void> {
-                                co_await huxerui::Delay(std::chrono::duration<double>{0});
+                        "删除", [toast, refresh, onDeleteProject, id] {
                                 if (const std::string err = onDeleteProject(id);
                                     !err.empty()) {
                                     toast.Show("删除项目失败: " + err);
-                                    co_return;
+                                    return;
                                 }
                                 refresh = refresh.Get() + 1;
-                            });
                         });
                 },
                 .tone = AppMenuTone::DangerHover},
@@ -331,7 +306,6 @@ namespace {
     huxerui::State<std::int64_t> activeProject) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto toast = huxerui::UseToast();
-    auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
     auto refresh = huxerui::UseState(0);
     auto newOrgName = huxerui::UseState(huxerui::TextEditingValue{});
@@ -355,9 +329,9 @@ namespace {
             huxerui::Row {
                 huxerui::Text("组织", huxerui::TextRole::Title).With(huxerui::Grow(1.0F)),
                 // 独立浮动新建动作：圆形 + 主色底（28pt 命中区），语义标签"新建组织"。
-                AppIconButton(app::images::add, "新建组织", [dialog, tasks, toast, refresh, newOrgName] {
+                AppIconButton(app::images::add, "新建组织", [dialog, toast, refresh, newOrgName] {
                 dialog.Show(
-                    [tasks, toast, refresh, newOrgName](huxerui::DialogContext ctx)
+                    [toast, refresh, newOrgName](huxerui::DialogContext ctx)
                         -> huxerui::View {
                         return DialogCard(huxerui::Column {
                             huxerui::Text("新建组织", huxerui::TextRole::Title),
@@ -370,25 +344,20 @@ namespace {
                             huxerui::Row {
                                 huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
                                 huxerui::Button("创建")
-                                    .OnClick([ctx, tasks, toast, refresh, newOrgName] {
+                                    .OnClick([ctx, toast, refresh, newOrgName] {
                                         if (newOrgName.Get().text.empty()) {
                                             toast.Show("组织名称不能为空");
                                             return;
                                         }
+                                        if (auto result = g_requests.createOrg(
+                                                newOrgName.Get().text);
+                                            !result) {
+                                            toast.Show("新建组织失败: " + result.error().message);
+                                            return;
+                                        }
+                                        newOrgName = huxerui::TextEditingValue{};
+                                        refresh = refresh.Get() + 1;
                                         ctx.Dismiss();
-                                        // 新建会切到新组织并重组本页：推迟出指针事件路径
-                                        tasks.Launch([=]() -> huxerui::Task<void> {
-                                            co_await huxerui::Delay(
-                                                std::chrono::duration<double>{0});
-                                            if (auto result = g_requests.createOrg(
-                                                    newOrgName.Get().text);
-                                                !result) {
-                                                toast.Show("新建组织失败: " + result.error().message);
-                                                co_return;
-                                            }
-                                            newOrgName = huxerui::TextEditingValue{};
-                                            refresh = refresh.Get() + 1;
-                                        });
                                     }),
                             }
                                 // 两端对齐：取消在左、创建在右；内容列
@@ -423,9 +392,9 @@ namespace {
                            orgName.empty() ? "当前组织的项目" : "当前组织：" + orgName)
                     .With(huxerui::Grow(1.0F)),
                 // 独立浮动新建动作：圆形 + 主色底（28pt 命中区），语义标签"新建项目"。
-                AppIconButton(app::images::add, "新建项目", [dialog, tasks, toast, refresh, newProjectName] {
+                AppIconButton(app::images::add, "新建项目", [dialog, toast, refresh, newProjectName] {
                     dialog.Show(
-                        [tasks, toast, refresh, newProjectName](huxerui::DialogContext ctx)
+                        [toast, refresh, newProjectName](huxerui::DialogContext ctx)
                             -> huxerui::View {
                             return DialogCard(huxerui::Column {
                                 huxerui::Text("新建项目", huxerui::TextRole::Title),
@@ -439,25 +408,20 @@ namespace {
                                 huxerui::Row {
                                     huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
                                     huxerui::Button("创建")
-                                        .OnClick([ctx, tasks, toast, refresh, newProjectName] {
+                                        .OnClick([ctx, toast, refresh, newProjectName] {
                                             if (newProjectName.Get().text.empty()) {
                                                 toast.Show("项目名称不能为空");
                                                 return;
                                             }
+                                            if (auto result = g_requests.createProject(
+                                                    newProjectName.Get().text);
+                                                !result) {
+                                                toast.Show("新建项目失败: " + result.error().message);
+                                                return;
+                                            }
+                                            newProjectName = huxerui::TextEditingValue{};
+                                            refresh = refresh.Get() + 1;
                                             ctx.Dismiss();
-                                            // 新建会重载项目列表并重组本页：推迟出指针事件路径
-                                            tasks.Launch([=]() -> huxerui::Task<void> {
-                                                co_await huxerui::Delay(
-                                                    std::chrono::duration<double>{0});
-                                                if (auto result = g_requests.createProject(
-                                                        newProjectName.Get().text);
-                                                    !result) {
-                                                    toast.Show("新建项目失败: " + result.error().message);
-                                                    co_return;
-                                                }
-                                                newProjectName = huxerui::TextEditingValue{};
-                                                refresh = refresh.Get() + 1;
-                                            });
                                         }),
                                 }
                                     // 两端对齐：取消在左、创建在右；内容列
@@ -491,13 +455,13 @@ namespace {
     if (compact) {
         return huxerui::Column {
                    std::move(orgIsland).With(huxerui::Frame{.max_height = 220.0F}),
-                   std::move(projectIsland),
+                   projectIsland,
                }
             .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
     return huxerui::Column {
-        huxerui::Row {std::move(orgIsland), std::move(projectIsland)}
+        huxerui::Row {orgIsland, projectIsland}
             .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
     }

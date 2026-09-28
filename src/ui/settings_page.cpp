@@ -118,7 +118,6 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
                                                           huxerui::State<std::size_t> category) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    auto tasks = huxerui::UseTaskScope();
     auto hovered = huxerui::UseState(false);
     return huxerui::Row {
         huxerui::Text(std::string(label), huxerui::TextRole::Label)
@@ -137,14 +136,7 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
               // 可访问名称：整行一个 Button 语义，屏幕阅读器朗读分类名。
               huxerui::Semantics{.role = huxerui::SemanticRole::Button,
                                  .label = std::string(label)})
-        .OnClick([tasks, category, index] {
-            // 分类切换会重组卸载右侧内容分区（本行所在的左栏不受影响），按
-            // CLAUDE.md 约定 6 统一推迟出指针/按键事件路径。
-            tasks.Launch([category, index]() -> huxerui::Task<void> {
-                co_await huxerui::Delay(std::chrono::duration<double>{0});
-                category = index;
-            });
-        })
+        .OnClick([category, index] { category = index; })
         .On<huxerui::ViewEvents::Hover>([hovered](const huxerui::HoverEvent& e) {
             if (e.type == huxerui::HoverEventType::Enter)
                 hovered = true;
@@ -179,7 +171,7 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     return huxerui::Column {
         huxerui::Text(std::move(title), huxerui::TextRole::Label),
-        std::move(control),
+        control,
         huxerui::Text(std::move(note), huxerui::TextRole::Body)
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
     }
@@ -354,7 +346,7 @@ constexpr AboutDependency kAboutDependencies[] = {
                 const huxerui::File target((cfg::dataDir() / "avatar_source").string());
                 if (co_await ref.ImportToAsync(target, true)) {
                     try {
-                        const auto source = co_await RunOnTaskThread([target] {
+                        const auto source = co_await huxerui::RunWorker([target] {
                             return huxerui::ImageAsset::FromFile(target.Path());
                         });
                         if (!source.HasValue()) throw std::runtime_error("不支持的图片格式");
@@ -438,8 +430,8 @@ constexpr AboutDependency kAboutDependencies[] = {
                          [avatarFocused](bool focused) {
                              avatarFocused = focused;
                          });
-    avatarView = WithAvatarDropTarget(std::move(avatarView));
-    avatarView = WithAvatarDropHandlers(std::move(avatarView), avatarDropHovered,
+    avatarView = WithAvatarDropTarget(avatarView);
+    avatarView = WithAvatarDropHandlers(avatarView, avatarDropHovered,
                                         receiveAvatar, toast);
     return huxerui::Column {
         PageHeader("个人信息", "管理本机保存的显示资料，不会自动上传到服务器。"),
@@ -463,7 +455,7 @@ constexpr AboutDependency kAboutDependencies[] = {
                       "用于应用内的个人标识。"),
         SettingsGroup("头像",
                       huxerui::Row {
-                          std::move(avatarView),
+                          avatarView,
                       }.With(huxerui::Spacing(theme.spacing.medium)),
                       "支持 PNG、JPG、JPEG；头像文件保存在本机数据目录。"),
         SettingsGroup("邮箱",
@@ -592,16 +584,10 @@ constexpr AboutDependency kAboutDependencies[] = {
                                      std::vector<huxerui::StringVariant>{
                                          kCategoryNames[0], kCategoryNames[1], kCategoryNames[2]},
                                      category.Get())
-                                     .OnChanged([tasks, category](std::size_t index) {
-                                         // 分段条与内容分属不同子树，本组件切换分类
-                                         // 不卸载自身；仍按约定 6 推迟出事件路径。
-                                         tasks.Launch([category, index]() -> huxerui::Task<void> {
-                                             co_await huxerui::Delay(
-                                                 std::chrono::duration<double>{0});
-                                             category = index;
-                                         });
+                                     .OnChanged([category](std::size_t index) {
+                                         category = index;
                                      }),
-                                 huxerui::ScrollView{std::move(section)}
+                                 huxerui::ScrollView{section}
                                      .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
                              }
                                  .With(huxerui::Spacing(theme.spacing.medium),
@@ -616,7 +602,7 @@ constexpr AboutDependency kAboutDependencies[] = {
         // 只用 small 间距（8pt），不套页面级 page_gap；避免两个相邻岛被拉得过散。
         huxerui::View contentIsland = IslandSurface(
             huxerui::Column {
-                huxerui::ScrollView{std::move(section)}
+                huxerui::ScrollView{section}
                     .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
             }
                 .With(huxerui::Spacing(theme.spacing.medium),
@@ -624,7 +610,7 @@ constexpr AboutDependency kAboutDependencies[] = {
                       huxerui::Grow(1.0F)),
             IslandLevel::Base)
             .With(huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
-        page = huxerui::Row {SettingsCategoryIsland(category), std::move(contentIsland)}
+        page = huxerui::Row {SettingsCategoryIsland(category), contentIsland}
                    .With(huxerui::Spacing(theme.spacing.small),
                          huxerui::Grow(1.0F),
                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));

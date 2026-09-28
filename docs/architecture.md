@@ -7,7 +7,7 @@
 ## 1. 分层与依赖方向
 
 ```
-UI 层        src/ui/*.cpp（普通 C++ + HuxerUI codegen）、src/app_main.cpp
+UI 层        src/ui/*.cpp（普通 C++ + HuxerUI codegen）、src/app.cpp、platform/<platform>/main.cpp
               ↓ 只经 store 暴露的接口，不直接碰引擎指针
 领域 store   apitab.store.requests / apitab.store.loadtest（自保留引擎与 DB）
               ↓ 只经 api::ApiEngine / api::LoadEngine 抽象
@@ -28,14 +28,16 @@ UI 层        src/ui/*.cpp（普通 C++ + HuxerUI codegen）、src/app_main.cpp
 | 线程 | 数量 / 归属 | 职责 | 生命周期 |
 |------|-------------|------|----------|
 | 主线程（UI 线程） | 1 | HuxerUI 组合、State 读写、协程轮询 | 进程 |
+| HuxerUI worker 执行器 | Runtime 管理 | `RunWorker` 的阻塞 / CPU 工作（TCP 会话、解析等） | HuxerUI Runtime |
 | CurlEngine 工作线程 | 1，引擎持有 | 串行消费请求队列、执行 curl 传输 | 引擎构造 → 析构 join |
-| 任务线程池 TaskPool | `clamp(hw,2,8)`，进程级静态 | `RunOnTaskThread` 的阻塞 / CPU 重活（TCP 会话、DB 重活） | 首次使用 → 进程退出 join |
 | K6 监视线程 | 每次压测 1 条 | 读 k6 子进程输出、EOF 后收尾 | `start()` → 进程结束 / 析构 join |
 | IXWebSocket 内部线程 | 每 WS 会话 | 握手 / 收发 / 回调 | `WsSession` 构造 → 析构 stop+join |
 
-纪律（详见 `src/ui/task_bridge.h`）：**State 只在 UI 线程读写**；引擎结果经
-`PollWhile` 按节拍取回；阻塞活经 `co_await RunOnTaskThread(...)` 上任务线程，恢复
-点恒为 UI 线程；事件处理器内不同步写会卸载点击节点的 State。
+纪律：**State 只在 UI 线程读写**；UI 事件处理器可以同步更新 State，纯状态更新不需要
+`Delay(0)`；composable 组合阶段不得写 State，挂载后同步使用 `Lifecycle`。引擎结果经
+`PollWhile` 按节拍取回；阻塞活经 `co_await huxerui::RunWorker(...)` 交给 HuxerUI
+Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架外线程通过
+`TaskScope::Post` 投递 UI 工作。`src/ui/task_bridge.h` 只封装协程轮询工具。
 
 ## 3. 资源所有权矩阵
 
@@ -53,12 +55,14 @@ UI 层        src/ui/*.cpp（普通 C++ + HuxerUI codegen）、src/app_main.cpp
 | WS 会话 | 页面协程 `State<shared_ptr<WsSession>>` | 页面 | 页面卸载 / 重连替换 | IX 回调只投递事件队列，UI 泵 drain |
 | TCP 会话 | 页面协程 `State<shared_ptr<TcpSession>>` | 页面 | 同上 | 同步 asio，只准在任务线程调用；`close()` 任意线程幂等 |
 | 单实例锁 | 平台入口 `SingleInstance` | `main()` | 进程退出析构 | fd/HANDLE 由 RAII 释放 |
-| 任务线程池 | `detail::TaskPool` 进程级静态 | 首次 `RunOnTaskThread` | 进程退出静态析构（stop + join） | worker 起不齐时构造内先 stop + join 已起的线程，再把异常抛出去 |
 | 响应下载临时文件 | `TemporaryFileGuard`（`request_editor.cpp`，协程帧内） | 保存响应前 | 作用域退出（含协程被取消）同步 `File::Delete()` | 全程 UI 线程；析构不抛出 |
-| 头像裁剪临时 PNG | `AvatarCropOutput`（`settings_avatar_crop.cpp`） | 任务线程跑 `magick` 后 | 结果销毁时 `remove`（成功路径先 `rename` 走） | `shared_ptr` 跨 `RunOnTaskThread` 回 UI 线程 |
+| 头像裁剪临时 PNG | `AvatarCropOutput`（`settings_avatar_crop.cpp`） | worker 线程跑 `magick` 后 | 结果销毁时 `remove`（成功路径先 `rename` 走） | `shared_ptr` 跨 `RunWorker` 回 UI 线程 |
 | `popen` 流 / 注册表键 | `cfg::PopenPipe` / `cfg::RegKey`（`config.cppm`） | `systemPrefersDark()` | 作用域退出析构 | 仅启动时调用一次 |
 | 应用日志文件 | `apitab::log`（`src/log.cpp`，进程级单例） | 首次写入（惰性建目录） | 进程退出（追加写，无需显式关闭） | mutex 串行；**日志不进 SQLite**（不与领域写抢 WAL 唯一写者），见 CLAUDE.md 关键约定 10 |
 | 控制面服务（loopback + 端点文件） | `apitab::control::ControlServer`（应用安装期 Provide） | `AppOptions::application_hooks` | 应用关闭析构（停线程 + 删端点文件） | IO 线程收发；命令经 `ApplicationPoster`（`TaskScope::Post`）回应用线程执行 |
+
+阻塞与 CPU 工作由 HuxerUI Runtime 的 worker 执行器调度；`apitab` 不再拥有自建任务线程池，
+因此该执行器不属于应用侧 RAII 资源。
 
 ## 4. 单次请求（curl）要不要池化？
 
@@ -111,10 +115,9 @@ UI 层        src/ui/*.cpp（普通 C++ + HuxerUI codegen）、src/app_main.cpp
   析构 `RegCloseKey`）；
 - `RequestStore`：`std::unique_ptr<db::Db>` / `std::unique_ptr<api::ApiEngine>`；
 - `WsSession` / `TcpSession` / `Db`：pimpl `unique_ptr` + 析构里 stop/close；
-- 线程：一律"谁起谁 join"（`CurlEngine`、`K6Engine`、`TaskPool` 静态析构）；
-  `TaskPool` 构造函数在 worker 起不齐时先 stop + join 再把异常抛出去——否则
-  未完成构造不会走析构，而 `vector<std::thread>` 析构碰上 joinable 线程会
-  `std::terminate`；
+- 线程：应用自己起线程时一律"谁起谁 join"（`CurlEngine`、`K6Engine`）；线程启动
+  函数在异常逸出前必须停止并 join 已创建的线程。阻塞 / CPU 工作使用 HuxerUI
+  `RunWorker`，由 Runtime 管理其执行器生命周期；
 - 临时文件：`AvatarCropOutput`（`settings_avatar_crop.cpp`）、`TemporaryFileGuard`
   （`request_editor.cpp`，协程帧内，覆盖"保存对话框开着就切页/关标签"的取消路径）；
 - `SingleInstance`：fd / HANDLE 由析构释放。
@@ -138,9 +141,10 @@ UI 层        src/ui/*.cpp（普通 C++ + HuxerUI codegen）、src/app_main.cpp
      且无人回收；现已在该分支强杀 + 回收 + 清临时脚本；
   3. `config.cppm::systemPrefersDark()` 原本手写 `pclose` / `RegCloseKey`；现由
      `PopenPipe` / `RegKey` 持有；
-  4. `TaskPool` 构造函数与 `request_editor.cpp` 的下载临时文件（协程被取消时
-     末尾的 `DeleteAsync()` 根本不会执行）；分别改为"起不齐就自己 join 再抛"与
-     协程帧内的 `TemporaryFileGuard`。
+  4. `TaskPool` 当时已通过构造失败时 join 已启动 worker 满足 RAII；本轮进一步移除
+     应用自建线程池并改用 HuxerUI `RunWorker`。`request_editor.cpp` 的下载临时文件
+     在协程取消时不会执行末尾的 `DeleteAsync()`，现由协程帧内 `TemporaryFileGuard`
+     同步清理。
 - 未改动的已知良性项：`LoopbackHttpServer`（`tests/test_curl_engine.cpp`）的
   `listenFd_` 是裸成员，但该对象自身是 RAII 包装（析构 `stop()` 关 fd + join），
   所有失败路径都在对象存活期内，无泄漏。

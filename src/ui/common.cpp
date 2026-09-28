@@ -418,7 +418,7 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
     auto focused = huxerui::UseState(false);
     // hcg codegen 把 composable 体包进 [=] lambda（参数在体内为 const）：
     // 挂焦点事件/钳制高度都需要先拷到局部变量再改写。
-    huxerui::View input = std::move(body);
+    huxerui::View input = body;
     input = std::move(input).On<huxerui::ViewEvents::FocusChanged>(
         [focused](bool value) { focused = value; });
 
@@ -449,7 +449,7 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
     const float minBody = minBodyHeight;
     const float maxBody = std::max(minBodyHeight, maxBodyHeight);
     huxerui::View bodyArea =
-        huxerui::ScrollView{huxerui::Column{std::move(input)}.With(huxerui::CrossAlign(
+        huxerui::ScrollView{huxerui::Column{input}.With(huxerui::CrossAlign(
                                 huxerui::CrossAxisAlignment::Stretch))}
             .With(huxerui::Frame{.min_height = minBody, .max_height = maxBody},
                   huxerui::Grow(1.0F));
@@ -457,7 +457,7 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
     constexpr float kPaddingH = 14.0F; // 水平内边距：两态一致（胶囊圆帽不挤正文）
     constexpr float kPaddingV = 6.0F;  // 垂直内边距：两态一致
     constexpr float kActionGap = 8.0F; // 正文与尾部动作间距：两态一致
-    return huxerui::Row{std::move(bodyArea), std::move(trailing)}
+    return huxerui::Row{bodyArea, trailing}
         .With(huxerui::Spacing(kActionGap),
               huxerui::Background(islands.raised),
               huxerui::CornerRadius(multiline ? islands.large_control_radius
@@ -743,7 +743,7 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
         line = huxerui::Column {
             huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
                                 huxerui::Background(theme.colors.outline)),
-            std::move(line),
+            line,
         }
             .With(huxerui::Spacing(4.0F),
                   huxerui::Padding(huxerui::EdgeInsets{.top = 4.0F}),
@@ -783,7 +783,7 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
     }
                            .With(huxerui::ScrollBar(),
                                  huxerui::Frame{.max_height = kMenuMaxHeight});
-    return huxerui::Column{std::move(list)}.With(
+    return huxerui::Column{list}.With(
         menuStyle.shadow, huxerui::Background(menuStyle.background),
         huxerui::CornerRadius(menuStyle.corner_radii.top_left), huxerui::ClipChildren(),
         huxerui::Padding(menuStyle.content_padding),
@@ -1075,8 +1075,8 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     }
 
     return huxerui::Row {
-        std::move(trigger),
-        std::move(baseSegment),
+        trigger,
+        baseSegment,
         // 分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用半透明档，
         // 弱于输入框描边等交互线。
         huxerui::Column{}.With(huxerui::Frame{.width = 1.0F},
@@ -1103,18 +1103,6 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
                    .With(huxerui::Foreground(theme.colors.on_surface_variant)),
            }
         .With(huxerui::Spacing(theme.spacing.extra_small));
-}
-
-// 尚未迁移完成的页面占位。
-[[huxerui::composable]] huxerui::View MigrationPlaceholder(std::string pageName) {
-    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
-    return huxerui::Column {
-               huxerui::Text(std::move(pageName) + " — 迁移中", huxerui::TextRole::Title),
-               huxerui::Text("此页面正在从 EUI-NEO 前端迁移到 HuxerUI，功能暂不可用。",
-                             huxerui::TextRole::Body),
-           }
-        .With(huxerui::Padding(theme.spacing.large), huxerui::Spacing(8.0F),
-              huxerui::Foreground(theme.colors.on_surface_variant));
 }
 
 } // namespace apitab::ui

@@ -112,7 +112,6 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     auto toast = huxerui::UseToast();
-    auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
     auto selectedId = huxerui::UseState<std::int64_t>(g_requests.currentEnvId());
     // 悬停行 id（0 = 无）：Hover 事件非独占，悬停动作图标时整行底色照样亮；
@@ -139,11 +138,11 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                           huxerui::Foreground(selected ? theme.colors.on_surface
                                                        : theme.colors.on_surface_variant)),
                 // 重命名图标：弹输入框小弹窗（renameValue 寄宿本弹窗作用域）。
-                AppIconButton(app::images::edit, "重命名环境", [dialog, tasks, toast, renameValue, envVersion, id,
+                AppIconButton(app::images::edit, "重命名环境", [dialog, toast, renameValue, envVersion, id,
                               name = e.name] {
                         renameValue = huxerui::TextEditingValue{name};
                         dialog.Show(
-                            [tasks, toast, renameValue, envVersion,
+                            [toast, renameValue, envVersion,
                              id](huxerui::DialogContext renameCtx) -> huxerui::View {
                                 return DialogCard(huxerui::Column {
                                     huxerui::Text("重命名环境", huxerui::TextRole::Title),
@@ -158,25 +157,20 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                                         huxerui::Button("取消").OnClick(
                                             [renameCtx] { renameCtx.Dismiss(); }),
                                         huxerui::Button("确定")
-                                            .OnClick([renameCtx, tasks, toast, renameValue,
+                                            .OnClick([renameCtx, toast, renameValue,
                                                       envVersion, id] {
                                                 if (renameValue.Get().text.empty()) {
                                                     toast.Show("环境名称不能为空");
                                                     return;
                                                 }
+                                                if (auto result = g_requests.renameEnvironment(
+                                                        id, renameValue.Get().text);
+                                                    !result) {
+                                                    toast.Show("重命名失败: " + result.error().message);
+                                                    return;
+                                                }
+                                                envVersion = envVersion.Get() + 1;
                                                 renameCtx.Dismiss();
-                                                // 重组弹窗内容：推迟出指针事件路径
-                                                tasks.Launch([=]() -> huxerui::Task<void> {
-                                                    co_await huxerui::Delay(
-                                                        std::chrono::duration<double>{0});
-                                                    if (auto result = g_requests.renameEnvironment(
-                                                            id, renameValue.Get().text);
-                                                        !result) {
-                                                        toast.Show("重命名失败: " + result.error().message);
-                                                        co_return;
-                                                    }
-                                                    envVersion = envVersion.Get() + 1;
-                                                });
                                             }),
                                     }
                                         .With(huxerui::Spacing(8.0F),
@@ -190,25 +184,21 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                             },
                             huxerui::DialogOptions{});
                     }, AppIconButtonShape::Bare),
-                // 删除图标：危险确认框（共享 helper，确认按钮染红）；删除重组本弹窗 → 推迟。
-                AppIconButton(app::images::close, "删除环境", [dialog, tasks, selectedId, envVersion, id, toast,
+                // 删除图标：危险确认框（共享 helper，确认按钮染红）。
+                AppIconButton(app::images::close, "删除环境", [dialog, selectedId, envVersion, id, toast,
                                                       name = e.name] {
                         ShowDangerConfirm(dialog, "删除环境",
                                           "确定删除环境「" + name + "」吗？此操作不可恢复。",
                                           "删除",
-                                          [tasks, selectedId, envVersion, id, toast] {
-                                              tasks.Launch([=]() -> huxerui::Task<void> {
-                                                  co_await huxerui::Delay(
-                                                      std::chrono::duration<double>{0});
+                                          [selectedId, envVersion, id, toast] {
                                                   if (auto result = g_requests.deleteEnvironment(id);
                                                       !result) {
                                                       toast.Show("删除环境失败: " + result.error().message);
-                                                      co_return;
+                                                      return;
                                                   }
                                                   if (selectedId.Get() == id)
                                                       selectedId = g_requests.currentEnvId();
                                                   envVersion = envVersion.Get() + 1;
-                                              });
                                           });
                     }, AppIconButtonShape::Bare),
             }
@@ -270,17 +260,14 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                         .With(huxerui::Grow(1.0F)),
                     // 新建图标：store 建默认名的环境并选中，随后可在右侧表单改名。
                     // 独立浮动动作：保持 Circular + compact 档（28pt），视觉不变。
-                    AppIconButton(app::images::add, "新建环境", [tasks, toast, selectedId, envVersion] {
-                        tasks.Launch([=]() -> huxerui::Task<void> {
-                            co_await huxerui::Delay(std::chrono::duration<double>{0});
+                    AppIconButton(app::images::add, "新建环境", [toast, selectedId, envVersion] {
                             if (auto result = g_requests.createEnvironment("新环境", "");
                                 !result) {
                                 toast.Show("新建环境失败: " + result.error().message);
-                                co_return;
+                                return;
                             }
                             selectedId = g_requests.currentEnvId();
                             envVersion = envVersion.Get() + 1;
-                        });
                     }, AppIconButtonShape::Circular, 28.0F, /*accent=*/false),
                 }
                     .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
@@ -289,7 +276,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                 .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::Frame{.width = 200.0F},
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-            std::move(form),
+            form,
         }
             .With(huxerui::Spacing(theme.spacing.medium), huxerui::Grow(1.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),

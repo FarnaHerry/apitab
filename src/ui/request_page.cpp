@@ -10,7 +10,9 @@
 #include <huxerui/huxerui.h>
 
 #include <charconv>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ui.h"
@@ -192,8 +194,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
 // 预编译 SDK 回落，或 CanOpenFiles false）则退化为多行 TextField 粘贴。
 // 解析成功后给出
 // 「标题：N 个接口」+ 前几条目录/接口预览 + 「导入」；失败显示错误文本，
-// 可重选文件重试。导入执行为纯同步 store 调用，整体推迟出指针事件路径
-// （tasks.Launch + Delay(0)，CLAUDE.md 约定 6）。
+// 可重选文件重试。导入执行为纯同步 store 调用，完成后关闭弹窗。
 [[huxerui::composable]] huxerui::View ApiImportDialogContent(huxerui::DialogContext ctx,
                                                              huxerui::State<int> listVersion) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -214,17 +215,25 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     auto importError = huxerui::UseState(std::string{});
     auto pasteValue = huxerui::UseState(huxerui::TextEditingValue{});
 
-    // 解析一段文件全文：成功入 parsed，失败入 importError（互相清零）。
-    auto parseText = [parsed, importError](const std::string& text) {
-        auto api = std::make_shared<ImportedApi>();
-        std::string err;
-        if (!ParseApiFile(text, *api, err)) {
-            parsed = nullptr;
-            importError = err;
-            return;
-        }
-        importError = std::string{};
-        parsed = api;
+    // 文件可很大：解析在 worker 线程运行，结果回到 UI 线程后再写 State。
+    auto parseText = [tasks, parsed, importError](std::string text) {
+        tasks.Launch([text = std::move(text), parsed, importError]() mutable
+                         -> huxerui::Task<void> {
+            auto result = co_await huxerui::RunWorker([text = std::move(text)] {
+                auto api = std::make_shared<ImportedApi>();
+                std::string error;
+                if (!ParseApiFile(text, *api, error))
+                    return std::pair{std::shared_ptr<ImportedApi>{}, std::move(error)};
+                return std::pair{std::move(api), std::string{}};
+            });
+            if (!result.first) {
+                parsed = nullptr;
+                importError = std::move(result.second);
+                co_return;
+            }
+            importError = std::string{};
+            parsed = std::move(result.first);
+        });
     };
 
     std::vector<huxerui::View> children{
@@ -308,83 +317,79 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     }
     children.push_back(huxerui::Row {
         huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-        huxerui::Button("导入").OnClick([ctx, tasks, toast, listVersion, parsed] {
+        huxerui::Button("导入").OnClick([ctx, toast, listVersion, parsed] {
             const auto api = parsed.Get();
             if (api == nullptr) {
                 toast.Show("请先选择文件并成功解析");
                 return;
             }
-            ctx.Dismiss();
-            // 导入重组左岛列表：推迟出指针事件路径（约定 6）。dirChain 逐级
-            // find-or-create 分组（Name 模式，仅组织作用、不参与 URL），每条
-            // op 组装 db::SavedRequest 落库；遇错即停并 toast。
-            tasks.Launch([api, toast, listVersion]() -> huxerui::Task<void> {
-                co_await huxerui::Delay(std::chrono::duration<double>{0});
-                std::size_t count = 0;
-                for (const ImportedOperation& op : api->operations) {
-                    std::int64_t parent = 0;
-                    bool failed = false;
-                    for (const std::string& seg : op.dirChain) {
-                        auto findChild = [&](std::int64_t parentId) {
-                            std::int64_t gid = 0;
-                            for (const db::Group& g : g_requests.groups()) {
-                                if (g.parentId == parentId && g.name == seg) {
-                                    gid = g.id;
-                                    break;
-                                }
-                            }
-                            return gid;
-                        };
-                        std::int64_t gid = findChild(parent);
-                        if (gid == 0) {
-                            if (auto result = g_requests.createGroup(
-                                    seg, db::GroupMode::Name, parent);
-                                !result) {
-                                toast.Show("导入失败: " + result.error().message);
-                                failed = true;
-                                break;
-                            }
-                            gid = findChild(parent); // store 建后 reload，按名回查 id
-                            if (gid == 0) {
-                                toast.Show("导入失败: 新建目录回查不到");
-                                failed = true;
+            // dirChain 逐级 find-or-create 分组（Name 模式，仅组织作用、不参与 URL），
+            // 每条 op 组装 db::SavedRequest 落库；遇错即停并保留弹窗供用户查看提示。
+            std::size_t count = 0;
+            for (const ImportedOperation& op : api->operations) {
+                std::int64_t parent = 0;
+                bool failed = false;
+                for (const std::string& seg : op.dirChain) {
+                    auto findChild = [&](std::int64_t parentId) {
+                        std::int64_t gid = 0;
+                        for (const db::Group& g : g_requests.groups()) {
+                            if (g.parentId == parentId && g.name == seg) {
+                                gid = g.id;
                                 break;
                             }
                         }
-                        parent = gid;
+                        return gid;
+                    };
+                    std::int64_t gid = findChild(parent);
+                    if (gid == 0) {
+                        if (auto result = g_requests.createGroup(
+                                seg, db::GroupMode::Name, parent);
+                            !result) {
+                            toast.Show("导入失败: " + result.error().message);
+                            failed = true;
+                            break;
+                        }
+                        gid = findChild(parent); // store 建后 reload，按名回查 id
+                        if (gid == 0) {
+                            toast.Show("导入失败: 新建目录回查不到");
+                            failed = true;
+                            break;
+                        }
                     }
-                    if (failed) co_return;
-                    db::SavedRequest rec;
-                    rec.groupId = parent;
-                    rec.name = op.name.empty() ? op.method + " " + op.url : op.name;
-                    rec.method = op.method; // 原样字符串（保存/发送接受任意方法名）
-                    rec.url = op.url;       // fullUrl 原样（含 scheme，finalizeSpec 不再
-                                            // 拼环境）；否则为 path 相对
-                    for (const ImportedParam& p : op.params) {
-                        rec.params.push_back(api::KeyValue{.key = p.key, .value = p.value,
-                                                           .enabled = true,
-                                                           .type = InferKvType(p.value),
-                                                           .remark = p.remark});
-                    }
-                    for (const ImportedParam& h : op.headers) {
-                        rec.headers.push_back(api::KeyValue{.key = h.key, .value = h.value,
-                                                            .enabled = true,
-                                                            .type = InferKvType(h.value),
-                                                            .remark = h.remark});
-                    }
-                    const std::size_t bk = ImportedBodyKindIndex(op.bodyKind);
-                    rec.bodyKind = static_cast<api::BodyKind>(bk);
-                    rec.body = op.body; // 兼容字段：当前类型文本
-                    if (bk < rec.bodyContents.size()) rec.bodyContents[bk].text = op.body;
-                    if (auto result = g_requests.save(rec); !result) {
-                        toast.Show("导入失败: " + result.error().message);
-                        co_return;
-                    }
-                    ++count;
+                    parent = gid;
                 }
-                toast.Show(std::format("已导入 {} 个接口", count));
-                listVersion = listVersion.Get() + 1;
-            });
+                if (failed) return;
+                db::SavedRequest rec;
+                rec.groupId = parent;
+                rec.name = op.name.empty() ? op.method + " " + op.url : op.name;
+                rec.method = op.method; // 原样字符串（保存/发送接受任意方法名）
+                rec.url = op.url;       // fullUrl 原样（含 scheme，finalizeSpec 不再
+                                        // 拼环境）；否则为 path 相对
+                for (const ImportedParam& p : op.params) {
+                    rec.params.push_back(api::KeyValue{.key = p.key, .value = p.value,
+                                                       .enabled = true,
+                                                       .type = InferKvType(p.value),
+                                                       .remark = p.remark});
+                }
+                for (const ImportedParam& h : op.headers) {
+                    rec.headers.push_back(api::KeyValue{.key = h.key, .value = h.value,
+                                                        .enabled = true,
+                                                        .type = InferKvType(h.value),
+                                                        .remark = h.remark});
+                }
+                const std::size_t bk = ImportedBodyKindIndex(op.bodyKind);
+                rec.bodyKind = static_cast<api::BodyKind>(bk);
+                rec.body = op.body; // 兼容字段：当前类型文本
+                if (bk < rec.bodyContents.size()) rec.bodyContents[bk].text = op.body;
+                if (auto result = g_requests.save(rec); !result) {
+                    toast.Show("导入失败: " + result.error().message);
+                    return;
+                }
+                ++count;
+            }
+            toast.Show(std::format("已导入 {} 个接口", count));
+            listVersion = listVersion.Get() + 1;
+            ctx.Dismiss();
         }),
     }
                       .With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)));
@@ -466,7 +471,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
         rightArea = RequestIslandSurface(
             huxerui::Column {
                 RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
-                std::move(content),
+                content,
             }
                 .With(huxerui::Spacing(theme.spacing.medium),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
@@ -545,7 +550,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
         // Compact：上 = 请求列表（限高 220、宽度撑满），下 = 编辑区（撑满剩余）。
         return huxerui::Column {
                    RequestListIsland(openDrafts, activeTab, listVersion, true, 260.0F),
-                   std::move(rightArea),
+                   rightArea,
                }
             .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::Grow(1.0F),
@@ -558,7 +563,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                                  leftIslandWidth.Get()),
                ResizeHandle(huxerui::Axis::Vertical, leftIslandWidth, leftIslandOrigin,
                             180.0F, 420.0F),
-               std::move(rightArea),
+               rightArea,
            }
         .With(huxerui::Spacing(0.0F),
               huxerui::Grow(1.0F),

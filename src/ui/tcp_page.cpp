@@ -1,6 +1,6 @@
 // tcp_page.cpp — 原始 TCP 调试：连接/断开 + 文本/Hex 发送 + 事件流。
 // 会话由本页 TaskScope 协程直接持有：整条生命周期（连接 → 读循环 → 关闭）在
-// 一个协程里，阻塞 IO 经 RunOnTaskThread 上任务线程，恢复后在 UI 线程写 State。
+// 一个协程里，阻塞 IO 经 huxerui::RunWorker 上 worker 线程，恢复后在 UI 线程写 State。
 #include <huxerui/huxerui.h>
 
 #include <algorithm>
@@ -182,7 +182,7 @@ huxerui::Color TcpEventColor(TcpEventKind kind, const huxerui::ThemeSpec& theme)
                     // 整条会话生命周期都在这个协程里；页面卸载时 TaskScope 取消
                     // 本协程，配合会话析构的 close() 打断阻塞中的 read。
                     std::string err =
-                        co_await RunOnTaskThread([s, spec] { return s->connect(spec); });
+                        co_await huxerui::RunWorker([s, spec] { return s->connect(spec); });
                     if (session.Get() != s) co_return; // 已被取代/断开
                     if (!err.empty()) {
                         appendEvent(TcpEvent{TcpEventKind::Error, err});
@@ -194,7 +194,7 @@ huxerui::Color TcpEventColor(TcpEventKind kind, const huxerui::ThemeSpec& theme)
                     appendEvent(TcpEvent{TcpEventKind::Connected, "已连接"});
                     for (;;) {
                         api::TcpEvent e =
-                            co_await RunOnTaskThread([s] { return s->read(); });
+                            co_await huxerui::RunWorker([s] { return s->read(); });
                         if (session.Get() != s) co_return; // 已被取代/断开
                         if (e.kind == api::TcpEventKind::Received) {
                             std::string preview;
@@ -258,7 +258,7 @@ huxerui::Color TcpEventColor(TcpEventKind kind, const huxerui::ThemeSpec& theme)
                 }
                 // 同步写可能阻塞（对端不收）：派任务线程，不卡 UI。
                 tasks.Launch([=]() -> huxerui::Task<void> {
-                    std::string err = co_await RunOnTaskThread([s, bytes] { return s->send(bytes); });
+                    std::string err = co_await huxerui::RunWorker([s, bytes] { return s->send(bytes); });
                     if (!err.empty()) {
                         toast.Show(err);
                     } else {

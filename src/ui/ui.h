@@ -191,7 +191,7 @@ struct TopTabId {
 
 // 顶级标签状态的纯数据镜像，与 AppRoot 的 State 一一对应（open_projects ↔ tabs、
 // settings_open ↔ settingsOpen、active ↔ activeTopTab、last_project ↔ lastProjectTab）。
-// 纯 helper 不依赖任何 HuxerUI 类型：AppRoot 在推迟任务里取快照 → 调 helper →
+// 纯 helper 不依赖任何 HuxerUI 类型：AppRoot 在事件回调里取快照 → 调 helper →
 // 写回 State，也便于脱离 UI 覆盖打开/重复打开/切换/关闭回退矩阵（§13.4 B0.1 的
 // 「用纯状态函数覆盖回退矩阵」要求）。
 struct TopTabState {
@@ -202,8 +202,8 @@ struct TopTabState {
 };
 
 // 以下 helper 全部为纯函数：不改入参、不碰 State/领域 store。领域写入
-// （selectProject/setProject/saveSessionPreference）由 AppRoot 的推迟任务在调用
-// helper 之后完成（§13.2 不变量 1：先领域写入再写 activeTopTab，同一任务内完成）。
+// （selectProject/setProject/saveSessionPreference）由 AppRoot 在调用 helper 之后
+// 完成（§13.2 不变量 1：先领域写入再写 activeTopTab，同一回调内完成）。
 
 // 主页标签：固定最左、不可关闭。激活只改 active——领域当前项目与打开列表不动
 //（返回项目时避免重新加载，§13.1；视觉 active 由 activeTopTab 决定）。
@@ -368,7 +368,6 @@ huxerui::View PageHeader(std::string title, std::string subtitle);
 // resources/images/apitab_mark.svg，颜色由当前主题控制，避免页面各自拼出一套 logo。
 huxerui::View BrandMark(float size = 24.0F);
 huxerui::View DialogCard(huxerui::View content);
-huxerui::View MigrationPlaceholder(std::string pageName);
 // 头像共用蓝紫渐变外圈，size 包含光圈与内侧留白。
 huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui::ThemeSpec& theme,
                             bool hovered);
@@ -470,7 +469,7 @@ huxerui::View DialogCard(huxerui::View content);
 // 破坏性操作（删除/清空等）的确认弹窗：内置 dialog.Show(title, message, ...) 的
 // DialogStyle 是 Environment 全局值，无法按调用点给确认按钮换色，故用 DialogCard
 // + 自定义按钮行实现，确认按钮染主题 error 红。点确认先关弹窗再调 onConfirm；
-// onConfirm 内若会卸载被点节点，沿用 tasks.Launch + Delay(0) 推迟惯例。
+// onConfirm 在确认弹窗关闭后直接执行；State 更新由后续组合反映。
 void ShowDangerConfirm(huxerui::DialogHandle dialog, std::string title, std::string message,
                        std::string confirmLabel, std::function<void()> onConfirm);
 // 自绘弹出菜单（UsePopup 承载）。作者口径：通用 MenuItem 不支持 per-item 配色/
@@ -561,11 +560,10 @@ huxerui::View MethodUrlBar(std::vector<std::string> methods, std::size_t methodI
                            std::function<bool(const huxerui::KeyEvent&)> onUrlKeyIntercept = {});
 
 // home_page.cpp — 主页（顶级 Home 标签内容，全宽无侧栏）。onOpenProject 由 AppRoot
-// 注入：ProjectCard 的推迟任务在完成领域写入（selectProjectInOrg/setProject/
+// 注入：ProjectCard 的点击回调在完成领域写入（selectProjectInOrg/setProject/
 // active_project 持久化）后调用，内部完成顶级项目标签的新增/激活 + State 写回 +
-// open_projects 按需持久化（见 app.cpp AppRoot；调用方必须已在推迟语境，CLAUDE.md
-// 约定 6）。activeProject 仅用于 is_open 高亮（领域打开态）。
-// onDeleteProject：项目卡片菜单「删除」确认后调用（同样在推迟语境），由 AppRoot
+// open_projects 按需持久化（见 app.cpp AppRoot）。activeProject 仅用于 is_open 高亮。
+// onDeleteProject：项目卡片菜单「删除」确认后调用，由 AppRoot
 // 先关掉该项目已打开的顶级标签再删库——否则会留下指向已删项目的空标签；返回空串
 // 表示成功，非空为错误消息（卡片 toast）。
 huxerui::View HomePage(std::function<void(std::int64_t)> onOpenProject,
@@ -752,7 +750,7 @@ inline constexpr float kProjectTabWidth = 140.0F;
 inline constexpr std::int64_t kSettingsTabDisplayKey =
     std::numeric_limits<std::int64_t>::max();
 
-// 顶级标签条 → AppRoot 的操作入口：activate/close 的实现由 AppRoot 提供（推迟任务
+// 顶级标签条 → AppRoot 的操作入口：activate/close 的实现由 AppRoot 提供（在事件回调
 // 里完成 TopTabState helper 计算、领域写入与 State 写回；TopTab/TopTabStrip 不直接
 // 持有顶级状态写入）。
 struct TopTabActions {

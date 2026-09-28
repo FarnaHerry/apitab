@@ -443,7 +443,7 @@ huxerui::View SplitActionButton(
                             // 大 body 的解析/美化是 CPU 重活：派到任务线程执行，
                             // 结果回 UI 线程后再写 State（见 task_bridge.h）。
                             try {
-                                std::string pretty = co_await RunOnTaskThread([text, kind] {
+                                std::string pretty = co_await huxerui::RunWorker([text, kind] {
                                     return kind == 1
                                                ? nlohmann::json::parse(StripJsonComments(text)).dump(2)
                                                : PrettyXml(text);
@@ -648,11 +648,9 @@ huxerui::View SplitActionButton(
             // task_bridge.h）。取消 = sendSeq 代际作废在途结果 + 引擎协作打断 +
             // 轮询协程 Cancel。
             SplitActionButton(inFlight.Get() ? "取消" : "发送", [=](bool download) {
-                // 发送/取消都会翻转被点按钮的文案（重组本子树），State 写入与
-                // 引擎操作整体推迟出指针事件路径（CLAUDE.md 约定 6；同步写曾在
-                // pointer-up 处理中引发事件循环卡死/段错误）。
+                // 任务作用域承载 Mock 延时、传输轮询和下载；按钮状态与引擎入队在
+                // 点击回调启动后立即处理。
                 tasks.Launch([=]() -> huxerui::Task<void> {
-                    co_await huxerui::Delay(std::chrono::duration<double>{0});
                     if (inFlight.Get()) {
                         sendSeq += 1;
                         g_requests.cancelSend();
@@ -797,10 +795,10 @@ huxerui::View SplitActionButton(
             SplitActionButton("保存", saveDraft, "保存当前状态为用例", true),
             // 更多溢出菜单：删除当前请求条（自绘 PopupMenu，删除项 hover 才显红；
             // 点击先弹危险确认框；已保存的连集合一起删，并关掉本标签）。
-            // 删除会卸载本编辑器 → 确认回调里推迟出指针事件路径。
+            // 删除会卸载本编辑器；确认按钮的回调直接完成删除和状态更新。
             // OverflowButton = "更多操作" 语义（Bare 28pt，工具栏溢出动作），
             // 回调体与菜单内容保持原样。
-            OverflowButton([overflow, dialog, tasks, drafts, activeTab, listVersion, index, toast] {
+            OverflowButton([overflow, dialog, drafts, activeTab, listVersion, index, toast] {
                     std::vector<RequestDraft> snapshot = drafts.Get();
                     if (index >= snapshot.size()) return;
                     const bool saved = snapshot[index].savedId != 0;
@@ -809,7 +807,7 @@ huxerui::View SplitActionButton(
                         overflow,
                         {PopupMenuItem{
                             .label = "删除",
-                            .on_click = [dialog, tasks, drafts, activeTab, listVersion, index,
+                            .on_click = [dialog, drafts, activeTab, listVersion, index,
                                          saved, name, toast] {
                                 ShowDangerConfirm(
                                     dialog, "删除请求",
@@ -817,17 +815,14 @@ huxerui::View SplitActionButton(
                                                 "」吗？将从集合中删除，此操作不可恢复。"
                                           : "确定删除草稿「" + name +
                                                 "」吗？未保存的内容将丢失。",
-                                    "删除", [tasks, drafts, activeTab, listVersion, index, toast] {
-                                        tasks.Launch([=]() -> huxerui::Task<void> {
-                                            co_await huxerui::Delay(
-                                                std::chrono::duration<double>{0});
+                                    "删除", [drafts, activeTab, listVersion, index, toast] {
                                             std::vector<RequestDraft> copy = drafts.Get();
-                                            if (index >= copy.size()) co_return;
+                                            if (index >= copy.size()) return;
                                             if (copy[index].savedId != 0) {
                                                 if (auto result = g_requests.remove(copy[index].savedId);
                                                     !result) {
                                                     toast.Show("删除请求失败: " + result.error().message);
-                                                    co_return;
+                                                    return;
                                                 }
                                                 listVersion = listVersion.Get() + 1;
                                             }
@@ -836,7 +831,6 @@ huxerui::View SplitActionButton(
                                             drafts = copy;
                                             if (!copy.empty() && activeTab.Get() >= copy.size())
                                                 activeTab = copy.size() - 1;
-                                        });
                                     });
                             },
                             .danger = PopupMenuDanger::kHoverRed}},
@@ -848,13 +842,13 @@ huxerui::View SplitActionButton(
         }
             .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
-        children.push_back(std::move(sectionTabs));
-        if (sectionFixed.has_value()) children.push_back(std::move(*sectionFixed));
+        children.push_back(sectionTabs);
+        if (sectionFixed.has_value()) children.push_back(*sectionFixed);
         // 分区内容：KV 表自身用 VirtualList；其它分区使用普通内部滚动。
         if (sectionOwnsScroll) {
             children.push_back(std::move(sectionContent).With(huxerui::Grow(1.0F)));
         } else {
-            children.push_back(huxerui::ScrollView{std::move(sectionContent)}
+            children.push_back(huxerui::ScrollView{sectionContent}
                                    .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)));
         }
         return huxerui::Column(std::move(children))

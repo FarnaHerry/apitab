@@ -1,6 +1,6 @@
 // app_dialogs.cpp — 应用级对话框/面板（P1-C2 自 app.cpp 纯搬移）：
 //   CloseGuard（关闭询问：直接关闭 / 最小化到托盘 / 取消，托盘可用性动态查询，
-//   Hide/Quit 推迟出事件路径）。其它非页面全屏弹层（若后续新增）亦归此文件。
+//   Hide/Quit 从原生窗口/托盘回调返回后执行）。其它非页面全屏弹层（若后续新增）亦归此文件。
 //   本文件不含标题栏/状态条/侧栏/页面路由（见 title_bar.cpp / global_status_bar.cpp / app.cpp）。
 #include <huxerui/huxerui.h>
 
@@ -24,10 +24,9 @@ namespace apitab::ui {
 
     // 关闭拦截：按配置直接关闭/进托盘；未配置时第一次询问并把选择写入配置。
     // 托盘可用性在关闭时动态查询（不要用组合期快照，避免错过宿主晚就绪）。
-    // Hide 一律经 tasks.Launch + Delay(0) 推迟到事件派发之后：在关闭请求回调里
-    // 同步隐藏最后一个可见窗口，会让 SDK 运行时在回调栈上就地进行窗口拆毁/
-    // 退出路径（回调返回后栈上的 WindowService 已被回收）——用户实测直接崩溃。
-    // 先同步 return true 拦下关闭，再在事件循环外 Hide，行为不变、栈安全。
+    // Hide 在关闭请求回调返回后执行：同步隐藏最后一个可见窗口会让 SDK 运行时在
+    // 回调栈上拆毁窗口；回调返回后栈上的 WindowService 已被回收。先同步 return
+    // true 拦下关闭，再在事件循环外 Hide，行为不变、栈安全。
     auto hideToTray = [tasks, window] {
         tasks.Launch([window]() -> huxerui::Task<void> {
             co_await huxerui::Delay(std::chrono::duration<double>{0});
@@ -45,8 +44,8 @@ namespace apitab::ui {
             if (closeDialogOpen.Get()) return true;
             closeDialogOpen = true;
             // 自定义内容弹窗（DialogCard 包底板）：内置两按钮弹窗没有取消入口。
-            // 三个按钮：直接关闭 / 最小化到托盘 / 取消；按钮点击在弹层指针事件
-            // 路径上，Quit/Hide 等全局副作用推迟到事件派发之后（CLAUDE.md 约定 6）。
+            // 三个按钮：直接关闭 / 最小化到托盘 / 取消；按钮点击时弹层仍挂载，
+            // Quit/Hide 等窗口级副作用等事件回调返回后执行。
             dialog.Show(
                 [=](huxerui::DialogContext ctx) mutable -> huxerui::View {
                     return DialogCard(huxerui::Column {
