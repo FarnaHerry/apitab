@@ -858,7 +858,9 @@ jobs:
         run: |
           set -euo pipefail
           release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq '.id' 2>/dev/null || true)"
-          if [[ -z "$release_id" ]]; then
+          # gh api can emit a JSON 404 body even when it exits unsuccessfully;
+          # only treat a numeric response as an existing release ID.
+          if [[ ! "$release_id" =~ ^[0-9]+$ ]]; then
             echo "No existing release for ${GITHUB_REF_NAME}; nothing to remove."
             exit 0
           fi
