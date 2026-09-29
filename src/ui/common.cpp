@@ -226,8 +226,8 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
 // 其他值就近收敛：>=30 归 regular，否则 compact）；圆形/圆角方形由 shape 显式
 // 选择。所有形状（含 Bare）的 hover/press indication 都覆盖整个命中区——
 // indication 以按钮 View 为宿主，fill 按 host corner radii 裁剪，天然是整块命中
-// 区，不是字形本身。实现统一挂显式 indication：tint = accent ? inverse_on_surface :
-// on_surface（6% hover / 12% press，深浅主题自动适配）——不依赖 OnClick 自动
+// 区，不是字形本身。实现统一挂显式 indication：tint 随主操作/危险/普通图标语义取色
+// （6% hover / 12% press，深浅主题自动适配）——不依赖 OnClick 自动
 // 追加的 DefaultIndication。自定义 indication 让不同按钮形状保持一致反馈。注意 SDK
 // 替换规则（view.cpp AddModifier）：显式 Indication 会擦除 DefaultIndication、DefaultIndication 遇
 // 任何已有 indication 即跳过——**不能用空 Indication{} 表达"用默认"**，那等于
@@ -241,7 +241,7 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
                                                     std::string semanticLabel,
                                                     std::function<void()> onClick,
                                                     AppIconButtonShape shape, float size,
-                                                    bool accent, bool enabled) {
+                                                    bool accent, bool enabled, bool danger) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     const bool regular = size >= (islands.icon_button_compact + islands.icon_button_regular) / 2.0F;
@@ -249,8 +249,10 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
     const bool bare = shape == AppIconButtonShape::Bare;
     const float radius = shape == AppIconButtonShape::Circular ? theme.shapes.full
                                                                : islands.control_radius;
-    // 交互反馈：hover/press 覆盖整块命中区；强调按钮用黑白反差色，其余配 on_surface。
-    huxerui::Color tint = accent ? theme.colors.inverse_on_surface : theme.colors.on_surface;
+    // 交互反馈覆盖整块命中区；主操作使用品牌色，危险图标用 error 色提示。
+    huxerui::Color tint = danger ? (bare ? theme.colors.error : theme.colors.inverse_on_surface)
+                                 : accent ? theme.colors.on_primary
+                                          : theme.colors.on_surface;
     huxerui::Color hoverTint = tint;
     hoverTint.alpha = 0.06F;
     huxerui::Color pressTint = tint;
@@ -265,12 +267,14 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
             .Fit(huxerui::ImageFit::Contain)
             .Align(huxerui::HorizontalAlignment::Center,
                    huxerui::VerticalAlignment::Center)
-            .Tint(accent ? theme.colors.inverse_on_surface : theme.colors.on_surface)
+            .Tint(danger ? (bare ? theme.colors.error : theme.colors.inverse_on_surface)
+                         : accent ? theme.colors.on_primary : theme.colors.on_surface)
             .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
     }
         .With(huxerui::Frame{.width = target, .height = target},
               huxerui::Background(bare ? huxerui::Color::Transparent()
-                                       : accent ? theme.colors.on_surface
+                                       : danger ? theme.colors.error
+                                       : accent ? theme.colors.primary
                                                 : theme.colors.surface_container_highest),
               huxerui::CornerRadius(radius),
               std::move(hitIndication),
@@ -290,6 +294,44 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
               huxerui::Focusable(true),
               huxerui::Enabled(enabled))
         .OnClick(std::move(onClick));
+}
+
+[[huxerui::composable]] huxerui::View DangerIconButton(
+    huxerui::ImageResource icon, std::string semanticLabel,
+    std::function<void()> onClick, AppIconButtonShape shape, float size) {
+    return AppIconButton(icon, std::move(semanticLabel), std::move(onClick), shape,
+                         size, false, true, true);
+}
+
+namespace {
+
+[[huxerui::composable]] huxerui::View StyledActionButton(
+    huxerui::View button, huxerui::Color background, huxerui::Color foreground) {
+    huxerui::ButtonStyle style = huxerui::UseEnvironment<huxerui::ButtonStyle>();
+    style.background = background;
+    style.label_style.foreground = foreground;
+    huxerui::Color hover = foreground;
+    hover.alpha = 0.10F;
+    huxerui::Color press = foreground;
+    press.alpha = 0.18F;
+    style.indication = huxerui::Indication{
+        .hover = huxerui::IndicationLayer{.fill = hover},
+        .press = huxerui::IndicationLayer{.fill = press},
+    };
+    return huxerui::ProvideEnvironment(style, std::move(button));
+}
+
+} // namespace
+
+[[huxerui::composable]] huxerui::View PrimaryButton(huxerui::View button) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    return StyledActionButton(std::move(button), theme.colors.primary, theme.colors.on_primary);
+}
+
+[[huxerui::composable]] huxerui::View DangerButton(huxerui::View button) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    return StyledActionButton(std::move(button), theme.colors.error,
+                              theme.colors.inverse_on_surface);
 }
 
 // 列表行尾部固定动作区：槽位固定 icon_button_regular 档（32×32 正方形）、
@@ -479,16 +521,16 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
 }
 
 // 危险确认弹窗内容（ShowDangerConfirm 的 DialogFactory 目标）：标题 + 消息 +
-// 按钮行（左取消右确认）。确认按钮染红走 ProvideEnvironment 局部覆盖 ButtonStyle
+// 按钮行（左取消右确认）。确认按钮染危险色走 ProvideEnvironment 局部覆盖 ButtonStyle
 // ——Button 无单实例样式 API（样式经 ResolveStyleOverride<ButtonStyle> 解析），
-// Environment 是最窄机制；ColorScheme 没有 on_error 令牌，红底上文字固定白色。
+// Environment 是最窄机制；前景色按深浅主题使用 inverse_on_surface。
 [[huxerui::composable]] huxerui::View DangerConfirmContent(
     huxerui::DialogContext ctx, std::string title, std::string message,
     std::string confirmLabel, std::function<void()> onConfirm) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     huxerui::ButtonStyle danger = huxerui::UseEnvironment<huxerui::ButtonStyle>();
     danger.background = theme.colors.error;
-    danger.label_style.foreground = huxerui::Color::White();
+    danger.label_style.foreground = theme.colors.inverse_on_surface;
     return DialogCard(huxerui::Column {
         huxerui::Text(std::move(title), huxerui::TextRole::Title),
         huxerui::Text(std::move(message), huxerui::TextRole::Body),

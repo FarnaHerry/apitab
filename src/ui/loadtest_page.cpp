@@ -160,7 +160,7 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
             huxerui::codeeditor::CodeEditor(scriptOptions, scriptController)
                 .With(huxerui::Frame{.height = 240.0F}),
             huxerui::Flow {
-                huxerui::Button(running.Get() ? "压测进行中…" : "开始压测")
+                PrimaryButton(huxerui::Button(running.Get() ? "压测进行中…" : "开始压测")
                     .OnClick([=] {
                         if (running.Get()) return;
                         api::RequestSpec spec;
@@ -213,7 +213,7 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
                             }
                             running = false;
                         });
-                    }),
+                    })),
                 huxerui::Button("停止")
                     .OnClick([=] {
                         g_loadtest.stop();

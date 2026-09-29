@@ -2,7 +2,7 @@
 //   标题栏（不做岛，直接落海面）：居中 Logo + 顶级标签条（TopTabStrip：主页钉在最左、
 //     项目标签横向滚动、设置单例标签固定追加在所有项目标签之后）+ 齿轮（全局设置
 //     单例标签）+ 框架窗口按钮；收窄为 24px 高，
-//     主题为黑白灰极简风，青色品牌色只用于细线、焦点和小面积状态提示。
+//     主题为黑白灰极简风，青色品牌色用于主操作按钮、细线和焦点提示。
 //   下方：左侧图标侧边栏（同样不做岛，直接落海面）｜内容区（页面自己的一级岛屿
 //   划分区域，外壳不再套岛）。根节点刷整窗底色（rootSpec.colors.background——
 //   AppRoot 在主题 provider 之上，UseTheme 只能拿到默认浅色 spec，须按 dark 自选）。
@@ -333,13 +333,13 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     dialogs.message_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                                spec.colors.on_surface};
     dialogs.positive_action_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
-                                                       spec.colors.inverse_on_surface};
-    dialogs.positive_action_background = spec.colors.on_surface;
+                                                       spec.colors.on_primary};
+    dialogs.positive_action_background = spec.colors.primary;
     dialogs.positive_action_indication = huxerui::Indication{
         .hover = huxerui::IndicationLayer{
-            .fill = withAlpha(spec.colors.inverse_on_surface, 0.10F)},
+            .fill = withAlpha(spec.colors.on_primary, 0.10F)},
         .press = huxerui::IndicationLayer{
-            .fill = withAlpha(spec.colors.inverse_on_surface, 0.18F)},
+            .fill = withAlpha(spec.colors.on_primary, 0.18F)},
     };
     dialogs.negative_action_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                                        spec.colors.on_surface};

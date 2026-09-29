@@ -232,7 +232,7 @@ huxerui::Color WsEventColor(WsEventKind kind, const huxerui::ThemeSpec& theme) {
                          KvTableOptions{.show_type = false, .show_remark = false})
             .With(huxerui::Grow(1.0F)),
         huxerui::Row {
-            huxerui::Button("连接").OnClick([=] {
+            PrimaryButton(huxerui::Button("连接").OnClick([=] {
                 api::WebSocketSpec spec;
                 spec.url = url.Get().text;
                 spec.headers = ToHeaders(headers);
@@ -244,7 +244,7 @@ huxerui::Color WsEventColor(WsEventKind kind, const huxerui::ThemeSpec& theme) {
                     return;
                 }
                 session = s; // 取代旧会话（旧会话析构自动断开）
-            }),
+            })),
             huxerui::Button("断开").OnClick([=] {
                 if (const auto& s = session.Get()) s->disconnect();
                 session = std::shared_ptr<WsSession>{};
@@ -260,7 +260,7 @@ huxerui::Color WsEventColor(WsEventKind kind, const huxerui::ThemeSpec& theme) {
                     while (events.Size() > 300) events.Erase(0);
                 }
             }),
-            huxerui::Button("清空事件").OnClick([events] { events.Clear(); }),
+            DangerButton(huxerui::Button("清空事件").OnClick([events] { events.Clear(); })),
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
         huxerui::Row {
@@ -277,7 +277,7 @@ huxerui::Color WsEventColor(WsEventKind kind, const huxerui::ThemeSpec& theme) {
                 .Variant(huxerui::TextFieldVariant::Outlined)
                 .OnChanged([message](const huxerui::TextEditingValue& value) { message = value; })
                 .With(huxerui::Grow(1.0F)),
-            huxerui::Button("发送").OnClick([=] {
+            PrimaryButton(huxerui::Button("发送").OnClick([=] {
                 const auto& s = session.Get();
                 if (!s) {
                     toast.Show("WebSocket 尚未连接");
@@ -304,7 +304,7 @@ huxerui::Color WsEventColor(WsEventKind kind, const huxerui::ThemeSpec& theme) {
                                   (binaryHex.Get() ? HexPreview(payload) : payload)
                             : payload});
                 while (events.Size() > 300) events.Erase(0);
-            }),
+            })),
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
         huxerui::Text("事件", huxerui::TextRole::Title),

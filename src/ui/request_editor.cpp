@@ -196,7 +196,7 @@ inline std::vector<std::string> CookiesFromHeaders(const std::vector<api::KeyVal
 
 huxerui::View SplitActionButton(
     std::string label, std::function<void(bool)> onAction, std::string alternateLabel,
-    bool alternateEnabled);
+    bool alternateEnabled, bool primary = true);
 
 [[huxerui::composable]] huxerui::View RequestEditor(
     huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index,
@@ -791,7 +791,7 @@ huxerui::View SplitActionButton(
                             co_await downloadResponse(view.body, current[index].name.text);
                     });
                 });
-            }, "发送并下载", !inFlight.Get()),
+            }, "发送并下载", !inFlight.Get(), !inFlight.Get()),
             SplitActionButton("保存", saveDraft, "保存当前状态为用例", true),
             // 更多溢出菜单：删除当前请求条（自绘 PopupMenu，删除项 hover 才显红；
             // 点击先弹危险确认框；已保存的连集合一起删，并关掉本标签）。
@@ -865,9 +865,13 @@ huxerui::View SplitActionButton(
 // 不会误关）；Esc/点条目仍经原 dismiss 链关闭。
 [[huxerui::composable]] huxerui::View SplitActionButton(
     std::string label, std::function<void(bool)> onAction, std::string alternateLabel,
-    bool alternateEnabled) {
+    bool alternateEnabled, bool primary) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
+    const huxerui::Color background = primary ? theme.colors.primary
+                                               : theme.colors.surface_container_highest;
+    const huxerui::Color foreground = primary ? theme.colors.on_primary
+                                               : theme.colors.on_surface;
     auto popup = huxerui::UsePopup();
     auto tasks = huxerui::UseTaskScope();
     struct HoverMenuState {
@@ -891,9 +895,9 @@ huxerui::View SplitActionButton(
             hover->layer = 0;
         });
     };
-    huxerui::Color arrowHover = theme.colors.inverse_on_surface;
+    huxerui::Color arrowHover = foreground;
     arrowHover.alpha = 0.10F;
-    huxerui::Color arrowPress = theme.colors.inverse_on_surface;
+    huxerui::Color arrowPress = foreground;
     arrowPress.alpha = 0.18F;
     const huxerui::Indication arrowIndication{
         .hover = huxerui::IndicationLayer{
@@ -928,7 +932,7 @@ huxerui::View SplitActionButton(
     };
     return huxerui::Row {
         huxerui::Row{huxerui::Text(std::move(label), huxerui::TextRole::Label)
-                          .With(huxerui::Foreground(theme.colors.inverse_on_surface))}
+                          .With(huxerui::Foreground(foreground))}
             .With(huxerui::Frame{.width = 60.0F, .height = islands.control_height},
                   huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
@@ -938,7 +942,7 @@ huxerui::View SplitActionButton(
                           .Fit(huxerui::ImageFit::Contain)
                           .Align(huxerui::HorizontalAlignment::Center,
                                  huxerui::VerticalAlignment::Center)
-                          .Tint(theme.colors.inverse_on_surface)
+                          .Tint(foreground)
                           .With(huxerui::Frame{.width = 12.0F, .height = 12.0F})}
             .With(huxerui::Frame{.width = 24.0F, .height = islands.control_height},
                   huxerui::Background(huxerui::Color::Transparent()),
@@ -959,7 +963,7 @@ huxerui::View SplitActionButton(
                         closeIfLeft();
                     }
                 }),
-    }.With(huxerui::Background(theme.colors.on_surface),
+    }.With(huxerui::Background(background),
            huxerui::CornerRadius(islands.control_radius), huxerui::ClipChildren(),
            // 分裂按钮必须是固定自然宽度；若不钳制，外层 Row 会把它当可扩张
            // 容器吞掉操作栏余量，后面的“保存”被挤出屏幕。URL 栏才是唯一 Grow 项。

@@ -84,7 +84,8 @@ huxerui::TextField ConfigurePasswordField(huxerui::TextField field,
         error.Get().empty() ? huxerui::View{huxerui::Row{}}
                             : huxerui::View{huxerui::Text(error.Get(), huxerui::TextRole::Body)
                                                 .With(huxerui::Foreground(theme.colors.error))},
-        huxerui::Button("登录").OnClick(submit).With(huxerui::Frame{.height = 40.0F}),
+        PrimaryButton(huxerui::Button("登录").OnClick(submit)
+                          .With(huxerui::Frame{.height = 40.0F})),
     };
 
     return DialogCard(std::move(form).With(huxerui::Spacing(16.0F),

@@ -361,7 +361,15 @@ enum class AppIconButtonShape {
 huxerui::View AppIconButton(huxerui::ImageResource icon, std::string semanticLabel,
                             std::function<void()> onClick,
                             AppIconButtonShape shape = AppIconButtonShape::RoundedSquare,
-                            float size = 28.0F, bool accent = false, bool enabled = true);
+                            float size = 28.0F, bool accent = false, bool enabled = true,
+                            bool danger = false);
+huxerui::View DangerIconButton(huxerui::ImageResource icon, std::string semanticLabel,
+                               std::function<void()> onClick,
+                               AppIconButtonShape shape = AppIconButtonShape::Bare,
+                               float size = 28.0F);
+// 主操作与危险操作沿用 SDK Button 几何和禁用状态，只在局部覆盖颜色。
+huxerui::View PrimaryButton(huxerui::View button);
+huxerui::View DangerButton(huxerui::View button);
 // 列表行尾部固定动作区（P1-A1 最小实现）：槽位按 icon_button_regular 档固定
 // （每槽 32×32pt、间距 4pt），动作整体右对齐，槽宽不随图标/标签内容抖动。
 // 契约：同一列表所有行的动作列必须等宽（行高对齐、文字不左右跳动）；传入的

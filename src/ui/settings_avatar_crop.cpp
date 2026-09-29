@@ -399,8 +399,8 @@ struct AvatarCropOutput {
             .With(huxerui::Enabled(!saving.Get())),
         huxerui::Row {
             huxerui::Button("取消").OnClick([ctx, canceled] { *canceled = true; ctx.Dismiss(); }),
-            huxerui::Button(saving.Get() ? "正在保存…" : "设置新头像")
-                .With(huxerui::Enabled(source.HasValue() && !saving.Get())).OnClick(crop),
+            PrimaryButton(huxerui::Button(saving.Get() ? "正在保存…" : "设置新头像")
+                .With(huxerui::Enabled(source.HasValue() && !saving.Get())).OnClick(crop)),
         }.With(huxerui::Spacing(theme.spacing.small),
                huxerui::MainAlign(huxerui::MainAxisAlignment::End)),
     }.With(huxerui::Spacing(theme.spacing.medium), huxerui::Frame{.width = 520.0F},

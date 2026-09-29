@@ -234,7 +234,7 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
                                  .With(huxerui::Foreground(theme.colors.error))},
         huxerui::Row {
             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-            huxerui::Button("确定").OnClick([ctx, editor, error, onChanged = std::move(onChanged), options] {
+            PrimaryButton(huxerui::Button("确定").OnClick([ctx, editor, error, onChanged = std::move(onChanged), options] {
                 std::string message;
                 auto parsed = KvRowsFromCsv(editor.Text(), message, options);
                 if (!parsed.has_value()) {
@@ -243,7 +243,7 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
                 }
                 onChanged(std::move(*parsed));
                 ctx.Dismiss();
-            }),
+            })),
         }.With(huxerui::Spacing(8.0F),
                huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
     }.With(huxerui::Spacing(12.0F), huxerui::Frame{.width = 620.0F},
@@ -455,7 +455,7 @@ std::vector<KvRow> SnapshotKvRows(const huxerui::StateList<KvRow>& rows) {
         }
         rowViews.push_back(phantom
                     ? huxerui::View{huxerui::Row{}.With(actionWidth)}
-                    : AppIconButton(app::images::close, "删除此行", [stateRows, i, commitRows] {
+                    : DangerIconButton(app::images::close, "删除此行", [stateRows, i, commitRows] {
                             std::vector<KvRow> copy = SnapshotKvRows(stateRows);
                             if (i < copy.size()) copy.erase(copy.begin() + static_cast<long>(i));
                             commitRows(std::move(copy));

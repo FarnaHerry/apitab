@@ -157,13 +157,13 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
         huxerui::Row {
             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-            huxerui::Button("保存").OnClick([ctx, text, version, toast] {
+            PrimaryButton(huxerui::Button("保存").OnClick([ctx, text, version, toast] {
                 const std::string proxy = trim(text.Get().text);
                 saveSessionPreference("request_proxy", proxy);
                 toast.Show(proxy.empty() ? "已清除请求代理（直连）" : "请求代理已保存");
                 ctx.Dismiss();
                 version = version.Get() + 1;
-            }),
+            })),
         }
             .With(huxerui::Spacing(8.0F),
                   huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
@@ -213,7 +213,7 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
             .With(huxerui::Frame{.max_height = 300.0F}),
         huxerui::Row {
             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-            huxerui::Button("保存").OnClick([ctx, rows, toast, version] {
+            PrimaryButton(huxerui::Button("保存").OnClick([ctx, rows, toast, version] {
                 // 先 upsert 有效行；全部成功后再删去未保留的旧行，避免写入中途
                 // 失败时丢失 Cookie。id 仅用于更新/删除，不影响 Cookie 语义。
                 auto previousResult = g_requests.globalCookies();
@@ -256,7 +256,7 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
                 rows = std::move(kept);
                 version = version.Get() + 1;
                 ctx.Dismiss();
-            }),
+            })),
         }
             .With(huxerui::Spacing(8.0F),
                   huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),

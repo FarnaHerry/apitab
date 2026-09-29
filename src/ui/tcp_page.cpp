@@ -171,7 +171,7 @@ huxerui::Color TcpEventColor(TcpEventKind kind, const huxerui::ThemeSpec& theme)
         }.With(huxerui::Spacing(theme.spacing.medium),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
         huxerui::Row {
-            huxerui::Button("连接").OnClick([=] {
+            PrimaryButton(huxerui::Button("连接").OnClick([=] {
                 api::TcpSpec spec;
                 spec.url = address.Get().text;
                 spec.connectTimeoutSec = PositiveInt(timeout.Get(), 15);
@@ -220,13 +220,13 @@ huxerui::Color TcpEventColor(TcpEventKind kind, const huxerui::ThemeSpec& theme)
                         co_return;
                     }
                 });
-            }),
+            })),
             huxerui::Button("断开").OnClick([=] {
                 if (const auto& s = session.Get()) s->close(); // 唤醒阻塞 read，协程收尾
                 session = std::shared_ptr<TcpSession>{};
                 status = "未连接";
             }),
-            huxerui::Button("清空事件").OnClick([events] { events.Clear(); }),
+            DangerButton(huxerui::Button("清空事件").OnClick([events] { events.Clear(); })),
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
         huxerui::Row {
@@ -236,7 +236,7 @@ huxerui::Color TcpEventColor(TcpEventKind kind, const huxerui::ThemeSpec& theme)
                 .Variant(huxerui::TextFieldVariant::Outlined)
                 .OnChanged([message](const huxerui::TextEditingValue& value) { message = value; })
                 .With(huxerui::Grow(1.0F)),
-            huxerui::Button("发送").OnClick([=] {
+            PrimaryButton(huxerui::Button("发送").OnClick([=] {
                 const auto& s = session.Get();
                 if (!s || !s->isConnected()) {
                     toast.Show("TCP 尚未连接");
@@ -268,7 +268,7 @@ huxerui::Color TcpEventColor(TcpEventKind kind, const huxerui::ThemeSpec& theme)
                                                             : std::string(bytes.begin(), bytes.end()))});
                     }
                 });
-            }),
+            })),
         }
             .With(huxerui::Spacing(theme.spacing.medium)),
         huxerui::Text("事件", huxerui::TextRole::Title),

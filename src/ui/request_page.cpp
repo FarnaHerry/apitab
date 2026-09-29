@@ -277,9 +277,9 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                                    pasteValue = value;
                                }));
         children.push_back(huxerui::Row {
-            huxerui::Button("解析粘贴内容").OnClick([pasteValue, parseText] {
+            PrimaryButton(huxerui::Button("解析粘贴内容").OnClick([pasteValue, parseText] {
                 parseText(pasteValue.Get().text);
-            }),
+            })),
         });
     }
     if (!importError.Get().empty()) {
@@ -317,7 +317,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     }
     children.push_back(huxerui::Row {
         huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-        huxerui::Button("导入").OnClick([ctx, toast, listVersion, parsed] {
+        PrimaryButton(huxerui::Button("导入").OnClick([ctx, toast, listVersion, parsed] {
             const auto api = parsed.Get();
             if (api == nullptr) {
                 toast.Show("请先选择文件并成功解析");
@@ -390,7 +390,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
             toast.Show(std::format("已导入 {} 个接口", count));
             listVersion = listVersion.Get() + 1;
             ctx.Dismiss();
-        }),
+        })),
     }
                       .With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)));
     return DialogCard(huxerui::Column(std::move(children))

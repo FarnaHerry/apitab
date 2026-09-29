@@ -351,9 +351,9 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
         if (res[i].passed) ++passCount;
     }
     std::vector<huxerui::View> runRow{
-        huxerui::Button(running.Get() ? "运行中…" : "运行用例")
+        PrimaryButton(huxerui::Button(running.Get() ? "运行中…" : "运行用例")
             .With(huxerui::Enabled(!running.Get()))
-            .OnClick(runCases),
+            .OnClick(runCases)),
     };
     if (runCount > 0)
         runRow.push_back(huxerui::Text(std::format("通过 {}/{}", passCount, runCount),
@@ -404,7 +404,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                     })
                     .With(huxerui::Grow(1.0F)),
                 badge,
-                AppIconButton(app::images::close, "删除测试用例", [caseItems, drafts, index, ci,
+                DangerIconButton(app::images::close, "删除测试用例", [caseItems, drafts, index, ci,
                                                         results, runGen] {
                     // 结果向量与用例按下标对齐，删一行会整体错位 → 清空结果并升代际
                     // （作废在途运行的回写）。
@@ -520,7 +520,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                             .With(huxerui::Grow(1.0F)),
                         phantom
                             ? huxerui::View{huxerui::Row{}.With(kAssertActionWidth)}
-                            : AppIconButton(app::images::close, "删除断言",
+                            : DangerIconButton(app::images::close, "删除断言",
                                   [rows = c.asserts, i, ci, setCaseAsserts] {
                                       std::vector<KvRow> copy = rows;
                                       if (i < copy.size())

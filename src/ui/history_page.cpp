@@ -153,7 +153,7 @@ constexpr float kPageSizeSelectWidth = 80.0F;
                                     ? "共 " + std::to_string(total) + " 条请求"
                                     : "读取历史记录失败: " + historyError),
         huxerui::Flow {
-            huxerui::Button("清空历史").OnClick([dialog, reloadKey, pageIndex, pageInput, toast] {
+            DangerButton(huxerui::Button("清空历史").OnClick([dialog, reloadKey, pageIndex, pageInput, toast] {
                 ShowDangerConfirm(dialog, "清空历史", "确定删除全部历史记录吗？此操作不可恢复。",
                                   "清空", [reloadKey, pageIndex, pageInput, toast] {
                                       if (auto result = g_requests.clearHistory(); !result) {
@@ -164,7 +164,7 @@ constexpr float kPageSizeSelectWidth = 80.0F;
                                       pageInput = huxerui::TextEditingValue::FromText("1");
                                       reloadKey = reloadKey.Get() + 1;
                                   });
-            }),
+            })),
         },
         historyError.empty()
             ? huxerui::View{HistoryRows(entries)

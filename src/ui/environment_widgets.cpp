@@ -74,7 +74,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                 .With(huxerui::Grow(1.0F)),
         huxerui::Row {
             // 保存不卸载本按钮（表单 Key 不变、State 保留）：同步写即可。
-            huxerui::Button("保存").OnClick([ctx, envId, name, baseUrl, vars, envVersion, toast] {
+            PrimaryButton(huxerui::Button("保存").OnClick([ctx, envId, name, baseUrl, vars, envVersion, toast] {
                 if (name.Get().text.empty()) {
                     toast.Show("环境名称不能为空");
                     return;
@@ -91,7 +91,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                 toast.Show("已保存");
                 envVersion = envVersion.Get() + 1;
                 ctx.Dismiss();
-            }),
+            })),
             huxerui::Button("关闭").OnClick([ctx] { ctx.Dismiss(); }),
         }
             // 两端对齐：保存在左、关闭在右，与其他弹窗一致。
@@ -156,7 +156,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                                     huxerui::Row {
                                         huxerui::Button("取消").OnClick(
                                             [renameCtx] { renameCtx.Dismiss(); }),
-                                        huxerui::Button("确定")
+                                        PrimaryButton(huxerui::Button("确定")
                                             .OnClick([renameCtx, toast, renameValue,
                                                       envVersion, id] {
                                                 if (renameValue.Get().text.empty()) {
@@ -171,7 +171,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                                                 }
                                                 envVersion = envVersion.Get() + 1;
                                                 renameCtx.Dismiss();
-                                            }),
+                                            })),
                                     }
                                         .With(huxerui::Spacing(8.0F),
                                               huxerui::MainAlign(
@@ -185,7 +185,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                             huxerui::DialogOptions{});
                     }, AppIconButtonShape::Bare),
                 // 删除图标：危险确认框（共享 helper，确认按钮染红）。
-                AppIconButton(app::images::close, "删除环境", [dialog, selectedId, envVersion, id, toast,
+                DangerIconButton(app::images::close, "删除环境", [dialog, selectedId, envVersion, id, toast,
                                                       name = e.name] {
                         ShowDangerConfirm(dialog, "删除环境",
                                           "确定删除环境「" + name + "」吗？此操作不可恢复。",
@@ -268,7 +268,7 @@ inline KvRow FromKeyValue(const api::KeyValue& kv) {
                             }
                             selectedId = g_requests.currentEnvId();
                             envVersion = envVersion.Get() + 1;
-                    }, AppIconButtonShape::Circular, 28.0F, /*accent=*/false),
+                    }, AppIconButtonShape::Circular, 28.0F, /*accent=*/true),
                 }
                     .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             std::move(environmentListView).With(huxerui::Grow(1.0F)),

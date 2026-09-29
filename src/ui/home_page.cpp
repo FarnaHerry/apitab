@@ -44,7 +44,7 @@ namespace {
                   huxerui::Foreground(selected ? theme.colors.on_surface
                                                : theme.colors.on_surface_variant)),
         // 固定动作区：删除组织（Bare 28pt，保留自身 hover/press 高亮）。
-        TrailingActionGroup({AppIconButton(app::images::close, "删除组织", [toast, refresh, id = org.id] {
+        TrailingActionGroup({DangerIconButton(app::images::close, "删除组织", [toast, refresh, id = org.id] {
                     if (auto result = g_requests.deleteOrg(id); !result) {
                         toast.Show("删除组织失败: " + result.error().message);
                         return;
@@ -147,7 +147,7 @@ namespace {
                         }),
                     huxerui::Row {
                         huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-                        huxerui::Button("保存")
+                        PrimaryButton(huxerui::Button("保存")
                             .OnClick([ctx, toast, refresh, id, renameName] {
                                 if (renameName.Get().text.empty()) {
                                     toast.Show("项目名称不能为空");
@@ -161,7 +161,7 @@ namespace {
                                 }
                                 refresh = refresh.Get() + 1;
                                 ctx.Dismiss();
-                            }),
+                            })),
                     }
                         // 两端对齐：取消在左、保存在右；内容列 CrossAlign(Stretch)
                         // 把按钮行拉到卡片整宽。
@@ -343,7 +343,7 @@ namespace {
                                 }),
                             huxerui::Row {
                                 huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-                                huxerui::Button("创建")
+                                PrimaryButton(huxerui::Button("创建")
                                     .OnClick([ctx, toast, refresh, newOrgName] {
                                         if (newOrgName.Get().text.empty()) {
                                             toast.Show("组织名称不能为空");
@@ -358,7 +358,7 @@ namespace {
                                         newOrgName = huxerui::TextEditingValue{};
                                         refresh = refresh.Get() + 1;
                                         ctx.Dismiss();
-                                    }),
+                                    })),
                             }
                                 // 两端对齐：取消在左、创建在右；内容列
                                 // CrossAlign(Stretch) 把按钮行拉到卡片整宽。
@@ -407,7 +407,7 @@ namespace {
                                         }),
                                 huxerui::Row {
                                     huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-                                    huxerui::Button("创建")
+                                    PrimaryButton(huxerui::Button("创建")
                                         .OnClick([ctx, toast, refresh, newProjectName] {
                                             if (newProjectName.Get().text.empty()) {
                                                 toast.Show("项目名称不能为空");
@@ -422,7 +422,7 @@ namespace {
                                             newProjectName = huxerui::TextEditingValue{};
                                             refresh = refresh.Get() + 1;
                                             ctx.Dismiss();
-                                        }),
+                                        })),
                                 }
                                     // 两端对齐：取消在左、创建在右；内容列
                                     // CrossAlign(Stretch) 把按钮行拉到卡片整宽。

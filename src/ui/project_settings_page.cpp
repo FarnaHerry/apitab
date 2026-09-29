@@ -79,7 +79,7 @@ namespace apitab::ui {
         KvTableStateList(headers, theme, "头名称", "头值", [] {})
             .With(huxerui::Grow(1.0F)),
         huxerui::Row {
-            huxerui::Button("保存").OnClick(
+            PrimaryButton(huxerui::Button("保存").OnClick(
                 [name, description, headers, toast, current] {
                     if (name.Get().text.empty()) {
                         toast.Show("项目名称不能为空");
@@ -97,7 +97,7 @@ namespace apitab::ui {
                         toast.Show("保存失败: " + result.error().message);
                     else
                         toast.Show("已保存");
-                }),
+                })),
         },
     }
         .With(huxerui::Padding(theme.spacing.large),

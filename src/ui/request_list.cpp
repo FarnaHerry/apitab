@@ -217,7 +217,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                             }),
                         huxerui::Row {
                             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-                            huxerui::Button("确定")
+                            PrimaryButton(huxerui::Button("确定")
                                 .OnClick([ctx, toast, listVersion, renameValue, apply] {
                                     const std::string name = renameValue.Get().text;
                                     if (name.empty()) {
@@ -230,7 +230,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                     }
                                     listVersion = listVersion.Get() + 1;
                                     ctx.Dismiss();
-                                }),
+                                })),
                         }
                             .With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
                     }
@@ -269,7 +269,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                             }),
                         huxerui::Row {
                             huxerui::Button("取消").OnClick([ctx] { ctx.Dismiss(); }),
-                            huxerui::Button("保存").OnClick(
+                            PrimaryButton(huxerui::Button("保存").OnClick(
                                 [ctx, toast, listVersion, groupNameValue,
                                  groupPathValue, gid] {
                                     const std::string name = trim(groupNameValue.Get().text);
@@ -286,7 +286,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                     toast.Show("接口目录已更新");
                                     listVersion = listVersion.Get() + 1;
                                     ctx.Dismiss();
-                                }),
+                                })),
                         }.With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween)),
                     }.With(huxerui::Spacing(12.0F), huxerui::Frame{.width = 320.0F},
                            huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
@@ -635,7 +635,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                                                    .OnClick([ctx] {
                                                                        ctx.Dismiss();
                                                                    }),
-                                                               huxerui::Button("创建")
+                                                               PrimaryButton(huxerui::Button("创建")
                                                                    .OnClick([ctx, toast,
                                                                              listVersion,
                                                                              newGroupName,
@@ -662,7 +662,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                                                        toast.Show("已新建接口目录");
                                                                        listVersion = listVersion.Get() + 1;
                                                                        ctx.Dismiss();
-                                                                   }),
+                                                                   })),
                                                            }
                                                                .With(huxerui::MainAlign(
                                                                    huxerui::MainAxisAlignment::SpaceBetween)),
