@@ -80,7 +80,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
             huxerui::Row {
                 huxerui::Text(badge, huxerui::TextRole::Label)
                     .Style(huxerui::TextStyle{.font = badgeFont,
-                                              .foreground = MethodColor(theme, badge)})
+                                              .foreground = MethodColor(theme)})
                     .With(huxerui::Frame{.min_width = 52.0F}),
                 huxerui::Text(name, huxerui::TextRole::Body)
                     .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
@@ -323,7 +323,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
                 huxerui::Text(chipBadge, huxerui::TextRole::Label)
                     .Style(huxerui::TextStyle{
                         .font = badgeFont,
-                        .foreground = MethodColor(theme, chipBadge)})
+                        .foreground = MethodColor(theme)})
                     .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(2.0F, 2.0F))),
                 huxerui::Text(DraftDisplayName(snapshot[i]), huxerui::TextRole::Label)
                     .Style(huxerui::TextStyle{.font = chipFont, .foreground = foreground})
@@ -516,7 +516,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
                     huxerui::Text(overlayBadge, huxerui::TextRole::Label)
                         .Style(huxerui::TextStyle{
                             .font = badgeFont,
-                            .foreground = MethodColor(theme, overlayBadge)})
+                            .foreground = MethodColor(theme)})
                         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(2.0F, 2.0F))),
                     huxerui::Text(DraftDisplayName(snapshot[j]), huxerui::TextRole::Label)
                         .Style(huxerui::TextStyle{.font = chipFont,

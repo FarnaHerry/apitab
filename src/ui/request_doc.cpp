@@ -31,7 +31,7 @@ namespace apitab::ui {
                 .Style(huxerui::TextStyle{
                     .font = huxerui::Font::Monospace(font_size::kCaption)
                                 .WithWeight(huxerui::FontWeight::SemiBold),
-                    .foreground = MethodColor(theme, method)}),
+                    .foreground = MethodColor(theme)}),
             huxerui::Text(fullUrl.empty() ? "（未填写 URL）" : fullUrl,
                           huxerui::TextRole::Body),
         }

@@ -257,8 +257,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
     const auto res = results; // 订阅：运行结束/清结果即重组
 
     const bool lightTheme = theme.colors.surface.red > 0.5F;
-    const huxerui::Color passColor = lightTheme ? huxerui::Color::Rgb(46, 125, 50)
-                                                : huxerui::Color::Rgb(107, 203, 119);
+    const huxerui::Color passColor = lightTheme ? theme.colors.on_primary : theme.colors.primary;
     const huxerui::Color failColor = theme.colors.error;
 
     // ---- 运行流程：事件回调启动运行，PollWhile 将引擎结果带回 UI 线程 ----

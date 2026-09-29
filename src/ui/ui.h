@@ -137,34 +137,8 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
 // （列表行、组合栏内部控件等）迁移使用，页面不自行计算。
 float ConcentricRadius(float outer_radius, float inset);
 
-// HTTP 方法统一配色（全项目唯一色表，深浅主题各一套）：GET 绿 / POST 琥珀 /
-// PUT 蓝 / PATCH 紫 / DELETE 玫红（**不是** error 红）/ HEAD 灰蓝 /
-// OPTIONS 青 / CONNECT 棕 / TRACE 灰 / QUERY 靛蓝 / PURGE 深橙。
-// 注意 **危险色（theme.colors.error）独立出来，专属删除按钮/危险菜单项/确认
-// 弹窗等危险操作**，方法 UI 一律走本表。WebDAV 长尾（PROPFIND 等）与
-// 非 HTTP 徽标（WS/TCP）回落中性色 on_surface_variant。
-inline huxerui::Color MethodColor(const huxerui::ThemeSpec& theme, std::string_view method) {
-    struct Swatch {
-        std::string_view name;
-        huxerui::Color light;
-        huxerui::Color dark;
-    };
-    static constexpr Swatch kSwatches[] = {
-        {"GET", huxerui::Color::Rgb(30, 125, 50), huxerui::Color::Rgb(107, 203, 119)},
-        {"POST", huxerui::Color::Rgb(178, 106, 0), huxerui::Color::Rgb(229, 192, 123)},
-        {"PUT", huxerui::Color::Rgb(21, 101, 192), huxerui::Color::Rgb(97, 175, 239)},
-        {"PATCH", huxerui::Color::Rgb(106, 63, 181), huxerui::Color::Rgb(198, 120, 221)},
-        {"DELETE", huxerui::Color::Rgb(194, 24, 91), huxerui::Color::Rgb(240, 98, 146)},
-        {"HEAD", huxerui::Color::Rgb(84, 110, 122), huxerui::Color::Rgb(144, 164, 174)},
-        {"OPTIONS", huxerui::Color::Rgb(0, 131, 143), huxerui::Color::Rgb(77, 182, 172)},
-        {"CONNECT", huxerui::Color::Rgb(93, 64, 55), huxerui::Color::Rgb(188, 170, 164)},
-        {"TRACE", huxerui::Color::Rgb(117, 117, 117), huxerui::Color::Rgb(189, 189, 189)},
-        {"QUERY", huxerui::Color::Rgb(63, 81, 181), huxerui::Color::Rgb(121, 134, 203)},
-        {"PURGE", huxerui::Color::Rgb(230, 74, 25), huxerui::Color::Rgb(255, 138, 101)},
-    };
-    const bool light = theme.colors.surface.red > 0.5F;
-    for (const Swatch& s : kSwatches)
-        if (s.name == method) return light ? s.light : s.dark;
+// 极简主题下所有方法徽标使用同一中性色；方法名称本身负责区分，品牌色留给焦点与状态。
+inline huxerui::Color MethodColor(const huxerui::ThemeSpec& theme) {
     return theme.colors.on_surface_variant;
 }
 

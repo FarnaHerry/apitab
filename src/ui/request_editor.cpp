@@ -891,9 +891,9 @@ huxerui::View SplitActionButton(
             hover->layer = 0;
         });
     };
-    huxerui::Color arrowHover = theme.colors.on_primary;
+    huxerui::Color arrowHover = theme.colors.inverse_on_surface;
     arrowHover.alpha = 0.10F;
-    huxerui::Color arrowPress = theme.colors.on_primary;
+    huxerui::Color arrowPress = theme.colors.inverse_on_surface;
     arrowPress.alpha = 0.18F;
     const huxerui::Indication arrowIndication{
         .hover = huxerui::IndicationLayer{
@@ -928,7 +928,7 @@ huxerui::View SplitActionButton(
     };
     return huxerui::Row {
         huxerui::Row{huxerui::Text(std::move(label), huxerui::TextRole::Label)
-                          .With(huxerui::Foreground(theme.colors.on_primary))}
+                          .With(huxerui::Foreground(theme.colors.inverse_on_surface))}
             .With(huxerui::Frame{.width = 60.0F, .height = islands.control_height},
                   huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
@@ -938,7 +938,7 @@ huxerui::View SplitActionButton(
                           .Fit(huxerui::ImageFit::Contain)
                           .Align(huxerui::HorizontalAlignment::Center,
                                  huxerui::VerticalAlignment::Center)
-                          .Tint(theme.colors.on_primary)
+                          .Tint(theme.colors.inverse_on_surface)
                           .With(huxerui::Frame{.width = 12.0F, .height = 12.0F})}
             .With(huxerui::Frame{.width = 24.0F, .height = islands.control_height},
                   huxerui::Background(huxerui::Color::Transparent()),
@@ -959,7 +959,7 @@ huxerui::View SplitActionButton(
                         closeIfLeft();
                     }
                 }),
-    }.With(huxerui::Background(theme.colors.primary),
+    }.With(huxerui::Background(theme.colors.on_surface),
            huxerui::CornerRadius(islands.control_radius), huxerui::ClipChildren(),
            // 分裂按钮必须是固定自然宽度；若不钳制，外层 Row 会把它当可扩张
            // 容器吞掉操作栏余量，后面的“保存”被挤出屏幕。URL 栏才是唯一 Grow 项。

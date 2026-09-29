@@ -83,8 +83,8 @@ struct ProjectTabDragPayload {
     // 可关闭：主页标签固定不可关；项目标签与设置单例标签可关。
     const bool closable = tab.kind != TopTabKind::Home;
 
-// 标题栏融入海洋背景；标签背景默认也不显示（透明）——
-// 激活 = primary_container 品牌底，悬停 = surface_container 浮起，
+// 标题栏融入中性背景；标签背景默认也不显示（透明）——
+// 激活 = 中性选中底，悬停 = surface_container 浮起，
 // 常态下只靠标签间的竖线分隔。
     const huxerui::Color tabFill =
         active ? theme.colors.primary_container

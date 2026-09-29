@@ -137,6 +137,8 @@ struct AvatarRing {
     class Extension;
     float size;
     float width;
+    huxerui::Color accent;
+    huxerui::Color neutral;
     bool flowing;
     bool operator==(const AvatarRing&) const = default;
 };
@@ -178,9 +180,9 @@ public:
         const float dy = 0.35F * (sine - cosine);
         paint.StrokePath(circle, huxerui::LinearGradient{
             .start = {0.5F - dx, 0.5F - dy}, .end = {0.5F + dx, 0.5F + dy},
-            .stops = {{0.0F, huxerui::Color::Rgb(72, 214, 232)},
-                      {0.6F, huxerui::Color::Rgb(72, 214, 232)},
-                      {1.0F, huxerui::Color::Rgb(159, 147, 232)}},
+            .stops = {{0.0F, value_.accent},
+                      {0.6F, value_.accent},
+                      {1.0F, value_.neutral}},
         }, huxerui::StrokeStyle{.width = value_.width});
     }
 
@@ -202,15 +204,17 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
         ? huxerui::View{huxerui::Image(image).Fit(huxerui::ImageFit::Cover)
                             .With(huxerui::Frame{.width = imageSize, .height = imageSize})}
         : huxerui::View{huxerui::Text("U", textRole)
-                            .With(huxerui::Foreground(theme.colors.on_primary))};
+                            .With(huxerui::Foreground(theme.colors.on_surface))};
     huxerui::View ring = huxerui::Stack {}.With(
         huxerui::Frame{.width = size, .height = size},
-        AvatarRing{size, ringWidth, hovered && !theme.motion.reduced_motion});
+        AvatarRing{size, ringWidth, theme.colors.primary, theme.colors.on_surface_variant,
+                   hovered && !theme.motion.reduced_motion});
     return huxerui::Stack {
       ring,
       huxerui::Stack { portrait }.With(
           huxerui::Frame{.width = imageSize, .height = imageSize},
-          huxerui::Background(theme.colors.primary), huxerui::CornerRadius(imageSize * 0.5F),
+          huxerui::Background(theme.colors.surface_container_highest),
+          huxerui::CornerRadius(imageSize * 0.5F),
           huxerui::ClipChildren(),
           huxerui::Align(huxerui::HorizontalAlignment::Center, huxerui::VerticalAlignment::Center)),
     }.With(huxerui::Frame{.width = size, .height = size}, huxerui::CornerRadius(size * 0.5F),
@@ -222,11 +226,10 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
 // 其他值就近收敛：>=30 归 regular，否则 compact）；圆形/圆角方形由 shape 显式
 // 选择。所有形状（含 Bare）的 hover/press indication 都覆盖整个命中区——
 // indication 以按钮 View 为宿主，fill 按 host corner radii 裁剪，天然是整块命中
-// 区，不是字形本身。实现统一挂显式 indication：tint = accent ? on_primary :
+// 区，不是字形本身。实现统一挂显式 indication：tint = accent ? inverse_on_surface :
 // on_surface（6% hover / 12% press，深浅主题自动适配）——不依赖 OnClick 自动
-// 追加的 DefaultIndication（其回落到主题 MaterialIndication 按 primary 取色，
-// 在 accent=true 的 primary 底上不可见）。注意 SDK 替换规则（view.cpp
-// AddModifier）：显式 Indication 会擦除 DefaultIndication、DefaultIndication 遇
+// 追加的 DefaultIndication。自定义 indication 让不同按钮形状保持一致反馈。注意 SDK
+// 替换规则（view.cpp AddModifier）：显式 Indication 会擦除 DefaultIndication、DefaultIndication 遇
 // 任何已有 indication 即跳过——**不能用空 Indication{} 表达"用默认"**，那等于
 // 整体关掉反馈（P1-A4 审计修正：原先非 Bare 传 Indication{} 导致圆形/圆角方形
 // 无 hover/press 反馈）。
@@ -246,9 +249,8 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
     const bool bare = shape == AppIconButtonShape::Bare;
     const float radius = shape == AppIconButtonShape::Circular ? theme.shapes.full
                                                                : islands.control_radius;
-    // 交互反馈：hover/press 覆盖整块命中区；tint 随底色角色取色（accent=主色底
-    // 配 on_primary 叠加，其余配 on_surface 叠加），Bare 常态透明同 tint。
-    huxerui::Color tint = accent ? theme.colors.on_primary : theme.colors.on_surface;
+    // 交互反馈：hover/press 覆盖整块命中区；强调按钮用黑白反差色，其余配 on_surface。
+    huxerui::Color tint = accent ? theme.colors.inverse_on_surface : theme.colors.on_surface;
     huxerui::Color hoverTint = tint;
     hoverTint.alpha = 0.06F;
     huxerui::Color pressTint = tint;
@@ -263,12 +265,12 @@ huxerui::View ProfileAvatar(huxerui::ImageAsset image, float size, const huxerui
             .Fit(huxerui::ImageFit::Contain)
             .Align(huxerui::HorizontalAlignment::Center,
                    huxerui::VerticalAlignment::Center)
-            .Tint(accent ? theme.colors.on_primary : theme.colors.on_surface)
+            .Tint(accent ? theme.colors.inverse_on_surface : theme.colors.on_surface)
             .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
     }
         .With(huxerui::Frame{.width = target, .height = target},
               huxerui::Background(bare ? huxerui::Color::Transparent()
-                                       : accent ? theme.colors.primary
+                                       : accent ? theme.colors.on_surface
                                                 : theme.colors.surface_container_highest),
               huxerui::CornerRadius(radius),
               std::move(hitIndication),
@@ -954,11 +956,11 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     // 方法触发器：扁平文本，点击弹锚定 Popup（自绘下拉，外观对齐菜单层语义）。
     // 垂直内边距 8→6：与上面 URL 字段收到的 32pt 同高对齐（文字 14pt + 12pt ≈
     // 26pt < 32pt，外层 Row Stretch 拉满后由 CrossAlign(Center) 垂直居中）。
-    // 触发器与下拉项文字都按 MethodColor 统一色表逐方法着色。
+    // 触发器与下拉项文字统一使用主题中性色。
     huxerui::View trigger =
         huxerui::Row {
             huxerui::Text(methods.at(safe), huxerui::TextRole::Body)
-                .With(huxerui::Foreground(MethodColor(theme, methods.at(safe)))),
+                .With(huxerui::Foreground(MethodColor(theme))),
             huxerui::Image(app::images::chevron_down)
                 .Fit(huxerui::ImageFit::Contain)
                 .Align(huxerui::HorizontalAlignment::Center,
@@ -980,7 +982,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
                         .label = methods[i],
                         .on_click = [onChanged, i] { onChanged(i); },
                         .checked = i == current,
-                        .label_color = MethodColor(theme, methods[i]),
+                        .label_color = MethodColor(theme),
                     });
                 }
                 ShowPopupMenu(popup, std::move(items),
