@@ -277,26 +277,6 @@ int currentPid() {
 #endif
 }
 
-api::LoadSummary parseSummaryLine(std::string_view line) {    api::LoadSummary s;
-    constexpr std::string_view kPrefix = "K6SUMMARY ";
-    if (!line.starts_with(kPrefix)) return s;
-    const auto j = json::parse(line.substr(kPrefix.size()), nullptr, false);
-    if (j.is_discarded()) return s;
-    auto num = [&](const char* key) { return j.value(key, 0.0); };
-    s.ok = true;
-    s.requests = j.value("requests", std::int64_t{0});
-    s.rps = num("rps");
-    s.avgMs = num("avg");
-    s.minMs = num("min");
-    s.maxMs = num("max");
-    s.p50Ms = num("p50");
-    s.p90Ms = num("p90");
-    s.p95Ms = num("p95");
-    s.p99Ms = num("p99");
-    s.failRate = num("failRate");
-    return s;
-}
-
 class K6Engine final : public api::LoadEngine {
 public:
     explicit K6Engine(std::string binaryPath) : binary_(std::move(binaryPath)) {}
@@ -321,7 +301,6 @@ public:
             summaryReady_ = false;
         }
         stopRequested_.store(false);
-        lastError_.clear();
 
         if (!available()) {
             failFast("未找到 k6 二进制（engines/ 或 PATH）");
@@ -486,12 +465,14 @@ private:
         if (line.empty()) return;
         {
             std::lock_guard lock(mutex_);
-            if (output_.size() >= kMaxOutputLines) return;
             // K6SUMMARY 行不进输出队列，留给汇总解析（用户不该看到 JSON 噪音）。
+            // 必须先于上限检查：队列满时丢掉汇总行会让一次成功的压测被报成
+            // "k6 异常结束（未产生汇总）"。
             if (line.starts_with("K6SUMMARY ")) {
-                summary_ = parseSummaryLine(line);
+                summary_ = api::ParseSummaryLine(line);
                 return;
             }
+            if (output_.size() >= kMaxOutputLines) return;
             output_.push_back(std::move(line));
         }
         const auto now = std::chrono::steady_clock::now();
@@ -594,7 +575,6 @@ private:
     std::atomic<bool> stopRequested_{false};
     std::chrono::steady_clock::time_point startedAt_;
     std::chrono::steady_clock::time_point lastWake_{};
-    std::string lastError_;
 
     std::mutex mutex_;
     std::vector<std::string> output_;
@@ -608,6 +588,27 @@ namespace api {
 
 std::string BuildScript(const RequestSpec& spec, const LoadOptions& opts) {
     return buildScript(spec, opts);
+}
+
+LoadSummary ParseSummaryLine(std::string_view line) {
+    LoadSummary s;
+    constexpr std::string_view kPrefix = "K6SUMMARY ";
+    if (!line.starts_with(kPrefix)) return s;
+    const auto j = json::parse(line.substr(kPrefix.size()), nullptr, false);
+    if (j.is_discarded()) return s;
+    auto num = [&](const char* key) { return j.value(key, 0.0); };
+    s.ok = true;
+    s.requests = j.value("requests", std::int64_t{0});
+    s.rps = num("rps");
+    s.avgMs = num("avg");
+    s.minMs = num("min");
+    s.maxMs = num("max");
+    s.p50Ms = num("p50");
+    s.p90Ms = num("p90");
+    s.p95Ms = num("p95");
+    s.p99Ms = num("p99");
+    s.failRate = num("failRate");
+    return s;
 }
 
 } // namespace api

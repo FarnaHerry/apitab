@@ -1,10 +1,11 @@
 // config.cppm — apitab 配置：用户数据目录（SQLite 落盘位置）与 k6 引擎二进制解析。
 // 无 eui 依赖，引擎 / store / UI 共用。
 //
-// k6 不在 mcpp 包仓库：CI 打包时下载对应平台二进制放进包内 engines/，运行时按
+// k6 不在本仓库：CI 打包时下载对应平台二进制放进包内 engines/，运行时按
 //   1. <exe 目录>/engines/k6(.exe)   —— 打包分发形态
 //   2. <exe 目录>/k6(.exe)
-//   3. PATH 里的 k6                  —— 开发机已装（本机 /usr/bin/k6）
+//   3. <仓库根>/engines/k6(.exe)     —— 开发形态（exe 在 <repo>/build/，上跳一层）
+//   4. PATH 里的 k6                  —— 开发机已装（本机 /usr/bin/k6）
 // 顺序解析。
 module;
 
@@ -126,11 +127,10 @@ export std::filesystem::path k6Binary() {
         if (const auto p = exeDir / "engines" / k6Name; executableExists(p)) return p;
         if (const auto p = exeDir / k6Name; executableExists(p)) return p;
     }
-    // 开发形态：mcpp 的 exe 在 target/<triple>/<hash>/bin/，仓库根的 engines/ 是其
-    // 四层之上的 engines/ —— 开发时把 k6 放 <repo>/engines/k6 也能找到（CI 打包同理）。
+    // 开发形态：CMake 的 exe 在 <repo>/build/，仓库根的 engines/ 是其上一层 ——
+    // 开发时把 k6 放 <repo>/engines/k6 也能找到。
     if (!exeDir.empty()) {
-        if (const auto p = exeDir / ".." / ".." / ".." / ".." / "engines" / k6Name;
-            executableExists(p)) {
+        if (const auto p = exeDir / ".." / "engines" / k6Name; executableExists(p)) {
             return std::filesystem::weakly_canonical(p);
         }
     }

@@ -582,6 +582,18 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_link_libraries(test_curl_engine PRIVATE CURL::libcurl Threads::Threads)
         add_test(NAME curl_engine COMMAND test_curl_engine)
         set_tests_properties(curl_engine PROPERTIES TIMEOUT 60)
+        # k6 引擎纯逻辑契约测试：脚本生成（BuildScript）与 K6SUMMARY 行解析
+        # （ParseSummaryLine），不拉起真实 k6 进程。引擎实现单元按 TU 复用编译。
+        add_executable(test_k6_engine tests/test_k6_engine.cpp src/k6_engine.cpp)
+        set_target_properties(test_k6_engine PROPERTIES
+            CXX_MODULE_STD ON
+            CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_k6_engine PRIVATE cxx_std_23)
+        target_sources(test_k6_engine PRIVATE FILE_SET apitab_k6_test_modules TYPE CXX_MODULES
+            BASE_DIRS src
+            FILES src/api_engine.cppm src/k6_engine.cppm)
+        target_link_libraries(test_k6_engine PRIVATE apitab_json Threads::Threads)
+        add_test(NAME k6_engine COMMAND test_k6_engine)
         # 控制面**客户端半边**的协议契约测试：本地回环桩冒充实例，断言结果回放
         # （退出码/stdout/stderr）、401 与端点缺失的错误路径、ping 就绪探测。
         # 客户端半边不依赖 cli/store（help 由平台入口本地处理），所以只编这一个 TU。

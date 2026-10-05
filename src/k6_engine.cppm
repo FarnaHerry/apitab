@@ -15,4 +15,8 @@ namespace api {
 // 压测页脚本编辑器用它做初始内容；用户改过的脚本经 LoadOptions.script 回传。
 export std::string BuildScript(const RequestSpec& spec, const LoadOptions& opts);
 
+// 解析一行 k6 输出：以 "K6SUMMARY " 前缀开头且 JSON 合法则填出指标并置 ok=true，
+// 否则返回 ok=false 的空汇总。与 BuildScript 生成的 handleSummary 协议互为两端。
+export LoadSummary ParseSummaryLine(std::string_view line);
+
 } // namespace api
