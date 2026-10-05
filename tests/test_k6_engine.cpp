@@ -98,12 +98,45 @@ void testEngineAvailability() {
     check(!engine->running(), "未启动时 running=false");
 }
 
+// 可选集成测试（APITAB_TEST_K6 指向真实 k6 二进制才跑，CI 默认跳过）：
+// 真实 spawn 验证代理注入——不可达代理 → failRate=1（代理真的进了子进程环境）；
+// 空代理 → 直连成功（环境里的代理变量被剥除）。
+void testProxyInjection() {
+    const char* k6 = std::getenv("APITAB_TEST_K6");
+    if (k6 == nullptr || *k6 == '\0') {
+        std::println("skip: APITAB_TEST_K6 未设置（代理注入集成测试需要真实 k6 与网络）");
+        return;
+    }
+    auto runOnce = [&](const std::string& proxy) {
+        const auto engine = makeK6Engine(k6);
+        api::RequestSpec spec;
+        spec.url = "https://example.com/";
+        spec.proxy = proxy;
+        api::LoadOptions opts;
+        opts.vus = 1;
+        opts.duration = "2s";
+        opts.timeoutSec = 5;
+        engine->start(spec, opts);
+        api::LoadSummary summary;
+        while (!engine->takeSummary(summary))
+            std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        return summary;
+    };
+    const api::LoadSummary proxied = runOnce("http://127.0.0.1:1");
+    check(proxied.ok, "代理注入集成：拿到汇总（不可达代理）");
+    check(near(proxied.failRate, 1.0), "不可达代理 → failRate=1（代理真的生效）");
+    const api::LoadSummary direct = runOnce("");
+    check(direct.ok, "代理注入集成：拿到汇总（直连）");
+    check(near(direct.failRate, 0.0), "空代理 → 直连 failRate=0");
+}
+
 } // namespace
 
 int main() {
     testBuildScript();
     testParseSummaryLine();
     testEngineAvailability();
+    testProxyInjection();
     if (failures == 0) {
         std::println("k6 engine contract: all checks passed");
         return 0;

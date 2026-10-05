@@ -173,6 +173,8 @@ std::string MakeScriptTemplate(std::size_t methodIndex, const std::string& urlTe
                         // 基础 URL 拼接：输入无 URI scheme 时拼当前环境 baseUrl
                         //（groupId=0：压测页无分组概念；带 scheme 的完整 URL 原样）。
                         spec.url = g_requests.composeUrl(spec.url, 0, g_requests.currentEnvId());
+                        // 全局代理对 k6 同样生效（引擎 spawn 时注入子进程环境）。
+                        spec.proxy = g_requests.globalProxy();
                         api::LoadOptions opts;
                         opts.vus = std::atoi(vus.Get().text.c_str());
                         if (opts.vus <= 0) opts.vus = 1;

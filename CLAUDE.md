@@ -286,7 +286,7 @@ ctest --test-dir build             # 冒烟 + 引擎契约测试（test_smoke / 
 |------|------|------|
 | `apitab.api_engine` | `src/api_engine.cppm` | 抽象接口 `ApiEngine` / `LoadEngine` / `WebSocketEngine` / `TcpEngine` + `RequestSpec` / `ResponseView` / `LoadOptions` / `LoadSummary` |
 | `apitab.curl_engine` | `src/curl_engine.cppm/.cpp` | 单次请求引擎的 curl 实现（常驻工作线程；send 纯入队、代际丢弃、cancel 协作打断且丢弃排队请求、取消后结果不投递；run 全 try/catch 兜底填错误结果）；传输期正文/头部累积进进度槽供 `takeProgress` 增量快照（SSE 用），头部块识别 `text/event-stream` 即关闭总超时（长连接唯一例外，取消仍走协作打断）；**常驻单个 easy 句柄跨请求复用**（连接/DNS/TLS 会话缓存挂在句柄内，每请求先 `curl_easy_reset` 复位选项——串行工作线程下 1 个句柄即最大复用率，不做 N 路池），全局状态与头表/MIME 走 RAII 包装（`CurlGlobal`/`EasyHandle`/`HeaderList`/`MimeHandle`，异常路径不泄漏），`spec.proxy` 每请求显式下发（空串 = 直连且关掉环境变量代理探测）；`makeCurlEngine()` 工厂，curl 头只进实现单元 |
-| `apitab.k6_engine` | `src/k6_engine.cppm/.cpp` | 压测引擎：生成 k6 脚本（`handleSummary` 打印 `K6SUMMARY {json}` 行）→ spawn 子进程 → 监视线程拆 `\r`/`\n` 行入队；stop=SIGINT，3s 宽限后 SIGKILL；子进程/管道走 RAII（`ChildProcess`/`ChildPipe`/`SpawnFileActions`，析构兜底强杀 + 回收，见 §关键约定 9） |
+| `apitab.k6_engine` | `src/k6_engine.cppm/.cpp` | 压测引擎：生成 k6 脚本（`handleSummary` 打印 `K6SUMMARY {json}` 行）→ spawn 子进程 → 监视线程拆 `\r`/`\n` 行入队；stop：POSIX=SIGINT，3s 宽限后 SIGKILL，Windows 无可靠跨进程 Ctrl+C，改走 k6 REST API `PATCH stopped:true` 优雅停止（summary 照常产生），API 不可达才退回 TerminateProcess；spawn 按 `spec.proxy` 注入/剥除子进程代理环境变量（空=直连，与 curl 引擎同契约）；子进程/管道走 RAII（`ChildProcess`/`ChildPipe`/`SpawnFileActions`，析构兜底强杀 + 回收，见 §关键约定 9） |
 | `apitab.db` | `src/db.cppm/.cpp` | SQLiteCpp：requests / history / load_tests 三表；KV 序列化为 JSON |
 | `apitab.config` | `src/config.cppm` | 数据目录（~/.local/share/apitab）/ k6 二进制解析 |
 | `apitab.utils` | `src/utils.cppm` | 纯 string/number 帮助函数 + percentEncode / appendQuery |

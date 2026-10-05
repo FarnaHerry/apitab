@@ -315,7 +315,8 @@ public:
     }
 
     // ---- 全局设置（settings.ini KV；"全局设置"页写入，发送侧在 finalizeSpec
-    // 统一生效；0/空 = 默认值）。k6 压测不经此路径（超时在脚本 options 里）。----
+    // 统一生效；0/空 = 默认值）。k6 压测只接 globalProxy（压测页注入 spec.proxy，
+    // 引擎 spawn 时下发进子进程环境）；超时在脚本 options 里，不经此路径。----
     static int globalTimeoutSec() {
         const std::string v = trim(sessionPreference("request_timeout_sec"));
         int out = 30;

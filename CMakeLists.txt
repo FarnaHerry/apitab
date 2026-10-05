@@ -423,6 +423,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         OpenSSL::Crypto
         apitab_json
         Threads::Threads
+        $<$<PLATFORM_ID:Windows>:ws2_32>  # k6_engine 的 REST 停止端口挑选直接用 winsock
     )
 
     # 生成格式钩子：平台清单 / Info.plist
@@ -592,7 +593,8 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_sources(test_k6_engine PRIVATE FILE_SET apitab_k6_test_modules TYPE CXX_MODULES
             BASE_DIRS src
             FILES src/api_engine.cppm src/k6_engine.cppm)
-        target_link_libraries(test_k6_engine PRIVATE apitab_json Threads::Threads)
+        target_link_libraries(test_k6_engine PRIVATE apitab_json CURL::libcurl Threads::Threads
+            $<$<PLATFORM_ID:Windows>:ws2_32>)
         add_test(NAME k6_engine COMMAND test_k6_engine)
         # 控制面**客户端半边**的协议契约测试：本地回环桩冒充实例，断言结果回放
         # （退出码/stdout/stderr）、401 与端点缺失的错误路径、ping 就绪探测。

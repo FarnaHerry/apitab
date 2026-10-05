@@ -6,7 +6,11 @@
 // requestUiUpdate() 唤醒 UI。EOF 后 waitpid / WaitForSingleObject 收尾，
 // 从输出里捞脚本 handleSummary 打印的 `K6SUMMARY {json}` 行解析指标。
 // stop()：POSIX 先 SIGINT（k6 收到后会优雅收尾并照常打印 summary），监视线程
-// 3s 后未退出再 SIGKILL；Windows 直接 TerminateProcess。
+// 3s 后未退出再 SIGKILL；Windows 没有可靠的跨进程 Ctrl+C，改走 k6 REST API
+// PATCH stopped:true 优雅停止（summary 照常产生），API 不可达才退回
+// TerminateProcess，监视线程同样 3s 宽限兜底强杀。
+// 代理：子进程环境按 spec.proxy 显式注入/剥除代理变量（空 = 直连），与 curl
+// 引擎同一契约——k6 只认 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 环境变量。
 module;
 
 #ifdef _WIN32
@@ -16,8 +20,12 @@ module;
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <winsock2.h>   // 必须先于 windows.h
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <stringapiset.h>
+#include <wchar.h>      // _wcsicmp（环境块里大小写不敏感地剥代理变量）
+#include <curl/curl.h>  // stop() 的 REST PATCH 用（仅 Windows 分支引用）
 #else
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -128,6 +136,8 @@ public:
         process_.store(process);
     }
     bool running() const { return process_.load() != kNoProcess; }
+    // 原生句柄只读访问（监视线程 WaitForSingleObject 轮询退出用），所有权不变。
+    NativeProcess nativeHandle() const { return process_.load(); }
 
     void terminate(bool graceful) {
         const NativeProcess process = process_.load();
@@ -177,6 +187,146 @@ public:
 
 private:
     posix_spawn_file_actions_t actions_;
+};
+#endif
+
+#ifdef _WIN32
+// ---- Windows 优雅停止与代理注入的辅助（RAII）--------------------------------
+
+// Winsock 会话（给 k6 REST API 选回环端口用）。WSAStartup 引用计数，配对 Cleanup。
+class WsaSession {
+public:
+    WsaSession() : ok_(::WSAStartup(MAKEWORD(2, 2), &data_) == 0) {}
+    ~WsaSession() { if (ok_) ::WSACleanup(); }
+
+    WsaSession(const WsaSession&) = delete;
+    WsaSession& operator=(const WsaSession&) = delete;
+
+    bool ok() const { return ok_; }
+
+private:
+    WSADATA data_{};
+    bool ok_ = false;
+};
+
+class SocketGuard {
+public:
+    SocketGuard() = default;
+    explicit SocketGuard(SOCKET s) : socket_(s) {}
+    ~SocketGuard() { if (socket_ != INVALID_SOCKET) ::closesocket(socket_); }
+
+    SocketGuard(const SocketGuard&) = delete;
+    SocketGuard& operator=(const SocketGuard&) = delete;
+
+    SOCKET get() const { return socket_; }
+    bool valid() const { return socket_ != INVALID_SOCKET; }
+
+private:
+    SOCKET socket_ = INVALID_SOCKET;
+};
+
+// 给 k6 REST API 选一个空闲回环端口：先 bind 占位拿到端口号再放手（k6 不认
+// --address :0，且 bind 失败会以 106 退出、无汇总，不能让它自己撞固定端口）。
+// 放手到 k6 bind 之间的竞争窗口极小；真被抢则 k6 退出码 106 → 报异常结束。
+int pickFreeLoopbackPort() {
+    const WsaSession wsa;
+    if (!wsa.ok()) return 0;
+    const SocketGuard socket{::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)};
+    if (!socket.valid()) return 0;
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    if (::bind(socket.get(), reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) return 0;
+    sockaddr_in bound{};
+    int len = sizeof(bound);
+    if (::getsockname(socket.get(), reinterpret_cast<sockaddr*>(&bound), &len) != 0) return 0;
+    return ntohs(bound.sin_port);
+}
+
+// GetEnvironmentStringsW 的 RAII 包装（FreeEnvironmentStringsW）。
+class EnvironmentStrings {
+public:
+    EnvironmentStrings() : block_(::GetEnvironmentStringsW()) {}
+    ~EnvironmentStrings() { if (block_ != nullptr) ::FreeEnvironmentStringsW(block_); }
+
+    EnvironmentStrings(const EnvironmentStrings&) = delete;
+    EnvironmentStrings& operator=(const EnvironmentStrings&) = delete;
+
+    const wchar_t* get() const { return block_; }
+
+private:
+    wchar_t* block_ = nullptr;
+};
+
+// CreateProcessW 的宽字符环境块（"NAME=VALUE\0...\0\0"）：继承父进程，代理变量
+// 按 spec.proxy 处理——空 = 剥掉全部代理变量（直连，不受 http_proxy 影响）；
+// 非空 = 注入 HTTP(S)_PROXY 并剥掉 NO_PROXY（Windows 环境名大小写不敏感，
+// Go 的 httpproxy 读哪个 case 都等价）。
+std::wstring buildEnvironmentBlock(const std::string& proxy) {
+    std::wstring block;
+    const EnvironmentStrings parent;
+    if (parent.get() != nullptr) {
+        for (const wchar_t* e = parent.get(); *e != L'\0'; e += std::wcslen(e) + 1) {
+            const std::wstring_view entry{e};
+            const std::wstring_view name = entry.substr(0, entry.find(L'='));
+            bool isProxy = false;
+            for (const wchar_t* key : {L"http_proxy", L"https_proxy", L"no_proxy"}) {
+                if (name.size() == std::wcslen(key) &&
+                    ::_wcsicmp(std::wstring(name).c_str(), key) == 0) {
+                    isProxy = true;
+                    break;
+                }
+            }
+            if (!isProxy) {
+                block += entry;
+                block.push_back(L'\0');
+            }
+        }
+    }
+    if (!proxy.empty()) {
+        const int len = ::MultiByteToWideChar(CP_UTF8, 0, proxy.data(),
+                                              static_cast<int>(proxy.size()), nullptr, 0);
+        if (len > 0) {
+            std::wstring wide(static_cast<std::size_t>(len), L'\0');
+            ::MultiByteToWideChar(CP_UTF8, 0, proxy.data(), static_cast<int>(proxy.size()),
+                                  wide.data(), len);
+            for (const wchar_t* key : {L"HTTP_PROXY", L"HTTPS_PROXY"}) {
+                block += key;
+                block.push_back(L'=');
+                block += wide;
+                block.push_back(L'\0');
+            }
+        }
+    }
+    block.push_back(L'\0');
+    return block;
+}
+
+// 一次性 curl easy 句柄 + 头表（stop() 的 REST PATCH 用）。
+// curl 全局初始化的前置条件由 CurlEngine 的 CurlGlobal 满足：GUI 进程先构造
+// RequestStore 才可能有压测。curl_easy_init 失败（前置条件不成立）时返回
+// 空句柄，调用方退回强杀。
+class CurlEasy {
+public:
+    CurlEasy() : handle_(::curl_easy_init()) {}
+    ~CurlEasy() {
+        if (headers_ != nullptr) ::curl_slist_free_all(headers_);
+        if (handle_ != nullptr) ::curl_easy_cleanup(handle_);
+    }
+
+    CurlEasy(const CurlEasy&) = delete;
+    CurlEasy& operator=(const CurlEasy&) = delete;
+
+    CURL* get() const { return handle_; }
+    curl_slist* headers() const { return headers_; }
+    void addHeader(const char* header) {
+        headers_ = ::curl_slist_append(headers_, header);
+    }
+
+private:
+    CURL* handle_ = nullptr;
+    curl_slist* headers_ = nullptr;
 };
 #endif
 
@@ -322,7 +472,7 @@ public:
             out << (opts.script.empty() ? buildScript(spec, opts) : opts.script);
         }
 
-        if (!spawn()) {
+        if (!spawn(spec.proxy)) {
             failFast("k6 进程启动失败");
             std::error_code ec;
             std::filesystem::remove(scriptPath_, ec);
@@ -351,7 +501,14 @@ public:
     void stop() override {
         if (!running_.load()) return;
         stopRequested_.store(true);
+#ifdef _WIN32
+        // Windows 没有可靠的跨进程 Ctrl+C：走 k6 REST API 优雅停止（handleSummary
+        // 照常执行、summary 保留），API 不可达（没选到端口/尚未就绪）才退回
+        // TerminateProcess；监视线程 3s 宽限后兜底强杀。
+        if (!requestStopViaApi()) child_.terminate(/*graceful=*/false);
+#else
         child_.terminate(/*graceful=*/true);  // POSIX=SIGINT；监视线程超时后强杀
+#endif
     }
 
     bool running() const override { return running_.load(); }
@@ -388,7 +545,38 @@ private:
 
     // ---- spawn / terminate（平台分支）----
 
-    bool spawn() {
+#ifdef _WIN32
+    // 优雅停止：k6 REST API PATCH stopped:true（实测 handleSummary 照常执行、
+    // K6SUMMARY 行照常打印）。返回 false = API 不可达，调用方退回 TerminateProcess。
+    // 注意在 UI 线程同步执行：回环连接拒绝是即时的，超时上限 2s 只是极端兜底。
+    bool requestStopViaApi() const {
+        if (apiPort_ == 0) return false;
+        CurlEasy curl;
+        if (curl.get() == nullptr) return false;
+        curl.addHeader("Content-Type: application/json");
+        const std::string url = std::format("http://127.0.0.1:{}/v1/status", apiPort_);
+        constexpr std::string_view body =
+            R"({"data":{"type":"status","id":"default","attributes":{"stopped":true}}})";
+        curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, "PATCH");
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, body.data());
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+        curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, curl.headers());
+        // 回环请求必须直连：环境变量里的 http_proxy 不得把停止请求送去代理。
+        curl_easy_setopt(curl.get(), CURLOPT_PROXY, "");
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 2000L);
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 1000L);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION,
+                         +[](char*, size_t size, size_t nmemb, void*) { return size * nmemb; });
+        const CURLcode rc = curl_easy_perform(curl.get());
+        if (rc != CURLE_OK) return false;
+        long code = 0;
+        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &code);
+        return code >= 200 && code < 300;
+    }
+#endif
+
+    bool spawn(const std::string& proxy) {
 #ifdef _WIN32
         SECURITY_ATTRIBUTES sa{};
         sa.nLength = sizeof(sa);
@@ -415,13 +603,20 @@ private:
         std::wstring binaryWide(static_cast<std::size_t>(binaryLength), L'\0');
         MultiByteToWideChar(CP_UTF8, 0, binary_.data(), static_cast<int>(binary_.size()),
                             binaryWide.data(), binaryLength);
-        std::wstring cmd = L"\"" + binaryWide +
-                           L"\" run --no-color \"" + scriptPath_.wstring() + L"\"";
+        // REST API 是 Windows 优雅停止的唯一通道：选好端口才挂 --address；
+        // 没选到（winsock 不可用）则 stop() 退回 TerminateProcess。
+        apiPort_ = pickFreeLoopbackPort();
+        std::wstring cmd = L"\"" + binaryWide + L"\" run --no-color";
+        if (apiPort_ != 0)
+            cmd += L" --address 127.0.0.1:" + std::to_wstring(apiPort_);
+        cmd += L" \"" + scriptPath_.wstring() + L"\"";
+        std::wstring envBlock = buildEnvironmentBlock(proxy);
         PROCESS_INFORMATION pi{};
         std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
         cmdBuf.push_back(L'\0');
         const BOOL ok = CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE,
-                                       CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+                                       CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+                                       envBlock.data(), nullptr, &si, &pi);
         // 写端随 writePipe 析构关闭：父进程必须放手，否则子进程退出后读端也等
         // 不到 EOF（句柄仍被父进程持有）。
         if (!ok) return false;
@@ -447,9 +642,35 @@ private:
         for (auto& a : argsStorage) argv.push_back(a.data());
         argv.push_back(nullptr);
 
+        // 环境表：继承父进程，代理变量按 spec.proxy 显式覆盖 —— 与 curl 引擎同一
+        // 契约：空 = 直连（剥掉全部代理变量，不受环境里的 http_proxy 影响）；
+        // 非空 = 注入 HTTP(S)_PROXY（Go 的 httpproxy 大小写都查，两种都写）并
+        // 剥掉 NO_PROXY，避免环境里的 no_proxy 旁路用户显式配置的代理。
+        std::vector<std::string> envStorage;
+        static constexpr std::string_view kProxyKeys[] = {
+            "http_proxy=", "https_proxy=", "HTTP_PROXY=", "HTTPS_PROXY=",
+            "no_proxy=", "NO_PROXY="};
+        for (char** e = environ; *e != nullptr; ++e) {
+            const std::string_view entry{*e};
+            const bool isProxy = std::ranges::any_of(kProxyKeys, [&](std::string_view key) {
+                return entry.starts_with(key);
+            });
+            if (!isProxy) envStorage.emplace_back(entry);
+        }
+        if (!proxy.empty()) {
+            envStorage.push_back("HTTP_PROXY=" + proxy);
+            envStorage.push_back("HTTPS_PROXY=" + proxy);
+            envStorage.push_back("http_proxy=" + proxy);
+            envStorage.push_back("https_proxy=" + proxy);
+        }
+        std::vector<char*> envp;
+        envp.reserve(envStorage.size() + 1);
+        for (auto& entry : envStorage) envp.push_back(entry.data());
+        envp.push_back(nullptr);
+
         pid_t child = kNoProcess;
         const int rc = ::posix_spawnp(&child, bin.c_str(), actions.get(), nullptr,
-                                      argv.data(), environ);
+                                      argv.data(), envp.data());
         // 写端随 writePipe 析构关闭：父进程必须放手，否则 k6 退出后读端也等不到
         // EOF（写端仍被父进程持有 → poll 永不 POLLHUP → 监视线程挂死）。
         if (rc != 0) return false;
@@ -487,15 +708,48 @@ private:
         // stop() 发过 SIGINT 后的宽限计时（未发则保持 max，永不触发强杀）。
         auto killDeadline = std::chrono::steady_clock::time_point::max();
 
-        // 读循环：POSIX 用 poll 带超时，stop 宽限期到 → 强杀；Windows ReadFile
-        // 阻塞读，TerminateProcess 后管道自然 EOF。
-        for (;;) {
+        // 读循环：POSIX 用 poll 带超时，stop 宽限期到 → 强杀。Windows 用
+        // PeekNamedPipe 不阻塞取已到达字节 + WaitForSingleObject 200ms 轮询
+        // 子进程退出，跑同一套宽限计时（REST 优雅停止失败 → 宽限到 → 强杀）。
 #ifdef _WIN32
-            char buf[4096];
-            DWORD n = 0;
-            if (!ReadFile(readPipe_.get(), buf, sizeof(buf), &n, nullptr) || n == 0) break;
-            splitLines(pending, buf, n);
+        bool processDone = false;
+        for (;;) {
+            DWORD avail = 0;
+            if (!::PeekNamedPipe(readPipe_.get(), nullptr, 0, nullptr, &avail, nullptr)) {
+                // 管道断开（写端关闭）：尝试把残留排干后退出。
+                char buf[4096];
+                DWORD n = 0;
+                if (::ReadFile(readPipe_.get(), buf, sizeof(buf), &n, nullptr) && n > 0)
+                    splitLines(pending, buf, n);
+                break;
+            }
+            if (avail > 0) {
+                char buf[4096];
+                DWORD n = 0;
+                const DWORD want = avail < sizeof(buf) ? avail : static_cast<DWORD>(sizeof(buf));
+                if (!::ReadFile(readPipe_.get(), buf, want, &n, nullptr) || n == 0) break;
+                splitLines(pending, buf, n);
+                continue;  // 还有数据就先读完
+            }
+            if (processDone) break;  // 进程已退且管道排空
+            const NativeProcess proc = child_.nativeHandle();
+            if (proc != kNoProcess &&
+                ::WaitForSingleObject(proc, 200) == WAIT_OBJECT_0) {
+                processDone = true;  // 回到循环顶排干残留
+                continue;
+            }
+            if (stopRequested_.load() && child_.running()) {
+                const auto now = std::chrono::steady_clock::now();
+                if (killDeadline == std::chrono::steady_clock::time_point::max()) {
+                    killDeadline = now + kGracePeriod;  // 首次观察到 stop → 起宽限
+                } else if (now >= killDeadline) {
+                    child_.terminate(/*graceful=*/false);
+                    killDeadline = std::chrono::steady_clock::time_point::max();  // 只杀一次
+                }
+            }
+        }
 #else
+        for (;;) {
             pollfd pfd{readPipe_.get(), POLLIN, 0};
             const int pr = ::poll(&pfd, 1, 200);
             if (pr == 0) {
@@ -524,8 +778,8 @@ private:
                 if (n <= 0) break;
                 splitLines(pending, buf, static_cast<size_t>(n));
             }
-#endif
         }
+#endif
 
         if (!pending.empty()) pushLine(std::move(pending));
 
@@ -570,6 +824,7 @@ private:
 
     std::string binary_;
     std::filesystem::path scriptPath_;
+    int apiPort_ = 0;  // k6 REST API 回环端口（Windows 优雅停止用；0 = 没选到）
     std::thread monitor_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stopRequested_{false};

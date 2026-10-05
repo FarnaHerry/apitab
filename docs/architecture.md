@@ -151,10 +151,6 @@ Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架�
 
 ## 6. 已知缺口
 
-- **k6 不消费 `RequestSpec::proxy`**：全局代理目前只对 curl 引擎生效。k6 只认
-  `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` 环境变量，要让它跟随应用设置需要给
-  `posix_spawn` / `CreateProcessW` 显式传一份注入过的环境表（当前子进程继承父进程
-  environ）。属于待办，不是"已生效但没接线"。
 - **进程启动即建重资源**：GUI 与 CLI 都在 `RequestStore` 构造时打开 SQLite 并起
   curl 工作线程；`apitab --cli orgs` 这类不发送的只读命令也会带着它们。收益只有
   一次线程创建，暂不做懒启动。
