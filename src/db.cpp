@@ -338,6 +338,32 @@ CREATE TABLE IF NOT EXISTS load_tests (
             if (!hasEnvVariables) {
                 db.exec("ALTER TABLE environments ADD COLUMN variables TEXT NOT NULL DEFAULT '[]'");
             }
+
+            // 迁移：load_tests 的深度列（mode / checks / 阈值判定）。
+            bool hasLoadMode = false;
+            bool hasLoadChecksPassed = false;
+            bool hasLoadChecksFailed = false;
+            bool hasLoadThreshold = false;
+            SQLite::Statement loads(db, "PRAGMA table_info(load_tests)");
+            while (loads.executeStep()) {
+                const std::string col = loads.getColumn(1).getString();
+                if (col == "mode") hasLoadMode = true;
+                if (col == "checks_passed") hasLoadChecksPassed = true;
+                if (col == "checks_failed") hasLoadChecksFailed = true;
+                if (col == "threshold_ok") hasLoadThreshold = true;
+            }
+            if (!hasLoadMode) {
+                db.exec("ALTER TABLE load_tests ADD COLUMN mode TEXT NOT NULL DEFAULT ''");
+            }
+            if (!hasLoadChecksPassed) {
+                db.exec("ALTER TABLE load_tests ADD COLUMN checks_passed INTEGER NOT NULL DEFAULT 0");
+            }
+            if (!hasLoadChecksFailed) {
+                db.exec("ALTER TABLE load_tests ADD COLUMN checks_failed INTEGER NOT NULL DEFAULT 0");
+            }
+            if (!hasLoadThreshold) {
+                db.exec("ALTER TABLE load_tests ADD COLUMN threshold_ok INTEGER NOT NULL DEFAULT -1");
+            }
         }
     }
 };
@@ -862,8 +888,9 @@ void Db::deleteAutomationTest(std::int64_t id, std::int64_t projectId) { SQLite:
 void Db::addLoadRecord(const LoadRecord& r) {
     SQLite::Statement q(impl_->db,
         "INSERT INTO load_tests(request_id,name,url,vus,duration,requests,rps,"
-        "p50_ms,p90_ms,p95_ms,p99_ms,fail_rate,created_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)");
+        "p50_ms,p90_ms,p95_ms,p99_ms,fail_rate,created_at,"
+        "mode,checks_passed,checks_failed,threshold_ok) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     q.bind(1, r.requestId);
     q.bind(2, r.name);
     q.bind(3, r.url);
@@ -877,13 +904,18 @@ void Db::addLoadRecord(const LoadRecord& r) {
     q.bind(11, r.p99Ms);
     q.bind(12, r.failRate);
     q.bind(13, r.createdAt);
+    q.bind(14, r.mode);
+    q.bind(15, r.checksPassed);
+    q.bind(16, r.checksFailed);
+    q.bind(17, r.thresholdOk);
     q.exec();
 }
 
 std::vector<LoadRecord> Db::listLoadRecords(int limit) {
     SQLite::Statement q(impl_->db,
         "SELECT id,request_id,name,url,vus,duration,requests,rps,"
-        "p50_ms,p90_ms,p95_ms,p99_ms,fail_rate,created_at "
+        "p50_ms,p90_ms,p95_ms,p99_ms,fail_rate,created_at,"
+        "mode,checks_passed,checks_failed,threshold_ok "
         "FROM load_tests ORDER BY id DESC LIMIT ?");
     q.bind(1, limit);
     std::vector<LoadRecord> out;
@@ -903,6 +935,10 @@ std::vector<LoadRecord> Db::listLoadRecords(int limit) {
         r.p99Ms = q.getColumn(11).getDouble();
         r.failRate = q.getColumn(12).getDouble();
         r.createdAt = q.getColumn(13).getInt64();
+        r.mode = q.getColumn(14).getString();
+        r.checksPassed = q.getColumn(15).getInt64();
+        r.checksFailed = q.getColumn(16).getInt64();
+        r.thresholdOk = q.getColumn(17).getInt();
         out.push_back(std::move(r));
     }
     return out;

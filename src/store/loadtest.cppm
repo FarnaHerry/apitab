@@ -114,13 +114,23 @@ public:
     Result<bool> pollSummary(api::LoadSummary& out) {
         if (!engine_->takeSummary(out)) return false;
         if (out.ok) {
+            // Stages 模式无单一 duration 字段，落库为阶梯概要（峰值 VU 对应 vus 列）。
+            std::string durationText = pendingOpts_.duration;
+            int vusText = pendingOpts_.vus;
+            if (pendingOpts_.mode == api::LoadMode::Stages) {
+                durationText = std::format("{}→{}VU→0", pendingOpts_.rampUpDuration,
+                                           pendingOpts_.peakVus);
+                vusText = pendingOpts_.peakVus;
+            } else if (pendingOpts_.mode == api::LoadMode::Iterations) {
+                durationText = std::format("{} iters", pendingOpts_.iterations);
+            }
             const Status saved = databaseResult([&] {
                 db_->addLoadRecord(db::LoadRecord{
                     .requestId = pendingRequestId_,
                     .name = pendingName_,
                     .url = pendingUrl_,
-                    .vus = pendingOpts_.vus,
-                    .duration = pendingOpts_.duration,
+                    .vus = vusText,
+                    .duration = durationText,
                     .requests = out.requests,
                     .rps = out.rps,
                     .p50Ms = out.p50Ms,
@@ -129,6 +139,12 @@ public:
                     .p99Ms = out.p99Ms,
                     .failRate = out.failRate,
                     .createdAt = nowUnix(),
+                    .mode = pendingOpts_.mode == api::LoadMode::Stages ? "stages"
+                            : pendingOpts_.mode == api::LoadMode::Iterations ? "iterations"
+                                                                             : "constant",
+                    .checksPassed = out.checksPassed,
+                    .checksFailed = out.checksFailed,
+                    .thresholdOk = out.thresholdOk,
                 });
             });
             if (!saved) return std::unexpected(saved.error());

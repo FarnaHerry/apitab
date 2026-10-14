@@ -156,6 +156,11 @@ export struct LoadRecord {
     double p50Ms = 0, p90Ms = 0, p95Ms = 0, p99Ms = 0;
     double failRate = 0;
     std::int64_t createdAt = 0;
+    // 深度字段（旧库迁移补列后按默认值回读）：
+    std::string mode;                    // constant / stages / iterations（空 = 旧记录）
+    std::int64_t checksPassed = 0;
+    std::int64_t checksFailed = 0;
+    int thresholdOk = -1;                // -1 未启用 / 0 未达标 / 1 达标
 };
 
 // 数据库句柄。构造即打开 + 建表（幂等）。所有方法抛 std::runtime_error；

@@ -356,8 +356,19 @@ UI 工作。旧 `requestUiUpdate` 唤醒钩子保留为 no-op（仅 k6 引擎仍
    原生关闭/托盘回调中会立即隐藏或销毁窗口的操作，按 `app_dialogs.cpp` 的处理方式
    推迟到原生回调返回后执行。`requestUiUpdate` 是 no-op 钩子（`src/app.cpp`），不要
    新增调用。
-7. **k6 指标**：Trend 汇总默认只带 avg/min/med/max/p(90)/p(95)——脚本 options 里
-   已声明 `summaryTrendStats` 加 p(99)，p50 用 `med` 键（没有 `p(50)`）。
+7. **k6 指标与深度配置**：Trend 汇总默认只带 avg/min/med/max/p(90)/p(95)——脚本
+   options 里已声明 `summaryTrendStats` 加 p(99)，p50 用 `med` 键（没有 `p(50)`）。
+   K6SUMMARY 协议（`k6_engine.cpp` 的 handleSummary 模板与 `ParseSummaryLine`
+   互为两端）扩展约定：checks 用 -1 哨兵表示"脚本没写"（C++ 侧必须按键存在性
+   判断，不能信默认值 0）；thresholdOk -1/0/1；expectedOkCount 为
+   `http_req_duration{expected_response:true}` 计数（-1 = 未提供）。**k6 ≥v2
+   实测（v2.3）**：`metrics[key].thresholds` 是 `{ 表达式: {ok} }` 对象而非旧版
+   数组（数组遍历会抛 `object is not iterable`，模板两种形态都收）；status 子
+   指标（`http_reqs{status:...}`）在汇总数据里已不存在，"非预期响应"由
+   requests - expectedOk 推导（expectedOk 无 count 时 UI 自动隐藏）。压测模式
+   （Constant/Stages/Iterations）、阈值（p95/失败率）、TLS 跳过与连接复用在
+   `LoadOptions`，UI 组装与模板生成共用 `AssembleOptions`（loadtest_page.cpp）
+   —— 加参数只改这一处 + LoadOptions，别再复制解析。
 8. **Spacer 自带 Grow(1)**：零宽/零高占位绝不能用 `Spacer().With(Frame{...})`——
    它会和兄弟平分剩余空间（曾把首页挤到右半屏）。占位用空 `Row{}`/`Column{}`；
    岛屿布局的根链必须层层有界：外壳根 Column 要 `CrossAlign(Stretch)`，页面根

@@ -154,13 +154,23 @@ public:
         const NativeProcess process = process_.exchange(kNoProcess);
         if (process == kNoProcess) return;
 #ifdef _WIN32
+        DWORD code = 1;
         ::WaitForSingleObject(process, INFINITE);
+        // 退出码要在 CloseHandle 前取（99 = 阈值未达标等，见 k6 退出码表）。
+        if (!::GetExitCodeProcess(process, &code)) code = 1;
+        exitCode_.store(static_cast<int>(code));
         ::CloseHandle(process);
 #else
         int status = 0;
         while (::waitpid(process, &status, 0) < 0 && errno == EINTR) {}
+        // WIFSIGNALED（SIGKILL 强杀）按 shell 惯例映射 128+signal，保留区分度。
+        exitCode_.store(WIFEXITED(status) ? WEXITSTATUS(status)
+                          : WIFSIGNALED(status) ? 128 + WTERMSIG(status) : 1);
 #endif
     }
+
+    // reap() 之后有效；未回收过返回 -1。
+    int exitCode() const { return exitCode_.load(); }
 
 private:
     void abandon() {
@@ -170,6 +180,7 @@ private:
     }
 
     std::atomic<NativeProcess> process_{kNoProcess};
+    std::atomic<int> exitCode_{-1};
 };
 
 #ifndef _WIN32
@@ -379,13 +390,49 @@ std::string buildScript(const api::RequestSpec& spec, const api::LoadOptions& op
     const std::string bodyJs = spec.bodyKind == api::BodyKind::None ? "null" : jsString(bodyText);
     const std::string timeout = std::format("{}s", opts.timeoutSec);
 
+    // options 组装：执行器形态（Constant = vus+duration / Stages = stages 阶梯 /
+    // Iterations = 固定总迭代）+ 阈值 + HTTP 行为 + summaryTrendStats（k6 的
+    // Trend 默认只有 avg/min/med/max/p(90)/p(95)，p(99) 需显式声明）。
+    std::string executor;
+    switch (opts.mode) {
+    case api::LoadMode::Stages:
+        executor = std::format("stages: [{{ duration: {}, target: {} }}, "
+                               "{{ duration: {}, target: {} }}, "
+                               "{{ duration: {}, target: 0 }}]",
+                               jsString(opts.rampUpDuration.empty() ? "10s" : opts.rampUpDuration),
+                               opts.peakVus > 0 ? opts.peakVus : 1,
+                               jsString(opts.steadyDuration.empty() ? "1m" : opts.steadyDuration),
+                               opts.peakVus > 0 ? opts.peakVus : 1,
+                               jsString(opts.rampDownDuration.empty() ? "10s" : opts.rampDownDuration));
+        break;
+    case api::LoadMode::Iterations:
+        executor = std::format("vus: {}, iterations: {}", opts.vus > 0 ? opts.vus : 1,
+                               opts.iterations > 0 ? opts.iterations : 1);
+        break;
+    case api::LoadMode::Constant:
+    default:
+        executor = std::format("vus: {}, duration: {}", opts.vus > 0 ? opts.vus : 1,
+                               jsString(opts.duration.empty() ? "30s" : opts.duration));
+        break;
+    }
+    std::string thresholds;
+    {
+        std::string entries;
+        if (opts.p95LimitMs > 0)
+            entries += std::format("  http_req_duration: ['p(95)<{}'],\n", opts.p95LimitMs);
+        if (opts.failRateLimitPct > 0)
+            entries += std::format("  http_req_failed: ['rate<{}'],\n",
+                                   opts.failRateLimitPct / 100.0);
+        if (!entries.empty()) thresholds = "thresholds: {\n" + entries + "}, ";
+    }
+    std::string extras;
+    if (opts.insecureSkipTlsVerify) extras += "insecureSkipTLSVerify: true, ";
+    if (opts.noConnectionReuse) extras += "noConnectionReuse: true, ";
+
     std::string script;
     script += "import http from 'k6/http';\n\n";
-    // summaryTrendStats：k6 的 Trend 汇总默认只带 avg/min/med/max/p(90)/p(95)，
-    // p50 要用 med 键，p(99) 需显式声明才会出现在 values 里。
-    script += "export const options = { vus: " + std::to_string(opts.vus) +
-              ", duration: " + jsString(opts.duration) +
-              ", summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'] };\n\n";
+    script += "export const options = { " + executor + ", " + thresholds + extras +
+              "summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'] };\n\n";
     script += "const kUrl = " + jsString(spec.url) + ";\n";
     script += "const kMethod = " + jsString(spec.method) + ";\n";
     script += "const kHeaders = " + headersObj + ";\n";
@@ -396,11 +443,33 @@ std::string buildScript(const api::RequestSpec& spec, const api::LoadOptions& op
     script += "}\n\n";
     // handleSummary：把关键指标打成一行带前缀的 JSON 印到 stdout，宿主进程按前缀
     // 捞行解析 —— 比解析 k6 的文本 summary 稳，也比 --summary-export（已弃用）长寿。
+    // 深度指标：checks 通过/失败、数据收发量、迭代时长中位、VU 峰值、阈值判定、
+    // 预期响应计数。注意 k6 ≥v2 的 metrics[key].thresholds 是 { 表达式: { ok } }
+    // 对象（旧版是数组），两种形态都收；status 子指标在新版 summary 数据里已
+    // 不存在，"非预期响应"经 http_req_duration{expected_response:true} 计数推导。
     script += R"JS(
 export function handleSummary(data) {
   const m = data.metrics || {};
   const val = (name, key) => (m[name] && m[name].values && m[name].values[key] !== undefined)
     ? m[name].values[key] : 0;
+  const thFlags = [];
+  for (const key of Object.keys(m)) {
+    const ts = m[key] && m[key].thresholds;
+    if (!ts) continue;
+    if (Array.isArray(ts)) {
+      for (const t of ts) thFlags.push(!!t.ok);
+    } else {
+      for (const expr of Object.keys(ts)) thFlags.push(!!(ts[expr] && ts[expr].ok));
+    }
+  }
+  const statuses = [];
+  for (const key of Object.keys(m)) {
+    const match = key.match(/^http_reqs\{status[:=](\d+)\}$/);
+    if (match && m[key].values) statuses.push({ status: +match[1], count: m[key].values.count || 0 });
+  }
+  statuses.sort((a, b) => a.status - b.status);
+  const checks = (m.checks && m.checks.values) ? m.checks.values : {};
+  const expectedOk = val('http_req_duration{expected_response:true}', 'count');
   const out = {
     requests: val('http_reqs', 'count'),
     rps: val('http_reqs', 'rate'),
@@ -412,6 +481,15 @@ export function handleSummary(data) {
     p95: val('http_req_duration', 'p(95)'),
     p99: val('http_req_duration', 'p(99)'),
     failRate: val('http_req_failed', 'rate'),
+    checksPassed: checks.passed !== undefined ? checks.passed : -1,
+    checksFailed: checks.failed !== undefined ? checks.failed : -1,
+    dataSent: val('data_sent', 'count'),
+    dataReceived: val('data_received', 'count'),
+    iterP50: val('iteration_duration', 'med'),
+    vusMax: val('vus_max', 'value'),
+    thresholdsOk: thFlags.length ? (thFlags.every(Boolean) ? 1 : 0) : -1,
+    expectedOk: expectedOk > 0 ? expectedOk : -1,
+    statuses: statuses,
   };
   return { stdout: '\nK6SUMMARY ' + JSON.stringify(out) + '\n' };
 }
@@ -796,13 +874,19 @@ private:
         {
             std::lock_guard lock(mutex_);
             summary_.durationSec = elapsed;
-            if (!summary_.ok && summary_.error.empty()) {
-                if (stopRequested_.load()) {
-                    // 用户主动停止且 k6 没来得及打印 summary（杀太快）。
-                    summary_.error = "已手动停止";
-                } else {
-                    summary_.error = "k6 异常结束（未产生汇总）";
-                }
+            summary_.exitCode = child_.exitCode();
+            if (summary_.ok) {
+                // 正常拿到汇总：退出码只用于补充语义（99 = 阈值未达标）。
+                if (summary_.exitCode == 99 && summary_.thresholdOk != 0)
+                    summary_.thresholdOk = 0;
+            } else if (summary_.error.empty()) {
+                // 没拿到汇总：按退出码给更准的失败文案（k6 退出码表）。
+                summary_.error =
+                    stopRequested_.load() ? "已手动停止"
+                    : summary_.exitCode == 99 ? "压测完成但阈值未达标（未收到汇总）"
+                    : summary_.exitCode == 105 ? "k6 setup/teardown 失败"
+                    : summary_.exitCode == 107 ? "k6 脚本异常（语法或运行时错误）"
+                    : std::format("k6 异常结束（退出码 {}）", summary_.exitCode);
             }
             summaryReady_ = true;
         }
@@ -863,6 +947,31 @@ LoadSummary ParseSummaryLine(std::string_view line) {
     s.p95Ms = num("p95");
     s.p99Ms = num("p99");
     s.failRate = num("failRate");
+    // checks 约定：脚本没写 checks 时 JS 侧填 -1（区别于"写了但全失败"）；旧版
+    // 自定义脚本的汇总行干脆没有这些键 —— 按存在性判断，不能靠默认值 0。
+    if (j.contains("checksPassed") || j.contains("checksFailed")) {
+        const double checksPassed = num("checksPassed");
+        const double checksFailed = num("checksFailed");
+        s.hasChecks = checksPassed >= 0 || checksFailed >= 0;
+        s.checksPassed = checksPassed > 0 ? static_cast<std::int64_t>(checksPassed) : 0;
+        s.checksFailed = checksFailed > 0 ? static_cast<std::int64_t>(checksFailed) : 0;
+    }
+    s.dataSentKb = num("dataSent") / 1024.0;
+    s.dataReceivedKb = num("dataReceived") / 1024.0;
+    s.iterP50Ms = num("iterP50");
+    s.vusMax = static_cast<int>(num("vusMax"));
+    s.thresholdOk = j.contains("thresholdsOk") ? static_cast<int>(num("thresholdsOk")) : -1;
+    s.expectedOkCount =
+        j.contains("expectedOk") ? static_cast<std::int64_t>(num("expectedOk")) : -1;
+    if (const auto statuses = j.find("statuses"); statuses != j.end() && statuses->is_array()) {
+        for (const auto& item : *statuses) {
+            if (!item.is_object()) continue;
+            const int status = item.value("status", 0);
+            if (status > 0)
+                s.statusCounts.emplace_back(status,
+                                            static_cast<std::int64_t>(item.value("count", 0.0)));
+        }
+    }
     return s;
 }
 

@@ -66,6 +66,45 @@ void testBuildScript() {
     form.bodyFields = {{"user", "a b", true}, {"token", "x&y", true}, {"off", "z", false}};
     check(api::BuildScript(form, {}).contains("const kBody = \"user=a+b&token=x%26y\";"),
           "FormUrlEncoded 序列化");
+
+    // ---- 模式与深度选项 ----
+    check(api::BuildScript(spec, {}).contains("vus: 10, duration: \"30s\""),
+          "Constant 模式默认执行器");
+
+    api::LoadOptions stages;
+    stages.mode = api::LoadMode::Stages;
+    stages.rampUpDuration = "15s";
+    stages.peakVus = 80;
+    stages.steadyDuration = "2m";
+    stages.rampDownDuration = "20s";
+    const std::string stagesScript = api::BuildScript(spec, stages);
+    check(stagesScript.contains(
+              "stages: [{ duration: \"15s\", target: 80 }, "
+              "{ duration: \"2m\", target: 80 }, { duration: \"20s\", target: 0 }]"),
+          "Stages 模式生成阶梯");
+    check(!stagesScript.contains("duration: \"45s\""), "Stages 模式不含 duration 执行器");
+
+    api::LoadOptions iters;
+    iters.mode = api::LoadMode::Iterations;
+    iters.vus = 5;
+    iters.iterations = 250;
+    check(api::BuildScript(spec, iters).contains("vus: 5, iterations: 250"),
+          "Iterations 模式生成固定迭代");
+
+    api::LoadOptions th;
+    th.p95LimitMs = 500;
+    th.failRateLimitPct = 2;
+    const std::string thScript = api::BuildScript(spec, th);
+    check(thScript.contains("http_req_duration: ['p(95)<500']"), "P95 阈值注入");
+    check(thScript.contains("http_req_failed: ['rate<0.02']"), "失败率阈值注入（百分比转小数）");
+
+    api::LoadOptions tls;
+    tls.insecureSkipTlsVerify = true;
+    tls.noConnectionReuse = true;
+    const std::string tlsScript = api::BuildScript(spec, tls);
+    check(tlsScript.contains("insecureSkipTLSVerify: true"), "跳过 TLS 校验注入");
+    check(tlsScript.contains("noConnectionReuse: true"), "关闭连接复用注入");
+    check(!api::BuildScript(spec, {}).contains("thresholds:"), "默认不注入阈值");
 }
 
 void testParseSummaryLine() {
@@ -87,6 +126,25 @@ void testParseSummaryLine() {
     check(partial.ok && partial.requests == 3 && near(partial.rps, 0.0) &&
               near(partial.p99Ms, 0.0),
           "缺键回落 0");
+    check(!partial.hasChecks && partial.thresholdOk == -1 && partial.statusCounts.empty(),
+          "旧式缺省行：无 checks / 阈值未启用 / 无状态码分布");
+
+    // 深度指标：checks、数据量、迭代时长、VU 峰值、阈值判定、状态码分布。
+    const api::LoadSummary deep = api::ParseSummaryLine(
+        R"(K6SUMMARY {"requests":120,"rps":10,"avg":9,"min":1,"max":50,)"
+        R"("p50":8,"p90":20,"p95":30,"p99":45,"failRate":0.05,)"
+        R"("checksPassed":115,"checksFailed":5,"dataSent":204800,"dataReceived":409600,)"
+        R"("iterP50":105.5,"vusMax":20,"thresholdsOk":0,"expectedOk":100,)"
+        R"("statuses":[{"status":200,"count":100},{"status":500,"count":20}]})");
+    check(deep.ok && deep.hasChecks && deep.checksPassed == 115 && deep.checksFailed == 5,
+          "checks 解析");
+    check(near(deep.dataSentKb, 200.0) && near(deep.dataReceivedKb, 400.0), "数据量 KB 换算");
+    check(near(deep.iterP50Ms, 105.5) && deep.vusMax == 20, "迭代时长与 VU 峰值解析");
+    check(deep.thresholdOk == 0 && deep.expectedOkCount == 100, "阈值判定与预期响应计数解析");
+    check(deep.statusCounts.size() == 2 && deep.statusCounts[0].first == 200 &&
+              deep.statusCounts[0].second == 100 && deep.statusCounts[1].first == 500 &&
+              deep.statusCounts[1].second == 20,
+          "状态码分布解析");
 }
 
 void testEngineAvailability() {

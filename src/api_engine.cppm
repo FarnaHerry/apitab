@@ -122,13 +122,37 @@ public:
 
 // ---- 压测 ----
 
+// 压测模式（决定脚本 options 的执行器形态）：
+// - Constant：固定 VUs 跑满 duration（现状，constant-vus 语义）；
+// - Stages：阶梯 —— ramp-up 到峰值 → 稳态保持 → ramp-down 归零；
+// - Iterations：固定总迭代次数，vus 并发分摊（跑完即停，不按时间）。
+export enum class LoadMode { Constant, Stages, Iterations };
+
 export struct LoadOptions {
     int vus = 10;
     std::string duration = "30s";    // k6 duration 语法（"30s" / "1m" / "2m30s"）
     int timeoutSec = 30;             // 单请求超时（写进脚本）
     // 用户自定义 k6 脚本全文（压测页脚本编辑器）：空 = 引擎按 spec 自动生成；
-    // 非空 = 原样运行该脚本（vus/duration/timeoutSec 不再注入，以脚本里的 options 为准）。
+    // 非空 = 原样运行该脚本（其余选项不再注入，以脚本里的 options 为准）。
     std::string script;
+
+    // ---- 模式与参数 ----
+    LoadMode mode = LoadMode::Constant;
+    // Stages：ramp-up 时长 / 峰值 VU / 稳态时长 / ramp-down 时长。
+    std::string rampUpDuration = "10s";
+    int peakVus = 50;
+    std::string steadyDuration = "1m";
+    std::string rampDownDuration = "10s";
+    // Iterations：总迭代次数（vus 并发分摊，跑完即停）。
+    int iterations = 100;
+
+    // ---- 阈值（0 / 不启用则不生成；触发时 k6 退出码 99，汇总标"未达标"）----
+    double p95LimitMs = 0;           // http_req_duration p(95) 上限（毫秒）
+    double failRateLimitPct = 0;     // http_req_failed rate 上限（百分数 0-100）
+
+    // ---- HTTP 行为 ----
+    bool insecureSkipTlsVerify = false;  // 自签/内网证书环境压测
+    bool noConnectionReuse = false;      // 每次迭代新建连接（压连接建立开销）
 };
 
 // k6 结束后的汇总指标（从脚本 handleSummary 打印的 JSON 行解析）。
@@ -141,6 +165,23 @@ export struct LoadSummary {
     double p50Ms = 0, p90Ms = 0, p95Ms = 0, p99Ms = 0;
     double failRate = 0;             // http_req_failed.rate（0..1）
     double durationSec = 0;          // 实际运行时长（墙钟）
+
+    // ---- 深度指标（脚本未产生时保持默认，UI 按需隐藏）----
+    bool hasChecks = false;          // 脚本里写了 checks 才有
+    std::int64_t checksPassed = 0;
+    std::int64_t checksFailed = 0;
+    double dataSentKb = 0;           // data_sent.count / 1024
+    double dataReceivedKb = 0;       // data_received.count / 1024
+    double iterP50Ms = 0;            // iteration_duration med（含 think time）
+    int vusMax = 0;                  // vus_max.value（实际并发峰值）
+    int thresholdOk = -1;            // 阈值判定：-1 未启用 / 0 未达标 / 1 达标
+    int exitCode = 0;                // k6 进程退出码（99=阈值未达标，见 k6 退出码表）
+    // 预期响应计数（k6 的 expected_response 语义：2xx/3xx）。-1 = 汇总未提供
+    //（旧版 k6）；非预期响应 = requests - expectedOkCount。
+    std::int64_t expectedOkCount = -1;
+    // HTTP 状态码分布（http_reqs 按 status tag 聚合，升序）。k6 ≥v2 的汇总数据
+    // 不再携带该子指标，通常为空 —— 显示以 expectedOkCount 的非预期计数为准。
+    std::vector<std::pair<int, std::int64_t>> statusCounts;
 };
 
 // 压测引擎契约。实现为外部进程（k6）：start 拉起、stop 杀掉、输出流式回读。

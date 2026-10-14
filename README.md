@@ -11,7 +11,8 @@ apitab 是一个使用 C++23 和 HuxerUI 构建的桌面 API 开发工具，面�
 - 环境管理、基础 URL 拼接与 `{{variable}}` 变量替换
 - 请求历史、测试用例和 Mock 响应
 - HTML 响应内嵌预览（Linux 经 WebKitGTK）
-- WebSocket、TCP、HTTP 测试与 k6 负载测试入口
+- WebSocket、TCP、HTTP 测试与 k6 负载测试（固定/阶梯/迭代模式、阈值判定、
+  checks 与深度汇总、TLS/连接复用选项）
 - 浅色/深色主题、顶级项目标签和自定义桌面窗口壳
 - CLI 查询项目数据、查看请求、发送请求并读取历史
 
