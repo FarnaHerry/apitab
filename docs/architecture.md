@@ -60,6 +60,7 @@ Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架�
 | `popen` 流 / 注册表键 | `cfg::PopenPipe` / `cfg::RegKey`（`config.cppm`） | `systemPrefersDark()` | 作用域退出析构 | 仅启动时调用一次 |
 | 应用日志文件 | `apitab::log`（`src/log.cpp`，进程级单例） | 首次写入（惰性建目录） | 进程退出（追加写，无需显式关闭） | mutex 串行；**日志不进 SQLite**（不与领域写抢 WAL 唯一写者），见 CLAUDE.md 关键约定 10 |
 | 控制面服务（loopback + 端点文件） | `apitab::control::ControlServer`（应用安装期 Provide） | `AppOptions::application_hooks` | 应用关闭析构（停线程 + 删端点文件） | IO 线程收发；命令经 `ApplicationPoster`（`TaskScope::Post`）回应用线程执行 |
+| WebView（响应 Preview 标签） | 组合期持有的 `WebViewController` + 框架 PlatformView 宿主 | 预览档挂载（`ResponsePreviewPane`） | 预览档卸载（框架按 PlatformView 生命周期回收） | 仅 UI 线程；`LoadHtml` 经 `Lifecycle` 在挂载/新响应时重放 |
 
 阻塞与 CPU 工作由 HuxerUI Runtime 的 worker 执行器调度；`apitab` 不再拥有自建任务线程池，
 因此该执行器不属于应用侧 RAII 资源。

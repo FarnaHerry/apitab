@@ -378,6 +378,38 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/CMakeLists
     endif ()
 endif ()
 
+# ---- WebView（Lib-WebView 嵌入式网页组件，HuxerUI 依赖库）---------------------
+# 响应区 HTML 预览。third_party/lib-webview 是 FarnaHerry/Lib-WebView fork 的
+# farna/main clone（含 Linux WebKitGTK 6.0 后端），同 sweetedit 一样经
+# huxerui_use_library 接入（add_subdirectory + 链接 + 资源包合并）。Linux 缺
+# webkitgtk-6.0 开发包时库会静默禁用后端，而 InstallWebView 在无适配器的平台上
+# 抛异常——应用侧接线（app.cpp 钩子注册 + 响应区 Preview 标签）统一由
+# APITAB_HAS_WEBVIEW 编译期宏门控，缺包只降级、不破坏构建。
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib-webview/CMakeLists.txt")
+    huxerui_use_library(apitab TARGET HuxerUI::WebView
+        PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib-webview")
+    if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
+        set(APITAB_HAS_WEBVIEW ON)
+        if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            find_package(PkgConfig QUIET)
+            if (NOT PkgConfig_FOUND)
+                set(APITAB_HAS_WEBVIEW OFF)
+            else ()
+                pkg_check_modules(APITAB_WEBVIEW_WEBKITGTK QUIET webkitgtk-6.0>=2.40)
+                if (NOT APITAB_WEBVIEW_WEBKITGTK_FOUND)
+                    set(APITAB_HAS_WEBVIEW OFF)
+                endif ()
+            endif ()
+        endif ()
+        if (APITAB_HAS_WEBVIEW)
+            message(STATUS "apitab: WebView 预览可用（响应区 Preview 标签）")
+            target_compile_definitions(apitab PRIVATE APITAB_HAS_WEBVIEW)
+        else ()
+            message(STATUS "apitab: WebView 预览禁用（未找到 webkitgtk-6.0 开发包）")
+        endif ()
+    endif ()
+endif ()
+
 if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # 领域层 C++23 模块（.cppm 接口；对应 .cpp 实现单元已随 glob 进 SOURCES）
     target_sources(apitab PRIVATE FILE_SET apitab_modules TYPE CXX_MODULES
@@ -561,6 +593,21 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     endif ()
     if (APITAB_BUILD_TESTS)
         enable_testing()
+        # 只读编辑器复制链路复现（响应区 Ctrl+C/右键复制失效排查）：链框架静态库
+        # 与 codeeditor，借用 HuxerUI 源码树内的测试支持头（TestPlatform/假剪贴板）。
+        # 仅源码模式且 POSIX 可构建。
+        if (APITAB_HUXERUI_FROM_SOURCE AND NOT WIN32)
+            add_executable(test_editor_copy tests/test_editor_copy.cpp)
+            target_compile_features(test_editor_copy PRIVATE cxx_std_23)
+            target_include_directories(test_editor_copy PRIVATE
+                "${APITAB_HUXERUI_SOURCE_DIR}/tests/support"
+                "${APITAB_HUXERUI_SOURCE_DIR}/src"
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/3dparty/SweetEditor/3dparty/catch2/include"
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/3dparty/SweetEditor/3dparty/catch2/include/catch2"
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-sweetedit/3dparty/SweetEditor/3dparty/catch2/src")
+            target_link_libraries(test_editor_copy PRIVATE HuxerUI::huxerui codeeditor)
+            add_test(NAME editor_copy COMMAND test_editor_copy)
+        endif ()
         add_executable(test_smoke tests/test_smoke.cpp)
         set_target_properties(test_smoke PROPERTIES CXX_MODULE_STD ON)
         target_compile_features(test_smoke PRIVATE cxx_std_23)

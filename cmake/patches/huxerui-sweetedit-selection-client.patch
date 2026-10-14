@@ -1,0 +1,22 @@
+diff --git a/src/codeeditor/codeeditor.cpp b/src/codeeditor/codeeditor.cpp
+index 4ec625d..3ac1ead 100644
+--- a/src/codeeditor/codeeditor.cpp
++++ b/src/codeeditor/codeeditor.cpp
+@@ -3938,9 +3938,14 @@ struct EditorBehavior {
+ 
+     TextSelectionClient* GetTextSelectionClient() noexcept override {
+       // The editor renders selection handles and highlights itself inside its
+-      // own clip; leaving the window-level selection overlay enabled would draw
+-      // them in host coordinates without clipping and bleed onto other views.
+-      return nullptr;
++      // own clip, and the client keeps the window-level selection overlay
++      // hidden (QuerySelectionGeometry returns nullopt). The client itself
++      // must still be exposed: a read-only editor never opens an IME session,
++      // and the runtime routes shared editing actions (Ctrl+C/X/V, Select All,
++      // and the clipboard pointer seed used by the context menu) exclusively
++      // through the focused node's selection client. Returning nullptr here
++      // silently disabled copy from read-only editors.
++      return holder_->TextInputClient().get();
+     }
+ 
+     std::optional<Point> pointer_down_;

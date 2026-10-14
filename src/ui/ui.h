@@ -571,6 +571,16 @@ std::string_view SyntaxForBodyKind(std::size_t kind);
 std::string StripJsonComments(const std::string& in);
 std::string PrettyXml(const std::string& input);
 
+// 响应 HTML 预览文档：请求完成（真实或 Mock）时由 RequestEditor 写入，响应区
+// Preview 标签读取。html 是响应正文原文（区别于 responseBody 的展示文本），
+// base_url 用于解析相对资源（真实请求 = 最终请求 URL，Mock = 空串走空白源），
+// revision 每次新响应递增——预览 WebView 以它为 Lifecycle 键重放 LoadHtml。
+struct ResponsePreview {
+    std::string html;
+    std::string base_url;
+    std::uint64_t revision = 0;
+};
+
 // request_editor.cpp — 请求编辑器本体（P1-C1 自 request_page.cpp 拆出，P1-C2
 // 再拆出 request_editor_kv.cpp）：顶部切换、方法/URL/发送/保存栏、Params/
 // Headers/Cookies/Body 分区编排与保存/发送/Mock 完整路径。测试用例/Mock 桥接
@@ -618,6 +628,7 @@ huxerui::View RequestEditor(
     huxerui::State<bool> inFlight, huxerui::State<std::string> responseBody,
     huxerui::StateList<std::string> responseHeaders,
     huxerui::StateList<std::string> responseCookies,
+    huxerui::State<ResponsePreview> responsePreview,
     huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab);
 
 // 把 vector 同步进 StateList（尾部对齐，多退少补）；KV 表批量导入与编辑器
@@ -649,11 +660,14 @@ huxerui::View RequestTabStrip(huxerui::State<std::vector<RequestDraft>> drafts,
 huxerui::View RequestDocPage(const RequestDraft& snapshot, const std::string& envBaseUrl);
 
 // request_response.cpp — 请求工作区右侧下岛（P1-C1 自 request_page.cpp 拆出）：响应区
-// Body/Headers/Cookies 三档切换 + 内部滚动。State 订阅局限在岛内，不扩散到编辑器。
-// inFlight 期间 Body 档切流式实时视图（SSE/分块正文逐块呈现），完成后落只读编辑器。
+// Body/Headers/Cookies/Preview 四档切换 + 内部滚动。State 订阅局限在岛内，不扩散到
+// 编辑器。inFlight 期间 Body 档切流式实时视图（SSE/分块正文逐块呈现），完成后落
+// 只读编辑器；Preview 档经 WebView（Lib-WebView）渲染 HTML 响应原文，仅在
+// APITAB_HAS_WEBVIEW（Linux 需 webkitgtk-6.0 开发包）且响应可预览时可用。
 huxerui::View ResponseArea(huxerui::State<std::string> responseBody,
                            huxerui::StateList<std::string> responseHeaders,
                            huxerui::StateList<std::string> responseCookies,
+                           huxerui::State<ResponsePreview> responsePreview,
                            huxerui::State<bool> inFlight,
                            const huxerui::ThemeSpec& theme);
 

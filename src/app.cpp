@@ -3,6 +3,10 @@
 // UI 内容在 src/ui/*.cpp（composable 普通源，经 huxerui_add_app 的 codegen 处理）。
 #include <huxerui/huxerui.h>
 
+#ifdef APITAB_HAS_WEBVIEW
+#include <huxerui/webview.h>
+#endif
+
 #include "control_server.h"
 #include "ui/app.h"
 
@@ -29,7 +33,14 @@ const huxerui::Application application{
         // 托盘激活处理器是应用级一次性注册（见 ui/app.h 的 InstallSystemTray），
         // 必须在安装钩子里注册，不能放进会重组的 AppRoot。
         // 控制面（`apitab --cli` 的服务端）同样在安装期起，活到应用关闭。
+        // WebView 平台适配（响应区 HTML 预览）也是应用级注册；Linux 缺
+        // webkitgtk-6.0 开发包时后端不存在，InstallWebView 会抛异常，经
+        // APITAB_HAS_WEBVIEW 编译期宏整条摘除。
         .application_hooks = {apitab::ui::InstallSystemTray,
-                              apitab::control::InstallControlServer},
+                              apitab::control::InstallControlServer,
+#ifdef APITAB_HAS_WEBVIEW
+                              huxerui::InstallWebView,
+#endif
+        },
     },
 };

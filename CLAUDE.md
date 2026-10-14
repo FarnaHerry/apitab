@@ -37,24 +37,19 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   源码模式编译 Linux 后端需要 `sudo dnf install gtk4-devel libepoxy-devel libsoup3-devel`。
   强制回落已安装/离线 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`；该通道是兼容与发布门禁，
   不阻塞开发期使用最新源码 API。
-- 源码 clone 当前带本地补丁：`tools/codegen/CMakeLists.txt` 与
-  `tools/resource_compiler/CMakeLists.txt`
-  的 Linux 静态链接改为可用 `-DAPITAB_HOST_TOOLS_DYNAMIC=ON` 关掉（本机无
-  libstdc++-static，免 sudo；仅影响本机自编译宿主工具）。
-  `include/huxerui/window.h` 的 `WindowTitleBar` 构造函数里
-  `CrossAlign(CrossAxisAlignment::Center)` 改为 `CrossAlign{...}`：函数式强转
-  依赖 P0960，clang 在 Objective-C++ 下不实现，导致 macOS 所有 `*.mm` TU 编译
-  失败；花括号聚合初始化跨语言通用。该补丁以
-  `cmake/patches/huxerui-window-p0960.patch` 形式在 CI 两个 fetch 步骤里
-  `git apply`（改动处带 `NOTE(apitab local patch)`，上游 pull 后需核对/重导，
-  建议反馈作者改用花括号）。
-  `platform/linux/` 的自定义边框缩放热区补丁
-  （`cmake/patches/huxerui-linux-resize-hitarea.patch`）把判定从 6dp 边/角不分
-  改为 10dp 边 + 14dp 角（`linux_internal.h` 的 `ResolveLinuxResizeEdge`），
-  并按方向切换 ns/ew/nesw/nwse 光标，附带 `linux_window_chrome.cpp` 单测；
-  同样在 CI 两个 fetch 步骤 `git apply`。
-  原 `platform/linux/linux_adapter.cpp` 的 X11 `None` 冲突补丁已由上游
-  `dcd41c4` 正式修复，937efb1 更新后本地补丁已删除。
+- 源码 clone 现为 **FarnaHerry/HuxerUI fork 的 farna/main**（基于上游 0c51262 +
+  21 个 fork 提交：Linux PlatformView 宿主支持——Lib-WebView 的 Linux WebKitGTK
+  后端依赖它、窗口边框 10dp/14dp 缩放热区+方向光标、bounded stretch 布局测量
+  修复、宿主工具 `HUXERUI_HOST_TOOLS_STATIC_RUNTIME` 选项等；CI 固定
+  ba8a900，上游推进后由 fork rebase 跟进）。**原三个本地补丁已全部被 fork
+  收编并删除**：`huxerui-window-p0960.patch`（CrossAlign 花括号，fork
+  window.h 已用花括号）、`huxerui-hosttools-dynamic.patch`（改为 fork 的
+  `HUXERUI_HOST_TOOLS_STATIC_RUNTIME=OFF`）、`huxerui-linux-resize-hitarea.patch`
+  （fork f38d5ec 正式实现，含 linux_window_chrome 单测）。
+  WebView 组件库 clone：`third_party/lib-webview`（FarnaHerry/Lib-WebView 的
+  farna/main，上游 HuxerUI/Lib-WebView + Linux WebKitGTK 6.0 后端等应用补丁；
+  CI pin 50ac929），不入库、已 gitignore，经 `huxerui_use_library(apitab
+  TARGET HuxerUI::WebView PATH ...)` 接入。
 - **上游 linux 预置宿主工具可能落后于源码**：4a56daf 改了 svg 编译器/path
   编码却只重发了 mac/windows/android 的预置 hrc/hcg，linux 预置仍是旧的
   → 新运行时解旧资源包启动即抛 "unknown path operation"。对策：用当前
@@ -114,6 +109,16 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   （util.cpp 的 std::copy 同理）。CI 经 sweetedit CMakeLists 的 sweetline
   FetchContent PATCH_COMMAND 应用（幂等），本地手动 clone 的 3dparty/SweetLine
   必须同样应用保持 parity。
+  ⑦ **只读编辑器复制失效修复**（`cmake/patches/huxerui-sweetedit-selection-client.patch`，
+  已提交 Lib-CodeEditor fork 870a82f，上游跟进后删除）：`EditorBehavior`
+  扩展的 `GetTextSelectionClient()` 原本硬编码返回 `nullptr`（意图是避免窗口级
+  选择覆盖层叠画），但只读编辑器永远没有 IME 会话（框架
+  `RefreshTextInputSession` 对 read_only 配置直接不建会话），Ctrl+C/全选只能
+  经"焦点节点的 TextSelectionClient"路由，返回 nullptr 使复制整链失效（右键
+  菜单"复制"的剪贴板指针也只在框架路由时注入，同样为 null）。修复 = 返回
+  holder 持有的真实 client；`QuerySelectionGeometry` 返回 nullopt 已足够让
+  窗口覆盖层保持隐藏，视觉零变化。回归测试 `tests/test_editor_copy.cpp`
+  （TestPlatform + 假剪贴板，复刻响应区只读编辑器拖选 + Ctrl+C）。
   均建议反馈作者：sweetedit 需跟进 HuxerUI main 的 Event/Stroke/键盘
   API 变化，并支持官方主题配色入口；os_log 路径应显式门控 __clang__。
 - UI 层是**普通 .cpp**（不要 .cppm：codegen 只扫 .cpp/.cc/.cxx）；composable
@@ -122,6 +127,19 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
 - 主题从 MaterialTheme/MaterialDarkTheme 等内置主题定制；受控值以应用状态为
   权威；动态兄弟用稳定 Key。
 - 框架资源：resources.bin 拷到 `<exe>.resources/huxerui/`（POST_BUILD 完成）。
+- **WebView（响应 HTML 预览）**：`third_party/lib-webview`（FarnaHerry/Lib-WebView
+  fork）经 `huxerui_use_library` 接入；`InstallWebView` 注册在
+  `AppOptions::application_hooks`（应用级一次注册，与托盘激活同规）。Linux 后端
+  WebKitGTK 6.0（缺 `webkitgtk-6.0` 开发包时整条降级）：CMake 探测结果落
+  `APITAB_HAS_WEBVIEW` 宏，app.cpp 钩子与响应区 Preview 标签都以它门控。
+  **hcg codegen 不支持 composable 函数体内的条件编译**（实证
+  `conditional compilation inside a composable function is not supported`）：
+  WebView 相关分支必须整体收在函数级 `#ifdef`（`request_response.cpp` 的
+  `ResponsePreviewTabContent`/`AppendResponsePreviewTab` 双实现模式）。
+  预览语义：HTML 原文经 `ResponsePreview`（html/base_url/revision）状态贯通，
+  挂载后与每次新响应由 `Lifecycle` 重放 `LoadHtml`（WebView 是 PlatformView
+  重资源，随档挂载/卸载不常驻）；主框架跳转一律取消（预览锚定本次响应），
+  相对资源以请求 URL 为 base。
 - **弹层菜单行禁用 `Grow`（菜单宽度必须自适应）**：流式布局测量中，行内只要
   有 Grow 子项且约束有限，行宽直接取约束上限、无视内容固有宽度（HuxerUI
   `containers.cpp` MeasureAxisLayout）；而弹层的测量上限≈视口宽——菜单行用

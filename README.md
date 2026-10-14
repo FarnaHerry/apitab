@@ -10,6 +10,7 @@ apitab 是一个使用 C++23 和 HuxerUI 构建的桌面 API 开发工具，面�
 - HTTP 请求编辑：Params、Headers、Cookies、Body 和环境变量
 - 环境管理、基础 URL 拼接与 `{{variable}}` 变量替换
 - 请求历史、测试用例和 Mock 响应
+- HTML 响应内嵌预览（Linux 经 WebKitGTK）
 - WebSocket、TCP、HTTP 测试与 k6 负载测试入口
 - 浅色/深色主题、顶级项目标签和自定义桌面窗口壳
 - CLI 查询项目数据、查看请求、发送请求并读取历史
@@ -21,12 +22,13 @@ apitab 是一个使用 C++23 和 HuxerUI 构建的桌面 API 开发工具，面�
 - CMake 3.30 或更高版本
 - 支持 C++23 modules / `import std` 的编译器
 - Ninja（推荐）
-- Linux 源码构建需要 GTK ≥4.14、libepoxy ≥1.5 与 libsoup ≥3.0 开发包
+- Linux 源码构建需要 GTK ≥4.14、libepoxy ≥1.5 与 libsoup ≥3.0 开发包；
+  响应 HTML 预览另需 `webkitgtk-6.0` ≥2.40（缺失时预览降级禁用，不影响其余功能）
 
 Fedora：
 
 ```bash
-sudo dnf install cmake ninja-build gcc-c++ gtk4-devel libepoxy-devel libsoup3-devel
+sudo dnf install cmake ninja-build gcc-c++ gtk4-devel libepoxy-devel libsoup3-devel webkitgtk6.0-devel
 ```
 
 HuxerUI 按以下顺序选择：显式 `HUXERUI_HOME` 源码、

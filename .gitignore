@@ -29,6 +29,8 @@ engines/
 third_party/huxerui/
 # SweetEditor 组件库 clone（body/k6 脚本编辑器）
 third_party/huxerui-sweetedit/
+# WebView 组件库 clone（响应 HTML 预览；FarnaHerry/Lib-WebView fork 的 farna/main）
+third_party/lib-webview/
 # 用当前 huxerui 源码本地构建的宿主工具（hcg/hrc；上游 linux 预置可能落后于源码）
 third_party/huxerui-tools/
 

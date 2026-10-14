@@ -205,6 +205,7 @@ huxerui::View SplitActionButton(
     huxerui::State<std::string> responseBody,
     huxerui::StateList<std::string> responseHeaders,
     huxerui::StateList<std::string> responseCookies,
+    huxerui::State<ResponsePreview> responsePreview,
     huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
@@ -688,6 +689,7 @@ huxerui::View SplitActionButton(
                         responseBody = "Mock 响应中…";
                         responseHeaders.Clear();
                         responseCookies.Clear();
+                        responsePreview = ResponsePreview{};
                         const int status = ParseIntField(mock.status, 200);
                         const int delayMs = std::max(0, ParseIntField(mock.delayMs, 0));
                         std::vector<api::KeyValue> headers;
@@ -711,6 +713,11 @@ huxerui::View SplitActionButton(
                         responseBody = std::format(
                             "MOCK · HTTP {} · {}ms · {} bytes\n\n{}", view.status,
                             view.totalMs, view.sizeBytes, view.body);
+                        // Mock 正文也可能是 HTML：预览档与真实请求同一消费路径，
+                        // base_url 留空（无真实源，相对资源不解析）。
+                        responsePreview = ResponsePreview{
+                            .html = view.body,
+                            .revision = responsePreview.Get().revision + 1};
                         std::vector<std::string> lines;
                         for (const api::KeyValue& h : view.headers)
                             lines.push_back(h.key + ": " + h.value);
@@ -734,6 +741,7 @@ huxerui::View SplitActionButton(
                     responseBody = "发送中…";
                     responseHeaders.Clear();
                     responseCookies.Clear();
+                    responsePreview = ResponsePreview{};
                     g_requests.sendViaEngine(finalSpec);
                     sendTask = tasks.Launch([=]() -> huxerui::Task<void> {
                         // 引擎结果按 30ms 节拍轮询取回（totalMs 由引擎计时）；恢复点
@@ -774,6 +782,13 @@ huxerui::View SplitActionButton(
                                 lines.push_back(h.key + ": " + h.value);
                             ReplaceStringList(responseHeaders, lines);
                             ReplaceStringList(responseCookies, CookiesFromHeaders(view.headers));
+                            // 预览文档：原文 + 请求 URL（相对资源的解析基准）。
+                            // 重定向后的最终 URL 引擎未回传，base_url 用发送 URL
+                            // 近似；流式中断/失败路径不写，预览档显示占位。
+                            responsePreview = ResponsePreview{
+                                .html = view.body,
+                                .base_url = finalSpec.url,
+                                .revision = responsePreview.Get().revision + 1};
                         } else if (streamed.Get() && !view.body.empty()) {
                             // 流式传输中断（连接重置等）：保留已接收内容。
                             responseBody = "连接中断: " + view.error + "\n\n" + view.body;

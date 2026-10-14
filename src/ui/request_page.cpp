@@ -420,6 +420,9 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     auto responseBody = huxerui::UseState(std::string{"（尚未发送请求）"});
     auto responseHeaders = huxerui::UseStateList<std::string>();
     auto responseCookies = huxerui::UseStateList<std::string>();
+    // HTML 预览文档（原文 + base URL + 代数）：编辑器发送路径写入，响应区
+    // Preview 标签消费。
+    auto responsePreview = huxerui::UseState(ResponsePreview{});
     auto leftIslandWidth = huxerui::UseState(260.0F);
     auto leftIslandOrigin = huxerui::UseState(260.0F);
     auto responseIslandHeight = huxerui::UseState(260.0F);
@@ -515,7 +518,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                 RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                 RequestEditor(openDrafts, current, activeTab, listVersion,
                               inFlight, responseBody, responseHeaders,
-                              responseCookies, envVersion, editorPage)
+                              responseCookies, responsePreview, envVersion, editorPage)
                     .Key(contentKey)
                     .With(huxerui::Grow(1.0F)),
             }
@@ -529,7 +532,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                                            responseIslandOrigin, 140.0F, 640.0F, true));
             islands.push_back(RequestIslandSurface(
                 huxerui::Column {
-                    ResponseArea(responseBody, responseHeaders, responseCookies, inFlight, theme)
+                    ResponseArea(responseBody, responseHeaders, responseCookies,
+                                 responsePreview, inFlight, theme)
                         .With(huxerui::Grow(1.0F)),
                 }
                     .With(huxerui::Spacing(theme.spacing.small),
