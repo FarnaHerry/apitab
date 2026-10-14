@@ -53,7 +53,7 @@ namespace {
             }, AppIconButtonShape::Bare)}),
     }
         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
-              huxerui::CornerRadius(theme.shapes.medium),
+              huxerui::CornerRadius(theme.shapes.small),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
               selected ? huxerui::Background(theme.colors.surface_container_highest)
                        : hovered.Get()
@@ -225,7 +225,7 @@ namespace {
               huxerui::Border(highlight ? theme.colors.outline
                                         : huxerui::Color::Transparent(),
                               1.0F),
-              huxerui::CornerRadius(theme.shapes.medium),
+              huxerui::CornerRadius(theme.shapes.small),
               // 键盘/语义（P1-B0.4，§13.6 键盘要求）：卡片可聚焦 + Button 语义，
               // 键盘 Tab 后 Enter/Space 打开项目（模式同 settings_page 左分类行）。
               huxerui::Focusable(true),
@@ -380,7 +380,7 @@ namespace {
             .With(huxerui::Padding(theme.spacing.medium),
                   huxerui::Spacing(theme.spacing.small),
                   huxerui::Background(theme.colors.surface_container_low),
-                  huxerui::CornerRadius(theme.shapes.large), huxerui::Frame{.width = 240.0F},
+                  huxerui::CornerRadius(theme.shapes.small), huxerui::Frame{.width = 240.0F},
                   huxerui::Frame{.min_width = 200.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
@@ -446,7 +446,7 @@ namespace {
             .With(huxerui::Padding(theme.spacing.large),
                   huxerui::Spacing(theme.spacing.medium),
                   huxerui::Background(theme.colors.surface_container_low),
-                  huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
+                  huxerui::CornerRadius(theme.shapes.small), huxerui::Grow(1.0F),
                   huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 

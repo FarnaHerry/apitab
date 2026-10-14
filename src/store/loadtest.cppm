@@ -156,6 +156,10 @@ public:
         return databaseResult([&] { return db_->listLoadRecords(limit); });
     }
 
+    Result<std::int64_t> recordCount() {
+        return databaseResult([&] { return db_->countLoadRecords(); });
+    }
+
 private:
     template <typename F>
     auto databaseResult(F&& fn) -> Result<std::invoke_result_t<F>> {

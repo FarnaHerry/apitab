@@ -758,8 +758,9 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     // 响应式：Compact(<600) 收窄间距，Medium/Expanded 保持现状。
     // 根 Column 子项间隙统一 extra_small(4pt)：标题栏↔主行贴紧一些。底部状态栏
     // 仅属于项目工作区；主页和通用设置页没有它，主岛直接吃满标题栏以下的高度。
+    // 壳层与页面区之间的间隙同样收敛到 4pt（工具化密度，2026-10 从 8pt 收敛）。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
-    const float gap = compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small;
+    const float gap = rootSpec.spacing.extra_small;
     const float titleBarHorizontalPadding =
         compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small;
     const float sideShellWidth =

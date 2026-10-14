@@ -169,13 +169,13 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
 }
 
 // 右侧一级岛屿的统一表面：与左岛（RequestListIsland）同一套令牌——
-// surface_container_low 底 + shapes.large 圆角。岛屿靠 Grow 自动拉伸占满
+// surface_container_low 底 + shapes.small 圆角（工具化密度，几何令牌见 ui.h）。岛屿靠 Grow 自动拉伸占满
 // 右侧区块，内容在岛内滚动。
 huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSpec& theme,
                                    huxerui::Frame minimum = {.min_width = 320.0F,
                                                              .min_height = 140.0F}) {
     return std::move(content).With(huxerui::Background(theme.colors.surface_container_low),
-                                   huxerui::CornerRadius(theme.shapes.large),
+                                   huxerui::CornerRadius(theme.shapes.small),
                                    // 各调用方可按内容指定最低可用工作区；拖条与 Grow
                                    // 只能在该下限之上分配，避免内容被挤没。
                                    minimum);

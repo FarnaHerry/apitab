@@ -1,5 +1,6 @@
-// history_page.cpp — 历史记录：分页列表 + 清空（Dialog 确认）。
-// entries 每次组合按 page 快照读取；翻页/清空通过 State 驱动重组。
+// history_page.cpp — 历史记录：左栏双分类（请求历史 / k6 压测记录）+ 右侧列表。
+// 请求历史保持分页 + 清空（Dialog 确认）；entries 每次组合按 page 快照读取，
+// 翻页/清空/切分类通过 State 驱动重组。
 #include <huxerui/huxerui.h>
 
 #include <algorithm>
@@ -12,6 +13,7 @@
 #include "ui.h"
 
 import apitab.db;
+import apitab.store.loadtest;
 import apitab.store.requests;
 import apitab.utils;
 
@@ -22,6 +24,46 @@ namespace {
 constexpr std::array<int, 4> kPageSizeOptions{10, 20, 50, 100};
 constexpr std::size_t kDefaultPageSizeIndex = 0;
 constexpr float kPageSizeSelectWidth = 80.0F;
+// 左侧分类栏宽度（工具侧栏节奏）；压测记录列表一次读最近 50 条。
+constexpr float kCategoryRailWidth = 168.0F;
+constexpr int kLoadRecordLimit = 50;
+
+// 分类行：与 settings_page 左分类行同一配方（显式压制 OnClick 默认 Indication，
+// 整行反馈 = 手工底色：选中 islands.active / hover islands.raised；嵌套档圆角；
+// Focusable 参与 Tab 遍历，Enter/Space 激活由框架键盘路径派发）。行尾计数
+// 徽标右对齐，选中时提亮为主文本色。
+[[huxerui::composable]] huxerui::View HistoryCategoryRow(std::string_view label,
+                                                         std::int64_t count, bool selected,
+                                                         std::size_t index,
+                                                         huxerui::State<std::size_t> category) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    auto hovered = huxerui::UseState(false);
+    return huxerui::Row {
+        huxerui::Text(std::string(label), huxerui::TextRole::Label)
+            .With(huxerui::Grow(1.0F),
+                  huxerui::Foreground(selected ? theme.colors.on_surface
+                                               : theme.colors.on_surface_variant)),
+        huxerui::Text(std::to_string(count), huxerui::TextRole::Label)
+            .With(huxerui::Foreground(selected ? theme.colors.on_surface
+                                               : theme.colors.on_surface_variant)),
+    }
+        .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(12.0F, 9.0F)),
+              huxerui::CornerRadius(islands.nested_radius),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+              selected ? huxerui::Background(islands.active)
+                       : hovered.Get() ? huxerui::Background(islands.raised)
+                                       : huxerui::Background(huxerui::Color::Transparent()),
+              huxerui::Indication{}, // 有意压制默认 Indication（见上），整行反馈 = 手工底色
+              huxerui::Focusable(true),
+              huxerui::Semantics{.role = huxerui::SemanticRole::Button,
+                                 .label = std::string(label)})
+        .OnClick([category, index] { category = index; })
+        .On<huxerui::ViewEvents::Hover>(
+            [hovered](const huxerui::HoverEvent& e) {
+                hovered = e.type == huxerui::HoverEventType::Enter;
+            });
+}
 
 // 历史列表行（P1-A2 布局契约：[前置区] [主内容 Grow] [尾部信息] [固定动作区]）：
 // 前置区 = HTTP 方法，主内容 = URL（左对齐、Grow 撑开），尾部信息 = 状态码与
@@ -100,12 +142,67 @@ constexpr float kPageSizeSelectWidth = 80.0F;
     }
         .With(huxerui::Grow(1.0F), huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
+
+// 压测记录行：与 HistoryRow 同一表格行契约（Divider 切行、非卡片）。前置区 =
+// 脚本名，主内容 = 目标 URL（Grow），尾部 = 模式/VU · 请求数 · RPS · P95 与
+// 阈值判定（未达标染 error 色，达标打 ✓，未启用不打）。
+[[huxerui::composable]] huxerui::View LoadRecordRow(const db::LoadRecord& r) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    std::string shape = r.mode == "stages" ? "阶梯" : r.mode == "iterations" ? "迭代" : "固定";
+    std::string tail = std::format("{} VU={} · {} req · RPS {:.0f} · P95 {:.0f}ms", shape,
+                                   r.vus, r.requests, r.rps, r.p95Ms);
+    if (!r.duration.empty()) tail += " · " + r.duration;
+    std::string verdict;
+    if (r.thresholdOk == 0 || r.thresholdOk == 1) verdict = r.thresholdOk == 1 ? " · ✓" : " · ✗";
+    return huxerui::Column {
+        huxerui::Divider(),
+        huxerui::Row {
+            huxerui::Text(r.name, huxerui::TextRole::Body),
+            huxerui::Text(r.url, huxerui::TextRole::Body)
+                .With(huxerui::Grow(1.0F), huxerui::ClipChildren()),
+            huxerui::Text(verdict.empty() ? tail : tail + verdict, huxerui::TextRole::Body)
+                .With(huxerui::Foreground(r.thresholdOk == 0 ? theme.colors.error
+                                                             : theme.colors.on_surface_variant)),
+        }
+            .With(huxerui::Spacing(theme.spacing.small),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+    }
+        .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
+// 压测记录列表：最近 50 条（最新在前），表格行 + 上下框线，空态文案。
+[[huxerui::composable]] huxerui::View LoadRecordRows(std::vector<db::LoadRecord> initial) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const auto records = huxerui::UseStateList(std::move(initial));
+    if (records.Empty()) {
+        return huxerui::Column{
+            huxerui::Text("暂无压测记录——在压测页发起一次压测后归档在这里",
+                          huxerui::TextRole::Body)
+                .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+        }
+            .With(huxerui::Grow(1.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    }
+    return huxerui::Column {
+        huxerui::VirtualList{
+            records, [](const db::LoadRecord& r) { return LoadRecordRow(r).Key(r.id); }}
+            .EstimatedItemExtent(40.0F)
+            .CacheExtent(160.0F)
+            .With(huxerui::ScrollBar(), huxerui::Grow(1.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+        huxerui::Divider(),
+    }
+        .With(huxerui::Grow(1.0F), huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
 } // namespace
 
 [[huxerui::composable]] huxerui::View HistoryPage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
     auto dialog = huxerui::UseDialog();
     auto toast = huxerui::UseToast();
+    // 左栏分类：0 = 请求历史，1 = k6 压测记录。
+    auto category = huxerui::UseState<std::size_t>(0);
     auto pageIndex = huxerui::UseState<std::int64_t>(0);
     auto pageSize = huxerui::UseState(kDefaultPageSizeIndex);
     auto reloadKey = huxerui::UseState(0);
@@ -115,6 +212,7 @@ constexpr float kPageSizeSelectWidth = 80.0F;
     huxerui::Lifecycle(
         [=] -> void {}, reloadKey.Get(), pageIndex.Get(), pageSize.Get());
 
+    // 双分类数据：计数进左栏徽标；压测记录一次读最近 50 条（最新在前）。
     const std::int64_t page = pageIndex.Get();
     const int pageSizeValue = kPageSizeOptions.at(pageSize.Get());
     const auto entriesResult = g_requests.historyPage(pageSizeValue, page);
@@ -126,6 +224,21 @@ constexpr float kPageSizeSelectWidth = 80.0F;
     const std::string historyError = !entriesResult
                                          ? entriesResult.error().message
                                          : !totalResult ? totalResult.error().message : std::string{};
+    const auto loadsResult = g_loadtest.records(kLoadRecordLimit);
+    const auto loadCountResult = g_loadtest.recordCount();
+    const std::vector<db::LoadRecord> loads = loadsResult ? *loadsResult
+                                                          : std::vector<db::LoadRecord>{};
+    const std::int64_t loadTotal = loadCountResult ? *loadCountResult : 0;
+    const std::string loadsError =
+        !loadsResult ? loadsResult.error().message
+                     : !loadCountResult ? loadCountResult.error().message : std::string{};
+    const std::string subtitle =
+        category.Get() == 0 ? (historyError.empty()
+                                   ? "共 " + std::to_string(total) + " 条请求"
+                                   : "读取历史记录失败: " + historyError)
+                            : (loadsError.empty() ? "最近 " + std::to_string(loads.size()) +
+                                                        " / 共 " + std::to_string(loadTotal) + " 条"
+                                                  : "读取压测记录失败: " + loadsError);
 
     // Select 的全局最小宽度为 120dp，对仅含 10/20/50/100 的分页控件过宽；
     // 弹出菜单会至少与触发框同宽，因此在局部主题与触发框同时限制为 80dp。
@@ -144,14 +257,9 @@ constexpr float kPageSizeSelectWidth = 80.0F;
             })
             .With(huxerui::Frame{.width = kPageSizeSelectWidth}),
     };
-    // 岛屿分区模型：本页只有一个岛，岛本身占满整个页面区块（Grow + Stretch），
-    // 列表在岛内部滚动；分页按钮固定在岛底部。
-    // 清空按钮套一层 Row：岛交叉轴 Stretch 会把直接子节点拉满全宽，
-    // Row 主轴不拉伸子节点，按钮保持自然宽度。
-    return huxerui::Column {
-        PageHeader("历史记录", historyError.empty()
-                                    ? "共 " + std::to_string(total) + " 条请求"
-                                    : "读取历史记录失败: " + historyError),
+
+    // 右侧面板按分类分派：请求历史 = 清空 + 表格 + 分页栏；压测记录 = 表格。
+    huxerui::View requestPanel = huxerui::Column {
         huxerui::Flow {
             DangerButton(huxerui::Button("清空历史").OnClick([dialog, reloadKey, pageIndex, pageInput, toast] {
                 ShowDangerConfirm(dialog, "清空历史", "确定删除全部历史记录吗？此操作不可恢复。",
@@ -207,10 +315,32 @@ constexpr float kPageSizeSelectWidth = 80.0F;
         .With(huxerui::Spacing(theme.spacing.medium),
                huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
     }
+        .With(huxerui::Grow(1.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+
+    // 岛屿分区模型：左分类栏 + 右列表。列表在岛内部滚动，分页栏固定在岛底部。
+    return huxerui::Column {
+        PageHeader("历史记录", subtitle),
+        huxerui::Row {
+            // 左分类栏：固定宽，与右侧列表之间用岛间主间隙的一档。
+            huxerui::Column {
+                HistoryCategoryRow("请求历史", total, category.Get() == 0, 0, category),
+                HistoryCategoryRow("压测记录", loadTotal, category.Get() == 1, 1, category),
+            }
+                .With(huxerui::Frame{.width = kCategoryRailWidth},
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+            category.Get() == 0 ? std::move(requestPanel)
+                                : huxerui::View{LoadRecordRows(std::move(loads))
+                                                    .With(huxerui::Grow(1.0F))},
+        }
+            .With(huxerui::Spacing(islands.page_gap),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                  huxerui::Grow(1.0F)),
+    }
         .With(huxerui::Padding(theme.spacing.large),
               huxerui::Spacing(theme.spacing.medium),
               huxerui::Background(theme.colors.surface_container_low),
-              huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
+              huxerui::CornerRadius(theme.shapes.small), huxerui::Grow(1.0F),
               huxerui::Frame{.min_width = 320.0F, .min_height = 220.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }

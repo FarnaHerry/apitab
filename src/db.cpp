@@ -841,6 +841,11 @@ std::int64_t Db::historyCount() {
     return q.executeStep() ? q.getColumn(0).getInt64() : 0;
 }
 
+std::int64_t Db::countLoadRecords() {
+    SQLite::Statement q(impl_->db, "SELECT COUNT(*) FROM load_tests");
+    return q.executeStep() ? q.getColumn(0).getInt64() : 0;
+}
+
 std::vector<HistoryEntry> Db::listHistoryPage(int limit, std::int64_t offset) {
     const int safeLimit = std::max(1, limit);
     const std::int64_t safeOffset = std::max<std::int64_t>(0, offset);

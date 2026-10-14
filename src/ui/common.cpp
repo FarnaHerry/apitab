@@ -31,18 +31,21 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     huxerui::Color outline_hair = theme.colors.outline;
     outline_hair.alpha *= 0.5F;
     return IslandTheme{
-        .page_gap = theme.spacing.medium,
+        // 工具化密度（2026-10 收敛）：岛间主间隙 16→8、一级岛圆角 16→8、嵌套层
+        // 12→6 —— 页面区块收紧成 IDE 面板节奏，一级岛只保留「能看出是块」的
+        // 最小圆角。历史值：page_gap=spacing.medium(16)、island_radius=large(16)。
+        .page_gap = theme.spacing.small,
         // 一级岛与请求页/主页一致使用 medium 内边距；设置页不能另起一套更厚卡片。
         .island_padding = theme.spacing.medium,
-        .island_radius = theme.shapes.large,
-        .nested_radius = theme.shapes.medium,
+        .island_radius = theme.shapes.small,       // 8pt：一级岛外轮廓
+        .nested_radius = 6.0F,                     // 嵌套底板/弹窗底板（比岛小一档）
         .island_min_width = 160.0F,
         .island_min_height = 120.0F,
         // 几何令牌（ui.h IslandTheme 中段字段）：全项目唯一圆角/图标按钮尺寸
-        // 来源，页面不得再散落魔法数字。普通控件 6pt、输入/分段控件 8pt，保持
-        // API 工作台的高密度节奏；只有卡片和对话框才使用更大的外轮廓。
-        .control_radius = theme.shapes.small,           // 6pt：普通按钮/选择器/局部控件
-        .large_control_radius = theme.shapes.medium,    // 8pt：大输入行/请求组合栏
+        // 来源，页面不得再散落魔法数字。普通控件 8pt、输入/分段控件 12pt；
+        // 只有对话框才使用更大的外轮廓。
+        .control_radius = theme.shapes.small,           // 8pt：普通按钮/选择器/局部控件
+        .large_control_radius = theme.shapes.medium,    // 12pt：大输入行/请求组合栏
         .icon_button_compact = 28.0F,                   // 图标按钮紧凑命中区（正方形）
         .icon_button_regular = 32.0F,                   // 图标按钮舒适命中区（正方形）
         .control_height = 32.0F,                        // 普通控件统一高度

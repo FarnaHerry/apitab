@@ -226,6 +226,8 @@ public:
     std::int64_t historyCount();
     std::vector<HistoryEntry> listHistoryPage(int limit, std::int64_t offset);
     void clearHistory();
+    // ---- load_tests ----
+    std::int64_t countLoadRecords();
 
     // ---- automation_tests ----
     std::vector<AutomationTest> listAutomationTests(std::int64_t projectId);

@@ -396,7 +396,7 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
         .With(huxerui::Padding(compact ? theme.spacing.medium : theme.spacing.large),
               huxerui::Spacing(theme.spacing.medium),
               huxerui::Background(theme.colors.surface_container_low),
-              huxerui::CornerRadius(theme.shapes.large), huxerui::Grow(1.0F),
+              huxerui::CornerRadius(theme.shapes.small), huxerui::Grow(1.0F),
               huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
