@@ -465,10 +465,16 @@ huxerui::View SideRailButton(const huxerui::ThemeSpec& theme, huxerui::ImageReso
     hitIndication.press = huxerui::IndicationLayer{
         .fill = huxerui::VisualFill{huxerui::Brush{pressTint}}};
     return huxerui::Row{
+               // 图标必须 Tint 主题色：SVG 资源按原色渲染，深色海面上会看不清
+               //（此前官方 IconButton 内部自带主题 Tint，换裸 Image 时丢了）。
+               // 非选中 = on_surface_variant（导航惯例次级色），选中 =
+               // on_primary_container（与 primary_container 药丸底配对）。
                huxerui::Image(icon)
                    .Fit(huxerui::ImageFit::Contain)
                    .Align(huxerui::HorizontalAlignment::Center,
                           huxerui::VerticalAlignment::Center)
+                   .Tint(selected ? theme.colors.on_primary_container
+                                  : theme.colors.on_surface_variant)
                    .With(huxerui::Frame{.width = iconSize, .height = iconSize}),
            }
         .With(huxerui::Frame{.width = target, .height = target},
