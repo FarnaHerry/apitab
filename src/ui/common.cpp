@@ -32,11 +32,13 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     outline_hair.alpha *= 0.5F;
     return IslandTheme{
         // 工具化密度（2026-10 收敛）：岛间主间隙 16→8、一级岛圆角 16→8、嵌套层
-        // 12→6 —— 页面区块收紧成 IDE 面板节奏，一级岛只保留「能看出是块」的
-        // 最小圆角。历史值：page_gap=spacing.medium(16)、island_radius=large(16)。
+        // 12→6、岛内边距 12→8 —— 页面区块收紧成 IDE 面板节奏，一级岛只保留
+        // 「能看出是块」的最小圆角。历史值：page_gap=spacing.medium(16)、
+        // island_radius=large(16)、island_padding=spacing.medium(12)。
+        // 岛内边距影响「岛间视觉空隙」：相邻两岛 2×padding + 热区间隙，叠加
+        // 后才是用户看到的卡片间距。
         .page_gap = theme.spacing.small,
-        // 一级岛与请求页/主页一致使用 medium 内边距；设置页不能另起一套更厚卡片。
-        .island_padding = theme.spacing.medium,
+        .island_padding = theme.spacing.small,
         .island_radius = theme.shapes.small,       // 8pt：一级岛外轮廓
         .nested_radius = 6.0F,                     // 嵌套底板/弹窗底板（比岛小一档）
         .island_min_width = 160.0F,

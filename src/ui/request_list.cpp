@@ -162,6 +162,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
     huxerui::State<int> listVersion, bool vertical, float horizontalWidth) {
 
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
     auto addPopup = huxerui::UsePopup(); // 新建菜单（自绘 PopupMenu，卡片观感统一）
     auto ctxMenu = huxerui::UsePopup(); // 行右键菜单（自绘 PopupMenu）：ShowAt 无需锚点，所有行共享
     auto dialog = huxerui::UseDialog();
@@ -724,8 +725,8 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                                            })
                                    .With(huxerui::Grow(1.0F)),
                            }
-                               .With(huxerui::Padding(theme.spacing.medium),
-                                     huxerui::Spacing(theme.spacing.medium),
+                               .With(huxerui::Padding(islands.island_padding),
+                                     huxerui::Spacing(theme.spacing.small),
                                      huxerui::Background(theme.colors.surface_container_low),
                                      huxerui::CornerRadius(theme.shapes.small),
                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));

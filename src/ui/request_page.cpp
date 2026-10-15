@@ -134,10 +134,10 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     const bool lit = hovered.Get() || dragging.Get();
     huxerui::Frame zone;
     if (horizontal)
-        zone.height = 8.0F;
+        zone.height = 6.0F;
     else
-        zone.width = 8.0F;
-    // Stack 才是 8pt 拖拽热区；Divider 只保留主题默认的 1pt 固有粗细。
+        zone.width = 6.0F;
+    // Stack 才是 6pt 拖拽热区；Divider 只保留主题默认的 1pt 固有粗细。
     // Stack 沿分割线方向 Stretch、短轴 Center，故线严格落在热区中心。
     return huxerui::Stack {
                huxerui::Divider(axis).With(
@@ -400,6 +400,9 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
 
 [[huxerui::composable]] huxerui::View RequestPage(huxerui::State<std::int64_t> opened) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    // 岛屿几何令牌：岛内边距统一从这里取（工具化密度 = small/8pt）。
+    // 局部 islands 变量是右侧分支的 View 容器，与令牌命名避让。
+    const IslandTheme islandTheme = ResolveIslandTheme(theme);
 
     // 未打开项目的兜底已删：主页整宽覆盖侧栏后本页在 opened==0 时不可达。
     // 仍订阅 opened：切换项目时，保活的请求页需要重组一次，让环境选择器从
@@ -461,10 +464,10 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                 RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                 NewRequestChooser(createDraft),
             }
-                .With(huxerui::Spacing(theme.spacing.medium),
+                .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
                       huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
-                      huxerui::Padding(theme.spacing.medium),
+                      huxerui::Padding(islandTheme.island_padding),
                       huxerui::Grow(1.0F)),
             theme);
     } else if (currentKind == 1 || currentKind == 2) {
@@ -476,9 +479,9 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                 RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                 content,
             }
-                .With(huxerui::Spacing(theme.spacing.medium),
+                .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                      huxerui::Padding(theme.spacing.medium),
+                      huxerui::Padding(islandTheme.island_padding),
                       huxerui::Grow(1.0F)),
             theme);
     } else if (currentKind == 3) {
@@ -499,15 +502,15 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                           huxerui::Grow(1.0F))
                     .Key(contentKey),
             }
-                .With(huxerui::Spacing(theme.spacing.medium),
+                .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                      huxerui::Padding(theme.spacing.medium),
+                      huxerui::Padding(islandTheme.island_padding),
                       huxerui::Grow(1.0F)),
             theme);
     } else {
         // 非调试子页（文档/测试用例/Mock）：编辑器占满右岛，响应下岛让位。
         // 调试页：编辑器 Grow 1 吃掉响应岛之外的剩余高度；响应岛固定高
-        // （State 可调）。拖条作为两岛之间 8pt 间隙本身，使其细条正好落在
+        // （State 可调）。拖条作为两岛之间 6pt 间隙本身，使其细条正好落在
         // 两张卡片视觉间隔的中心，而不是叠压在响应岛顶缘。
         const bool debugging = editorPage.Get() == 0;
         std::vector<huxerui::View> islands;
@@ -522,9 +525,9 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                     .Key(contentKey)
                     .With(huxerui::Grow(1.0F)),
             }
-                .With(huxerui::Spacing(theme.spacing.medium),
+                .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                      huxerui::Padding(theme.spacing.medium),
+                      huxerui::Padding(islandTheme.island_padding),
                       huxerui::Grow(1.0F)),
             theme, huxerui::Frame{.min_width = 480.0F, .min_height = 300.0F}));
         if (debugging) {
@@ -538,12 +541,12 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                 }
                     .With(huxerui::Spacing(theme.spacing.small),
                           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                          huxerui::Padding(theme.spacing.medium),
+                          huxerui::Padding(islandTheme.island_padding),
                           huxerui::Frame{.height = responseIslandHeight.Get()}),
                 theme));
         }
         rightArea = huxerui::Column(std::move(islands))
-                        // ResizeHandle 已承担调试页两岛间的 8pt 间隙；其余模式没有
+                        // ResizeHandle 已承担调试页两岛间的 6pt 间隙；其余模式没有
                         // 第二岛，保留该 spacing 不影响布局。
                         .With(huxerui::Spacing(debugging ? 0.0F : theme.spacing.small),
                               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),

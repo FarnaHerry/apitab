@@ -312,7 +312,7 @@ huxerui::View SplitActionButton(
         else
             children.push_back(MockPage(snapshot, drafts, index));
         return huxerui::Column(std::move(children))
-            .With(huxerui::Spacing(theme.spacing.medium),
+            .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
 
@@ -360,7 +360,7 @@ huxerui::View SplitActionButton(
                                   SetAuthValue(d, mode, value.text);
                               });
                           }),
-            }.With(huxerui::Spacing(theme.spacing.medium),
+            }.With(huxerui::Spacing(theme.spacing.small),
                    huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
             break;
         case 1:
@@ -410,7 +410,7 @@ huxerui::View SplitActionButton(
                     .With(huxerui::Spacing(theme.spacing.small),
                           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             }
-                .With(huxerui::Spacing(theme.spacing.medium),
+                .With(huxerui::Spacing(theme.spacing.small),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
             break;
         default: {
@@ -867,7 +867,7 @@ huxerui::View SplitActionButton(
                                    .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)));
         }
         return huxerui::Column(std::move(children))
-            .With(huxerui::Spacing(theme.spacing.medium),
+            .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 
