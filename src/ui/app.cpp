@@ -439,11 +439,50 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
 // 左列：图标侧边栏（选中态用实心图标变体 + 药丸底色，悬停显示文字提示）。
 // 侧栏不做岛、直接落在海面（窗口背景）上；选中强调只有图标变体与药丸底色——
 // 原先的左侧 3pt 指示条既是多余的第三条选中线索，又会占掉行内水平空间、把图标
-// 从药丸中心推开，已删除。每个图标都在自己的按钮里双向居中：外层 Row 与
-// IconButton 同为 40pt（无多余兄弟节点），CrossAlign(Center) 负责纵向。
+// 从药丸中心推开，已删除。导航按钮为侧栏专用档：44pt 命中区（compact 36）+
+// 22pt 图标（compact 20）——官方 IconButton 固定小图标且命中区窄，与选中药丸
+// 范围对不上；这里 hover/press 反馈与选中底色画在同一块 Frame 上（手工
+// Indication，与 AppIconButton 同配方），范围严格一致。
 // WebSocket/TCP 已并入请求页标签，不再单列。
 inline constexpr float kCompactSideShellWidth = 52.0F;
 inline constexpr float kRegularSideShellWidth = 64.0F;
+
+huxerui::View SideRailButton(const huxerui::ThemeSpec& theme, huxerui::ImageResource icon,
+                             const char* tooltip, bool selected, bool compact,
+                             std::function<void()> onClick) {
+    const float target = compact ? 36.0F : 44.0F;
+    const float iconSize = compact ? 20.0F : 22.0F;
+    // hover/press 反馈 = on_surface 6%/12% 叠层（深浅主题自适应），与
+    // AppIconButton 同一配方；范围 = 整块命中区，与选中药丸底完全一致
+    //（此前官方 IconButton 的默认悬停只有其自身窄命中区，与药丸错位）。
+    huxerui::Color hoverTint = theme.colors.on_surface;
+    hoverTint.alpha = 0.06F;
+    huxerui::Color pressTint = theme.colors.on_surface;
+    pressTint.alpha = 0.12F;
+    huxerui::Indication hitIndication;
+    hitIndication.hover = huxerui::IndicationLayer{
+        .fill = huxerui::VisualFill{huxerui::Brush{hoverTint}}};
+    hitIndication.press = huxerui::IndicationLayer{
+        .fill = huxerui::VisualFill{huxerui::Brush{pressTint}}};
+    return huxerui::Row{
+               huxerui::Image(icon)
+                   .Fit(huxerui::ImageFit::Contain)
+                   .Align(huxerui::HorizontalAlignment::Center,
+                          huxerui::VerticalAlignment::Center)
+                   .With(huxerui::Frame{.width = iconSize, .height = iconSize}),
+           }
+        .With(huxerui::Frame{.width = target, .height = target},
+              huxerui::Background(selected ? theme.colors.primary_container
+                                           : huxerui::Color::Transparent()),
+              huxerui::CornerRadius(theme.shapes.small),
+              std::move(hitIndication),
+              huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+              huxerui::Semantics{.role = huxerui::SemanticRole::Button, .label = tooltip},
+              huxerui::Tooltip(tooltip),
+              huxerui::Focusable(true))
+        .OnClick(std::move(onClick));
+}
 
 [[huxerui::composable]] huxerui::View SideShell(huxerui::State<std::size_t> navPage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -466,20 +505,11 @@ inline constexpr float kRegularSideShellWidth = 64.0F;
         const std::size_t page = item.page;
         const bool selected = navPage.Get() == page;
         const huxerui::ImageResource& icon = selected ? item.icon_selected : item.icon;
-        buttons.push_back(
-            huxerui::Row{
-                huxerui::IconButton(icon, item.tooltip)
-                    .OnClick([navPage, page] { navPage = page; }),
-            }
-                .With(huxerui::Frame{.width = 40.0F, .height = 40.0F},
-                      huxerui::Background(selected ? theme.colors.primary_container
-                                                    : huxerui::Color::Transparent()),
-                      huxerui::CornerRadius(theme.shapes.small),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center))
-                .With(huxerui::Tooltip(item.tooltip)));
+        buttons.push_back(SideRailButton(theme, icon, item.tooltip, selected, compact,
+                                         [navPage, page] { navPage = page; }));
     }
     return huxerui::Column(std::move(buttons))
-        .With(huxerui::Padding(compact ? theme.spacing.small : theme.spacing.medium),
+        .With(huxerui::Padding(theme.spacing.small),
               huxerui::Spacing(theme.spacing.small),
               huxerui::Frame{.width = compact ? kCompactSideShellWidth : kRegularSideShellWidth},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
