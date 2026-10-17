@@ -388,6 +388,13 @@ endif ()
 if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib-webview/CMakeLists.txt")
     huxerui_use_library(apitab TARGET HuxerUI::WebView
         PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib-webview")
+    if (APPLE AND NOT HUXERUI_LIBRARY_GRAPH_ONLY)
+        # webview_macos.mm.o 引用 NSError/NSString/NSJSONSerialization（Foundation）
+        # 等纯 ObjC 符号，而 Lib-WebView 在 Apple 上只 PRIVATE 链 WebKit；两级
+        # 命名空间下 WebKit 不回传依赖框架，最终链接必须显式补（AppKit 供
+        # NSWindow 一族，Foundation 供 NSError/NSString 一族）。
+        target_link_libraries(apitab PRIVATE "-framework Foundation" "-framework AppKit")
+    endif ()
     if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         set(APITAB_HAS_WEBVIEW ON)
         if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
