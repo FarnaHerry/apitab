@@ -4,7 +4,7 @@
      Identity 固定（Name/Publisher 不随版本变）——升级链依赖它保持一致。 -->
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/uap/windows10/rescap">
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
   <Identity Name="FarnaHerry.apitab"
             Publisher="CN=FarnaHerry"
             Version="@MSIX_VERSION@"
