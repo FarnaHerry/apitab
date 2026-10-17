@@ -380,7 +380,9 @@ namespace {
             .With(huxerui::Padding(theme.spacing.medium),
                   huxerui::Spacing(theme.spacing.small),
                   huxerui::Background(theme.colors.surface_container_low),
-                  huxerui::CornerRadius(theme.shapes.small), huxerui::Frame{.width = 240.0F},
+                  huxerui::CornerRadius(theme.shapes.small),
+                  huxerui::Border(ResolveIslandTheme(theme).outline_hair, 1.0F),
+                  huxerui::Frame{.width = 240.0F},
                   huxerui::Frame{.min_width = 200.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
@@ -446,7 +448,9 @@ namespace {
             .With(huxerui::Padding(theme.spacing.large),
                   huxerui::Spacing(theme.spacing.medium),
                   huxerui::Background(theme.colors.surface_container_low),
-                  huxerui::CornerRadius(theme.shapes.small), huxerui::Grow(1.0F),
+                  huxerui::CornerRadius(theme.shapes.small),
+                  huxerui::Border(ResolveIslandTheme(theme).outline_hair, 1.0F),
+                  huxerui::Grow(1.0F),
                   huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 

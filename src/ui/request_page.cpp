@@ -174,8 +174,11 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
 huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSpec& theme,
                                    huxerui::Frame minimum = {.min_width = 320.0F,
                                                              .min_height = 140.0F}) {
+    const IslandTheme islands = ResolveIslandTheme(theme);
     return std::move(content).With(huxerui::Background(theme.colors.surface_container_low),
                                    huxerui::CornerRadius(theme.shapes.small),
+                                   // 与 IslandSurface 同规：所有岛统一 1px 框线。
+                                   huxerui::Border(islands.outline_hair, 1.0F),
                                    // 各调用方可按内容指定最低可用工作区；拖条与 Grow
                                    // 只能在该下限之上分配，避免内容被挤没。
                                    minimum);

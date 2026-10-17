@@ -340,7 +340,8 @@ constexpr int kLoadRecordLimit = 50;
         .With(huxerui::Padding(theme.spacing.large),
               huxerui::Spacing(theme.spacing.medium),
               huxerui::Background(theme.colors.surface_container_low),
-              huxerui::CornerRadius(theme.shapes.small), huxerui::Grow(1.0F),
+              huxerui::CornerRadius(theme.shapes.small),
+              huxerui::Border(islands.outline_hair, 1.0F), huxerui::Grow(1.0F),
               huxerui::Frame{.min_width = 320.0F, .min_height = 220.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }

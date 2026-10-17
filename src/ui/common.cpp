@@ -91,14 +91,14 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
     huxerui::View surface = content;
     return std::move(surface).With(huxerui::Background(IslandColor(islands, theme, level)),
                                    huxerui::CornerRadius(islands.island_radius),
-                                   // 普通工作区靠表面层级分区；只有浮层/危险态需要描边。
+                                   // 所有岛统一 1px 框线（outline 半透明档）：深浅
+                                   // 主题下都给岛一个可辨的边界；浮层/危险态用
+                                   // 全强度 outline 强调。
                                    huxerui::Border(
                                        (level == IslandLevel::Overlay || level == IslandLevel::Danger)
                                            ? islands.outline_soft
-                                           : huxerui::Color::Transparent(),
-                                       (level == IslandLevel::Overlay || level == IslandLevel::Danger)
-                                           ? 1.0F
-                                           : 0.0F),
+                                           : islands.outline_hair,
+                                       1.0F),
                                    huxerui::Padding(islands.island_padding),
                                    huxerui::Frame{.min_width = islands.island_min_width,
                                                   .min_height = islands.island_min_height});
