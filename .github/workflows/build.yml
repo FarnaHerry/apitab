@@ -524,6 +524,39 @@ jobs:
           Copy-Item build/huxerui-package/windows/Package.wxs windows-package-metadata/Package.wxs -Force
           Copy-Item build/huxerui-package/windows/Bundle.wxs windows-package-metadata/Bundle.wxs -Force
           Copy-Item third_party/huxerui/cmake/HuxerUIGenerateWixPayloads.cmake windows-package-tools/HuxerUIGenerateWixPayloads.cmake -Force
+          # ---- NSIS 时代遗留清理（apitab ≤0.1.3 的 per-user 安装器）----
+          # 旧 NSIS 装在 %LOCALAPPDATA%\Programs\apitab 并写 HKCU 卸载键，WiX MSI
+          # （perMachine, Program Files）对它一无所知——不清理就是“装新不删旧、
+          # 遗留一堆东西”。全部用内建元素（免 util 扩展依赖）：
+          #   RemoveFile(*, install) 清空旧目录 → RemoveFolder 逐级删空目录；
+          #   RemoveRegistryKey 清 NSIS 的 HKCU 卸载键；
+          #   RemoveFile 清开始菜单/桌面旧 lnk（同名的会在其后被新 MSI 覆盖）。
+          # 用户数据在 %APPDATA%\apitab，与上述路径无交集，不受影响。
+          $wxs = Get-Content windows-package-metadata/Package.wxs -Raw
+          $cleanup = @'
+
+  <StandardDirectory Id="LocalAppDataFolder">
+    <Directory Id="LegacyNsisPrograms" Name="Programs">
+      <Directory Id="LegacyNsisApitab" Name="apitab" />
+    </Directory>
+  </StandardDirectory>
+  <Feature Id="LegacyNsisCleanup" Title="Legacy NSIS cleanup" Level="1">
+    <Component Id="LegacyNsisCleanupComponent" Directory="LegacyNsisApitab">
+      <RemoveFile Id="LegacyNsisFiles" Directory="LegacyNsisApitab" Name="*" On="install" />
+      <RemoveFolder Id="LegacyNsisApitabDir" Directory="LegacyNsisApitab" On="install" />
+      <RemoveFolder Id="LegacyNsisProgramsDir" Directory="LegacyNsisPrograms" On="install" />
+      <RemoveRegistryKey Root="HKCU" Action="removeOnInstall"
+                         Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\apitab" />
+      <RemoveFile Id="LegacyNsisStartMenuUninstallLnk" Directory="APPLICATIONPROGRAMMENU"
+                  Name="Uninstall apitab.lnk" On="install" />
+      <RemoveFile Id="LegacyNsisDesktopLnk" Directory="DesktopFolder" Name="apitab.lnk" On="install" />
+      <RegistryValue Root="HKLM" Key="Software\apitab\apitab" Name="legacyNsisCleaned"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+    <ComponentRef Id="LegacyNsisCleanupComponent" />
+  </Feature>'@
+          $wxs = $wxs -replace '</Package>', ($cleanup + '</Package>')
+          Set-Content windows-package-metadata/Package.wxs $wxs -NoNewline
           Get-Item $appStage/*, $installerStage/*, windows-package-metadata/*, windows-package-tools/*
 
       - name: Build release

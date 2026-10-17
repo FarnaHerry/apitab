@@ -420,8 +420,12 @@ UI 工作。旧 `requestUiUpdate` 唤醒钩子保留为 no-op（仅 k6 引擎仍
   链接失败）。`import std` 的 libc++.modules.json 由 CI 按上游 schema 生成进
   brew llvm 的 lib/，configure 经 `CMAKE_CXX_STDLIB_MODULES_JSON` 显式注入
   （brew formula 不开 LIBCXX_ENABLE_STD_MODULES）。详见
-  `.github/workflows/build.yml` 注释。- 版本号唯一来源是顶层 `project(apitab VERSION ...)`；packaging 脚本与 NSIS 从
-  CMakeLists 解析。
+  `.github/workflows/build.yml` 注释。- 版本号唯一来源是顶层 `project(apitab VERSION ...)`；packaging 脚本与
+  Windows WiX 步骤从 CMakeLists 解析。Windows 安装器为 WiX Burn bundle
+  （perMachine, Program Files）；≤0.1.3 曾用 NSIS（per-user，
+  %LOCALAPPDATA%\Programs\apitab，apitab.nsi 已删除）——MSI 的 Package.wxs
+  后处理（build.yml）在安装时清理 NSIS 遗留目录/卸载键/快捷方式，用户数据
+  （%APPDATA%\apitab）不在此列。
 
 ## CLI（agent 可用）
 
