@@ -529,13 +529,17 @@ jobs:
           # （perMachine, Program Files）对它一无所知——不清理就是“装新不删旧、
           # 遗留一堆东西”。全部用内建元素（免 util 扩展依赖）：
           #   RemoveFile(*, install) 清空旧目录 → RemoveFolder 逐级删空目录；
-          #   RemoveRegistryKey 清 NSIS 的 HKCU 卸载键；
-          #   RemoveFile 清开始菜单/桌面旧 lnk（同名的会在其后被新 MSI 覆盖）。
+          #   RemoveRegistryKey 清 NSIS 的 HKCU 卸载键（提权安装时 HKCU 映射到
+          #   发起安装的用户，单用户机器场景覆盖）。
+          # 不清 NSIS 的开始菜单/桌面 lnk：per-machine 上下文里 ProgramMenuFolder/
+          # DesktopFolder 解析到 all-users，够不到发起用户的 per-user 快捷方式。
           # 用户数据在 %APPDATA%\apitab，与上述路径无交集，不受影响。
           $wxs = Get-Content windows-package-metadata/Package.wxs -Raw
           # PowerShell here-string 的终止符 '@ 必须顶格，与 YAML 块标量的缩进
           # 约束冲突（缩进不足会提前终止 run: | 块，整个 workflow 解析失败）——
           # 改用可跨行的单引号字符串（内容无单引号，反斜杠保持字面）。
+          # Component 已嵌套在 Feature 内（隐式 FeatureComponents 引用），
+          # 不能再写 ComponentRef——主键重复 WIX0130。
           $cleanup = '
           <StandardDirectory Id="LocalAppDataFolder">
             <Directory Id="LegacyNsisPrograms" Name="Programs">
@@ -549,13 +553,9 @@ jobs:
               <RemoveFolder Id="LegacyNsisProgramsDir" Directory="LegacyNsisPrograms" On="install" />
               <RemoveRegistryKey Root="HKCU" Action="removeOnInstall"
                                  Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\apitab" />
-              <RemoveFile Id="LegacyNsisStartMenuUninstallLnk" Directory="APPLICATIONPROGRAMMENU"
-                          Name="Uninstall apitab.lnk" On="install" />
-              <RemoveFile Id="LegacyNsisDesktopLnk" Directory="DesktopFolder" Name="apitab.lnk" On="install" />
               <RegistryValue Root="HKLM" Key="Software\apitab\apitab" Name="legacyNsisCleaned"
                              Type="integer" Value="1" KeyPath="yes" />
             </Component>
-            <ComponentRef Id="LegacyNsisCleanupComponent" />
           </Feature>'
           $wxs = $wxs -replace '</Package>', ($cleanup + '</Package>')
           Set-Content windows-package-metadata/Package.wxs $wxs -NoNewline
