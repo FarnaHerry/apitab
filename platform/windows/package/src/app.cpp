@@ -108,21 +108,37 @@ View InstallerPage() {
     actions.push_back(Button("Close").OnClick([window] { window.Close(); }));
   }
 
+  // 自定义标题栏（与主程序同一套 Custom chrome）：品牌行落进标题栏，右侧
+  // ─▢✕ 由框架渲染在系统按钮保留区，WindowTitleBar 布局自动避开。
+  // 空白区必须由真实子项占住并标记拖拽（WindowDragRegion），否则命中测试
+  // 落不到空 Row 的空隙上（主程序标题栏同款处理，见 src/ui/app.cpp）。
   return MaterialTheme {Column {
-    Text("APITAB / WINDOWS SETUP").Style(TextStyle{Font::System(12.0F).WithWeight(FontWeight::SemiBold), theme.colors.primary}),
-    Text(std::move(title), TextRole::Title),
-    Column(std::move(content)).With(Spacing(16.0F), CrossAlign(CrossAxisAlignment::Stretch), Grow()),
-    Divider(),
-    Row(std::move(actions)).With(Spacing(10.0F), MainAlign(MainAxisAlignment::End)),
-  }.With(Frame{.min_width = 620.0F, .min_height = 390.0F}, Padding(32.0F), Spacing(20.0F),
-         CrossAlign(CrossAxisAlignment::Stretch), Background(theme.colors.surface))};
+    WindowTitleBar {
+      Text("APITAB / WINDOWS SETUP")
+          .Style(TextStyle{Font::System(12.0F).WithWeight(FontWeight::SemiBold), theme.colors.primary})
+          .With(WindowDragRegion{}),
+      Spacer().With(Grow(1.0F), WindowDragRegion{}),
+    }.With(Padding(EdgeInsets::Symmetric(16.0F, 0.0F))),
+    Column {
+      Text(std::move(title), TextRole::Title),
+      Column(std::move(content)).With(Spacing(16.0F), CrossAlign(CrossAxisAlignment::Stretch), Grow()),
+      Divider(),
+      Row(std::move(actions)).With(Spacing(10.0F), MainAlign(MainAxisAlignment::End)),
+    }.With(Frame{.min_width = 620.0F, .min_height = 390.0F}, Padding(32.0F), Spacing(20.0F),
+           CrossAlign(CrossAxisAlignment::Stretch), Grow(1.0F)),
+  }.With(CrossAlign(CrossAxisAlignment::Stretch), Grow(1.0F), Background(theme.colors.surface))};
 }
 
 } // namespace
 
 const Application application{
     InstallerPage,
-    {.window = {.title = "apitab Setup", .initial_size = {720.0F, 470.0F}, .minimum_size = Size{620.0F, 390.0F}},
+    {.window = {.title = "apitab Setup",
+                // 标题栏占用客户区高度：初始/最小尺寸在原内容尺寸上各让出 40pt。
+                .initial_size = {720.0F, 510.0F},
+                .minimum_size = Size{620.0F, 430.0F},
+                .chrome_mode = WindowChromeMode::Custom,
+                .title_bar_height = 40.0F},
      .show_debug_overlay = false,
      .window_hooks = {InstallInstallerSession}},
 };
