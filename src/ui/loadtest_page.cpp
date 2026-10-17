@@ -1,4 +1,5 @@
-// loadtest_page.cpp — k6 压测：参数输入 + 启动/停止 + 实时输出流 + 汇总与最近记录。
+// loadtest_page.cpp — k6 压测：参数输入 + 启动/停止 + 实时输出流 + 汇总。
+// 压测记录的归档查看在历史记录页左栏「压测记录」分类。
 #include <huxerui/huxerui.h>
 #include <huxerui/codeeditor.h>
 
@@ -215,10 +216,6 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
 
     const bool k6ok = g_loadtest.available();
-    const auto recordsResult = g_loadtest.records(10);
-    const std::vector<db::LoadRecord> records = recordsResult
-                                                    ? *recordsResult
-                                                    : std::vector<db::LoadRecord>{};
 
     // 当前环境的基础 URL（g_requests 持有环境选择；无环境/为空时该段不渲染）。
     std::string envBaseUrl;
@@ -369,25 +366,8 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
             huxerui::Text("输出", huxerui::TextRole::Title),
             // 输出区自带固定高度虚拟滚动。
             OutputArea(output, theme),
-            huxerui::Text("最近记录", huxerui::TextRole::Title),
-            huxerui::Text(recordsResult ? "" : "读取压测记录失败: " + recordsResult.error().message,
-                          huxerui::TextRole::Body)
-                .With(huxerui::Foreground(theme.colors.error)),
-            huxerui::ForEach(
-                records, [theme](const db::LoadRecord& r) {
-                    std::string extra;
-                    if (!r.duration.empty()) extra += " · " + r.duration;
-                    if (r.thresholdOk == 0 || r.thresholdOk == 1)
-                        extra += r.thresholdOk == 1 ? " · ✓" : " · ✗";
-                    return huxerui::Text(
-                               std::format("{} {} · VU={}{} · {} req · RPS {:.0f} · P95 {:.0f}ms",
-                                           r.name, r.url, r.vus, extra, r.requests, r.rps,
-                                           r.p95Ms),
-                               huxerui::TextRole::Body)
-                        .With(huxerui::Foreground(
-                            r.thresholdOk == 0 ? theme.colors.error
-                                               : theme.colors.on_surface_variant));
-                }),
+            // 压测记录的归档查看已迁往历史记录页左栏「压测记录」分类（含阈值
+            // 判定染色），本页不再重复列出。
         }
                             .With(huxerui::Spacing(theme.spacing.medium),
                                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
