@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MSIX 清单（winapp CLI 打包用）：CI 把 @MSIX_VERSION@ 替换为
+     project(VERSION) 的四段版本（x.y.z.0）后随应用一起进 winapp pack。
+     Identity 固定（Name/Publisher 不随版本变）——升级链依赖它保持一致。 -->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/uap/windows10/rescap">
+  <Identity Name="FarnaHerry.apitab"
+            Publisher="CN=FarnaHerry"
+            Version="@MSIX_VERSION@"
+            ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>apitab</DisplayName>
+    <PublisherDisplayName>FarnaHerry</PublisherDisplayName>
+    <Logo>assets\Square150x150Logo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0"
+                        MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="apitab" Executable="apitab.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="apitab"
+                          Description="apitab — API testing and load testing"
+                          Square150x150Logo="assets\Square150x150Logo.png"
+                          Square44x44Logo="assets\Square44x44Logo.png"
+                          BackgroundColor="transparent">
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <!-- 桌面 Win32 全信任（解包目录直跑的应用形态）。 -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

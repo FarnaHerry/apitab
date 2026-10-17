@@ -867,6 +867,40 @@ jobs:
           Copy-Item $bundle "apitab-$version-windows-x86_64-setup.exe" -Force
           Get-Item "apitab-$version-windows-x86_64-setup.exe"
 
+      - name: Set up Windows App Developer CLI
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-WinAppCli@v0.1
+
+      - name: Build MSIX package (winapp CLI)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $line = Get-Content CMakeLists.txt | Where-Object { $_ -match '^\s*project\(apitab\s+VERSION\s+' } | Select-Object -First 1
+          $version = $line -replace '^\s*project\(apitab\s+VERSION\s+([0-9.]+).*', '$1'
+          # manifest 版本必须是四段数字；随应用与资产一起进 staging。
+          $staged = 'dist-windows-application'
+          (Get-Content platform/windows/msix/Package.appxmanifest -Raw) `
+            -replace '@MSIX_VERSION@', "$version.0" |
+            Set-Content (Join-Path $staged 'Package.appxmanifest') -NoNewline
+          Copy-Item platform/windows/msix/assets (Join-Path $staged 'assets') -Recurse -Force
+          # 自签证书（每次发布随机生成；.cer 随包提供，安装方导入「受信任的人」
+          # 存储一次即可）。后续接入固定证书时改用 repo secret。
+          winapp cert generate --publisher "CN=FarnaHerry" --output apitab-msix.pfx
+          if ($LASTEXITCODE -ne 0) { throw 'winapp cert generate failed' }
+          # staging 里有 apitab.exe + k6.exe 两个 exe，必须 --exe 显式指定入口，
+          # 否则 winapp pack 对多 exe 目录直接报错。
+          winapp pack $staged --manifest (Join-Path $staged 'Package.appxmanifest') `
+            --exe apitab.exe --cert apitab-msix.pfx `
+            --output "apitab-$version-windows-x86_64.msix"
+          if ($LASTEXITCODE -ne 0) { throw 'winapp pack failed' }
+          # 导出公钥证书（.cer）供安装方信任；MSIX 必须由受信证书签名才能安装。
+          $cert = New-Object Security.Cryptography.X509Certificates.X509Certificate2(
+            (Resolve-Path 'apitab-msix.pfx').Path, 'password')
+          [IO.File]::WriteAllBytes("apitab-$version-windows-x86_64.cer", $cert.Export('Cert'))
+          Remove-Item apitab-msix.pfx  # 私钥不入产物
+          Get-Item "apitab-$version-windows-x86_64.msix", "apitab-$version-windows-x86_64.cer"
+
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
         with:

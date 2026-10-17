@@ -425,7 +425,9 @@ UI 工作。旧 `requestUiUpdate` 唤醒钩子保留为 no-op（仅 k6 引擎仍
   （perMachine, Program Files）；≤0.1.3 曾用 NSIS（per-user，
   %LOCALAPPDATA%\Programs\apitab，apitab.nsi 已删除）——MSI 的 Package.wxs
   后处理（build.yml）在安装时清理 NSIS 遗留目录/卸载键/快捷方式，用户数据
-  （%APPDATA%\apitab）不在此列。
+  （%APPDATA%\apitab）不在此列。另有 MSIX 通道：`platform/windows/msix/`
+  清单 + `microsoft/setup-WinAppCli` + `winapp pack`（CI 随机自签，.cer 随
+  包；staging 双 exe 必须 `--exe apitab.exe` 指定入口）。
 
 ## CLI（agent 可用）
 
