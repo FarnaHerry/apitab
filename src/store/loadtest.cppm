@@ -11,20 +11,6 @@ import apitab.utils;
 
 export class LoadStore {
 public:
-    // ---- 请求页 ↔ 压测页联动槽（内存，不持久化）----
-    // 请求编辑器「压测」按钮写入完整请求（headers/body 随 spec 走），压测页
-    // Lifecycle 消费预填；清除/覆盖由页面负责。generation 随每次写入递增：
-    // 两页共享一个 linkTick，反向跳转也会让压测页 Lifecycle 重跑，页面凭
-    // 「已消费代数」区分新联动与无关信号，避免覆盖用户手输。
-    void setPendingRequest(std::string name, api::RequestSpec spec) {
-        pending_ = PendingLoadRequest{.name = std::move(name), .spec = std::move(spec)};
-        ++pendingGeneration_;
-    }
-    const api::RequestSpec* pendingRequest() const { return pending_ ? &pending_->spec : nullptr; }
-    std::string pendingRequestName() const { return pending_ ? pending_->name : std::string{}; }
-    std::uint64_t pendingRequestGeneration() const { return pendingGeneration_; }
-    void clearPendingRequest() { pending_.reset(); }
-
     // 与 RequestStore 同理：静态初始化保持廉价，打开是显式的（见 requests.cppm）。
     // 否则 CLI 客户端进程仅因模块级全局构造就会打开数据库。引擎（k6 路径解析）也在
     // Open 里做——压测结果落库属于 GUI 进程的事。
@@ -175,14 +161,6 @@ public:
     }
 
 private:
-    // 请求页 → 压测页的联动载荷。
-    struct PendingLoadRequest {
-        std::string name;
-        api::RequestSpec spec;
-    };
-    std::optional<PendingLoadRequest> pending_;
-    std::uint64_t pendingGeneration_ = 0;
-
     template <typename F>
     auto databaseResult(F&& fn) -> Result<std::invoke_result_t<F>> {
         if (!db_) return std::unexpected(startupError_.value_or(AppError{"数据库不可用"}));

@@ -183,20 +183,13 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
     return huxerui::Column(std::move(lines)).With(huxerui::Spacing(theme.spacing.small));
 }
 
-[[huxerui::composable]] huxerui::View LoadTestPage(huxerui::State<std::size_t> navPage,
-                                                   huxerui::State<int> linkTick) {
+[[huxerui::composable]] huxerui::View LoadTestPage() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
 
     auto methodIndex = huxerui::UseState<std::size_t>(0);
     auto url = huxerui::UseState(huxerui::TextEditingValue{});
-    // 请求页 → 压测页联动的来源条状态（槽内容快照；bump linkTick 后由下方
-    // Lifecycle 预填与刷新）。
-    auto linked = huxerui::UseState(false);
-    auto linkedName = huxerui::UseState(std::string{});
-    auto linkedHeaders = huxerui::UseState(0);
-    auto linkedHasBody = huxerui::UseState(false);
     // 模式：0=固定 VUs 1=阶梯 2=固定迭代（kLoadModeNames 同序）。
     auto modeIndex = huxerui::UseState<std::size_t>(0);
     auto vus = huxerui::UseState(huxerui::TextEditingValue{"10"});
@@ -228,36 +221,6 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
     std::string envBaseUrl;
     if (const db::Environment* env = g_requests.findEnvironment(g_requests.currentEnvId()))
         envBaseUrl = env->baseUrl;
-
-    // 请求页 → 压测页联动消费：bump linkTick 后读联动槽，预填 method/url 并挂
-    // 出来源条（headers/body 不上 UI，压测时随槽内 spec 原样下发）。Lifecycle
-    // 内写 State 为合法时点；槽不在此清除——开始压测与清除按钮才消费。
-    // consumedGeneration 去重：两页共享 linkTick，反向跳转也会让本 Lifecycle
-    // 重跑，只有「槽代数 > 已消费代数」才是新联动，避免覆盖用户手输。
-    (void)linkTick.Get();
-    auto consumedGeneration = huxerui::UseState<std::uint64_t>(0);
-    huxerui::Lifecycle([methodIndex, url, linked, linkedName, linkedHeaders, linkedHasBody,
-                        consumedGeneration] {
-        if (g_loadtest.pendingRequestGeneration() <= consumedGeneration.Get()) return;
-        const api::RequestSpec* pending = g_loadtest.pendingRequest();
-        if (pending == nullptr) {
-            linked = false;
-            return;
-        }
-        // method 定位：kMethodNames 线性匹配（大小写敏感，与草稿表一致）。
-        for (std::size_t i = 0; i < kMethodNames.size(); ++i) {
-            if (std::string_view{kMethodNames[i]} == pending->method) {
-                methodIndex = i;
-                break;
-            }
-        }
-        url = huxerui::TextEditingValue::FromText(pending->url);
-        linked = true;
-        linkedName = g_loadtest.pendingRequestName();
-        linkedHeaders = static_cast<int>(pending->headers.size());
-        linkedHasBody = !pending->body.empty() || !pending->bodyFields.empty();
-        consumedGeneration = g_loadtest.pendingRequestGeneration();
-    }, linkTick);
 
     // 参数 State → LoadOptions（模板生成与开始压测共用，见 AssembleOptions）。
     const auto assemble = [=] {
@@ -296,37 +259,6 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
     return huxerui::Column {
         PageHeader("压测", k6ok ? "k6 引擎：就绪" : "k6 引擎：未找到（engines/ 或 PATH）"),
         huxerui::ScrollView{huxerui::Column {
-            // 联动行：左 = 请求页带参来源（含头/体概要 + 解除关联）；右 =
-            // 「在请求页打开」（当前 method/url 回请求页新建草稿，两者互通）。
-            huxerui::Row {
-                linked.Get()
-                    ? huxerui::View{huxerui::Row {
-                          huxerui::Text(
-                              std::format("来自请求：{} · {} 个头{}", linkedName.Get(),
-                                          linkedHeaders.Get(),
-                                          linkedHasBody.Get() ? " · 带 body" : ""),
-                              huxerui::TextRole::Label)
-                              .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-                          huxerui::Button("解除关联")
-                              .OnClick([=] {
-                                  g_loadtest.clearPendingRequest();
-                                  linked = false;
-                                  toast.Show("已解除关联，压测不再携带请求的头与 body");
-                              }),
-                      }
-                                          .With(huxerui::Spacing(theme.spacing.small),
-                                                huxerui::CrossAlign(
-                                                    huxerui::CrossAxisAlignment::Center))}
-                    : huxerui::View{huxerui::Row{}},
-                huxerui::Button("在请求页打开")
-                    .OnClick([=] {
-                        g_requests.setPendingNewRequest(methodIndex.Get(), url.Get().text);
-                        linkTick = linkTick.Get() + 1;
-                        navPage = kNavRequest;
-                    }),
-            }
-                .With(huxerui::MainAlign(huxerui::MainAxisAlignment::SpaceBetween),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
             // 方法+URL 合并控件（自带 Grow 占满整行）。
             MethodUrlBar(
                 std::vector<std::string>(kMethodNames.begin(), kMethodNames.end()),
@@ -375,12 +307,7 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
                 PrimaryButton(huxerui::Button(running.Get() ? "压测进行中…" : "开始压测")
                     .OnClick([=] {
                         if (running.Get()) return;
-                        // 联动优先：槽内有来源请求时以它为基底（headers/body 随
-                        // spec 走），method/url 仍取输入框当前值（用户可改）；
-                        // 无联动 = 纯 method/url 手输模式（现状）。
                         api::RequestSpec spec;
-                        if (const api::RequestSpec* pending = g_loadtest.pendingRequest())
-                            spec = *pending;
                         spec.method = std::string{kMethodNames.at(methodIndex.Get())};
                         spec.url = url.Get().text;
                         if (spec.url.empty()) {

@@ -41,26 +41,33 @@ namespace apitab::ui {
 
 namespace pages {
 
-// 项目工作区内部页下标已上移 ui.h（enum NavPage：请求页↔压测页联动需要跨 TU
-// 写 navPage，枚举不能私有在本文件）。
+// 项目工作区内部页（navPage 只表达项目工作区内的页面；顶级目的地由 activeTopTab
+// 表达——island-structure-theme.md §13.1，P1-B0.1）。旧 kHome/kAppSettings 已删除
+//（不再有双状态竞争路径），kWebSocket/kTcp 本就不可达（已并入请求页内部标签）
+// 一并清理。
+enum PageIndex : std::size_t {
+    kRequest = 0,
+    kLoad = 1,
+    kHistory = 2,
+    kProjectSettings = 3,
+};
 
 [[huxerui::composable]] huxerui::View ProjectPages(
     huxerui::State<std::size_t> selectedPage,
-    huxerui::State<std::int64_t> activeProject,
-    huxerui::State<int> linkTick) {
+    huxerui::State<std::int64_t> activeProject) {
     std::vector<huxerui::View> pages;
     pages.reserve(4);
-    pages.push_back(RequestPage(activeProject, selectedPage, linkTick)
-                        .Key(std::size_t{kNavRequest})
+    pages.push_back(RequestPage(activeProject)
+                        .Key(std::size_t{kRequest})
                         .With(huxerui::Grow(1.0F)));
-    pages.push_back(LoadTestPage(selectedPage, linkTick)
-                        .Key(std::size_t{kNavLoad})
+    pages.push_back(LoadTestPage()
+                        .Key(std::size_t{kLoad})
                         .With(huxerui::Grow(1.0F)));
     pages.push_back(HistoryPage()
-                        .Key(std::size_t{kNavHistory})
+                        .Key(std::size_t{kHistory})
                         .With(huxerui::Grow(1.0F)));
     pages.push_back(ProjectSettingsPage()
-                        .Key(std::size_t{kNavProjectSettings})
+                        .Key(std::size_t{kProjectSettings})
                         .With(huxerui::Grow(1.0F)));
     return huxerui::IndexedPages(std::move(pages), selectedPage.Get());
 }
@@ -493,10 +500,10 @@ huxerui::View SideRailButton(const huxerui::ThemeSpec& theme, huxerui::ImageReso
         std::size_t page; // 目标页码（PageIndex），不再用下标推算
     };
     const std::array<Item, 4> items{
-        Item{app::images::request, app::images::request_selected, "请求", kNavRequest},
-        Item{app::images::loadtest, app::images::loadtest_selected, "压测", kNavLoad},
-        Item{app::images::history, app::images::history_selected, "历史记录", kNavHistory},
-        Item{app::images::gear, app::images::gear_selected, "项目设置", kNavProjectSettings},
+        Item{app::images::request, app::images::request_selected, "请求", pages::kRequest},
+        Item{app::images::loadtest, app::images::loadtest_selected, "压测", pages::kLoad},
+        Item{app::images::history, app::images::history_selected, "历史记录", pages::kHistory},
+        Item{app::images::gear, app::images::gear_selected, "项目设置", pages::kProjectSettings},
     };
 
     std::vector<huxerui::View> buttons;
@@ -617,10 +624,7 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     // activeTopTab：当前顶级标签（Home / Project(id) / GlobalSettings；不持久化，
     //   启动 = 主页）。
     // lastProjectTab：最近激活且仍打开的项目 id（关设置回退用；0 = 无，不持久化）。
-    auto navPage = huxerui::UseState<std::size_t>(kNavRequest);
-    // 请求页↔压测页联动信号：任一方向设置联动槽后 bump。两个页面都常驻挂载
-    //（IndexedPages keep-alive），靠订阅该 State 完成跨页重组与槽消费。
-    auto linkTick = huxerui::UseState(0);
+    auto navPage = huxerui::UseState<std::size_t>(pages::kRequest);
     // P1-B0.5 启动恢复：从 session.open_projects / session.active_project 重建 tabs 与 active（解析/去重/过滤已删，数据无效回主页）。
     TopTabState restored;
     if (firstComposition) {
@@ -858,7 +862,7 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     for (std::int64_t id : tabs.Get()) {
         const std::size_t idx = indexed.size();
         projIdx[id] = idx;
-        indexed.push_back(pages::ProjectPages(navPage, activeProject, linkTick)
+        indexed.push_back(pages::ProjectPages(navPage, activeProject)
                               .Key(id)
                               .With(huxerui::Grow(1.0F)));
     }
