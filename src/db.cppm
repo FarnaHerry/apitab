@@ -128,6 +128,7 @@ export struct HistoryEntry {
 export struct AutomationTest {
     std::int64_t id = 0;
     std::int64_t projectId = 0;
+    std::int64_t requestId = 0;          // 挂载的集合请求（0 = 未关联/旧数据）
     std::string name = "未命名自动化测试";
     std::string method = "GET";
     std::string url;

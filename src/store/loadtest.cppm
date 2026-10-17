@@ -9,6 +9,27 @@ import apitab.db;
 import apitab.k6_engine;
 import apitab.utils;
 
+// 压测用例 → 请求 spec：headers/params/cookies 原样；文本类 body 用 t.body，
+// form 类还原 bodyContents 对应槽的结构化 fields（k6 端按 fields 序列化）。
+// proxy/timeoutSec 属于运行时注入，不进用例。
+export api::RequestSpec specFromAutomation(const db::AutomationTest& t) {
+    api::RequestSpec spec;
+    spec.method = t.method;
+    spec.url = t.url;
+    spec.params = t.params;
+    spec.headers = t.headers;
+    spec.cookies = t.cookies;
+    spec.bodyKind = t.bodyKind;
+    spec.body = t.body;
+    if (t.bodyKind == api::BodyKind::FormUrlEncoded) {
+        const auto kindIndex = static_cast<std::size_t>(api::BodyKind::FormUrlEncoded);
+        if (kindIndex < t.bodyContents.size()) spec.bodyFields = t.bodyContents[kindIndex].fields;
+    }
+    spec.followRedirects = t.followRedirects;
+    spec.allowJsonComments = t.allowJsonComments;
+    return spec;
+}
+
 export class LoadStore {
 public:
     // 与 RequestStore 同理：静态初始化保持廉价，打开是显式的（见 requests.cppm）。
@@ -80,7 +101,7 @@ public:
         }
         return {};
     }
-    db::AutomationTest automationFromRequest(const db::SavedRequest& r, int vus, std::string duration) const { return {.projectId=currentProjectId_, .name=r.name, .method=r.method, .url=r.url, .params=r.params, .headers=r.headers, .cookies=r.cookies, .bodyKind=r.bodyKind, .body=r.body, .bodyContents=r.bodyContents, .followRedirects=r.followRedirects, .allowJsonComments=r.allowJsonComments, .vus=vus, .duration=std::move(duration)}; }
+    db::AutomationTest automationFromRequest(const db::SavedRequest& r, int vus, std::string duration) const { return {.projectId=currentProjectId_, .requestId=r.id, .name=r.name, .method=r.method, .url=r.url, .params=r.params, .headers=r.headers, .cookies=r.cookies, .bodyKind=r.bodyKind, .body=r.body, .bodyContents=r.bodyContents, .followRedirects=r.followRedirects, .allowJsonComments=r.allowJsonComments, .vus=vus, .duration=std::move(duration)}; }
 
     // ---- 引擎状态 ----
 

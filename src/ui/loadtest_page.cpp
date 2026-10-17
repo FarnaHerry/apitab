@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "app_resources.h"
 #include "ui.h"
 #include "syntax_grammars.h"
 #include "task_bridge.h"
@@ -91,6 +92,51 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
         out += std::format("{}×{}", status, count);
     }
     return out;
+}
+
+// ---- 左侧用例树（请求 → 接口用例）-------------------------------------------
+// 与请求页左岛同一观感语言（手工 hover/选中底 + Focusable + Button 语义），
+// 层级深入一层：顶层 = 集合请求（g_requests 数据，仅 HTTP），其下 = 该请求的
+// 压测用例。每个请求**写死一个「接口用例」**（不落库，实时用请求页数据构造），
+// 已保存用例来自 automation_tests，另可新建。
+
+// 树行：depth 0 = 请求行，1 = 用例行（缩进 + 前缀点）。选中 = islands.active、
+// hover = islands.raised；请求行文字主色、用例行次级色（选中时提亮）。
+[[huxerui::composable]] huxerui::View CaseTreeRow(std::string label, int depth, bool selected,
+                                                  std::function<void()> onClick) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    auto hovered = huxerui::UseState(false);
+    const bool request_row = depth == 0;
+    huxerui::View leading =
+        huxerui::Text(request_row ? "▾" : "·", huxerui::TextRole::Label)
+            .With(huxerui::Foreground(theme.colors.on_surface_variant));
+    return huxerui::Row {
+        depth > 0 ? huxerui::View{huxerui::Row{}}.With(huxerui::Frame{.width = 16.0F})
+                  : huxerui::View{huxerui::Row{}},
+        std::move(leading),
+        huxerui::Text(label, huxerui::TextRole::Label)
+            .With(huxerui::Grow(1.0F),
+                  huxerui::ClipChildren(),
+                  huxerui::Foreground(selected || request_row
+                                          ? theme.colors.on_surface
+                                          : theme.colors.on_surface_variant)),
+    }
+        .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(8.0F, 7.0F)),
+              huxerui::CornerRadius(islands.nested_radius),
+              huxerui::Spacing(theme.spacing.small),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+              selected ? huxerui::Background(islands.active)
+                       : hovered.Get() ? huxerui::Background(islands.raised)
+                                       : huxerui::Background(huxerui::Color::Transparent()),
+              huxerui::Indication{}, // 整行反馈 = 手工底色（与设置页分类行同规）
+              huxerui::Focusable(true),
+              huxerui::Semantics{.role = huxerui::SemanticRole::Button, .label = label})
+        .OnClick(std::move(onClick))
+        .On<huxerui::ViewEvents::Hover>(
+            [hovered](const huxerui::HoverEvent& e) {
+                hovered = e.type == huxerui::HoverEventType::Enter;
+            });
 }
 } // namespace
 
@@ -213,6 +259,11 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
     auto summary = huxerui::UseState(api::LoadSummary{});
     // k6 脚本编辑器控制器（非受控组件：改文本走 LoadDocument，读文本走 Text()）。
     auto scriptController = huxerui::codeeditor::UseEditorController();
+    // 左树选中：请求 id + 用例 id（0 = 该请求写死的「接口用例」）。caseVersion
+    // 只做「新建/删除用例后刷新树」的重组信号。
+    auto selectedRequestId = huxerui::UseState<std::int64_t>(0);
+    auto selectedCaseId = huxerui::UseState<std::int64_t>(0);
+    auto caseVersion = huxerui::UseState(0);
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
 
     const bool k6ok = g_loadtest.available();
@@ -221,6 +272,71 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
     std::string envBaseUrl;
     if (const db::Environment* env = g_requests.findEnvironment(g_requests.currentEnvId()))
         envBaseUrl = env->baseUrl;
+
+    // ---- 用例树数据（组合期快照）----
+    // 请求列表 = g_requests 当前项目集合（仅 HTTP）；已保存用例 = automation_tests
+    //（按项目缓存）。「接口用例」不落库：树里固定渲染在每请求第一行。
+    const auto casesResult = g_loadtest.automationTests();
+    const std::vector<db::AutomationTest> loadCases =
+        casesResult ? *casesResult : std::vector<db::AutomationTest>{};
+    std::vector<db::SavedRequest> httpRequests;
+    for (const db::SavedRequest& r : g_requests.list())
+        if (r.kind == api::RequestKind::Http) httpRequests.push_back(r);
+    // 默认选中：首个请求的「接口用例」（一次组合后不再自动漂移）。
+    huxerui::Lifecycle([selectedRequestId] {
+        if (selectedRequestId.Get() != 0) return;
+        for (const db::SavedRequest& r : g_requests.list())
+            if (r.kind == api::RequestKind::Http) {
+                selectedRequestId = r.id;
+                return;
+            }
+    });
+
+    // 选中变化 → 预填主区（method/url 来自请求数据；保存用例再带 vus/duration）。
+    huxerui::Lifecycle(
+        [=] {
+            const db::SavedRequest* req = g_requests.find(selectedRequestId.Get());
+            if (req == nullptr) return;
+            for (std::size_t i = 0; i < kMethodNames.size(); ++i) {
+                if (std::string_view{kMethodNames[i]} == req->method) {
+                    methodIndex = i;
+                    break;
+                }
+            }
+            url = huxerui::TextEditingValue::FromText(req->url);
+            if (selectedCaseId.Get() != 0) {
+                for (const db::AutomationTest& c : loadCases) {
+                    if (c.id != selectedCaseId.Get()) continue;
+                    vus = huxerui::TextEditingValue::FromText(std::to_string(c.vus));
+                    duration = huxerui::TextEditingValue::FromText(c.duration);
+                    break;
+                }
+            }
+        },
+        selectedRequestId, selectedCaseId, caseVersion);
+
+    // 新建用例：快照当前选中请求 + 页面当前压测参数，落库并选中新用例。
+    const auto createCase = [=] {
+        const db::SavedRequest* req = g_requests.find(selectedRequestId.Get());
+        if (req == nullptr) {
+            toast.Show("先在左侧选择一个请求");
+            return;
+        }
+        db::AutomationTest t = g_loadtest.automationFromRequest(
+            *req, std::max(1, std::atoi(vus.Get().text.c_str())),
+            duration.Get().text.empty() ? "30s" : duration.Get().text);
+        int count = 0;
+        for (const db::AutomationTest& c : loadCases)
+            if (c.requestId == req->id) ++count;
+        t.name = std::format("用例 {}", count + 1);
+        if (auto saved = g_loadtest.saveAutomation(t); !saved) {
+            toast.Show("新建用例失败: " + saved.error().message);
+            return;
+        }
+        selectedCaseId = t.id;
+        caseVersion = caseVersion.Get() + 1;
+        toast.Show(std::format("已为「{}」新建 {}", req->name, t.name));
+    };
 
     // 参数 State → LoadOptions（模板生成与开始压测共用，见 AssembleOptions）。
     const auto assemble = [=] {
@@ -254,11 +370,67 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
             .OnChanged([state](const huxerui::TextEditingValue& value) { state = value; });
     };
 
-    // 岛屿分区模型：本页只有一个岛，岛本身占满整个页面区块（Grow + Stretch），
-    // 内容在岛内部滚动——不再用「ScrollView 套自包含岛」的倒装结构。
+    // 岛屿分区模型：岛内左右双栏 —— 左 = 接口用例树（请求 → 用例，层级深入
+    // 一层），右 = 主区（参数 + 脚本 + 输出）；内容在右栏内部滚动。
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    huxerui::View caseTree;
+    {
+        std::vector<huxerui::View> rows;
+        for (const db::SavedRequest& r : httpRequests) {
+            const bool requestSelected = selectedRequestId.Get() == r.id;
+            rows.push_back(CaseTreeRow(
+                std::format("{} · {}", r.method, r.name.empty() ? r.url : r.name), 0,
+                requestSelected && selectedCaseId.Get() == 0,
+                [selectedRequestId, selectedCaseId, r] {
+                    selectedRequestId = r.id;
+                    selectedCaseId = 0; // 请求行 = 其写死的「接口用例」
+                }));
+            for (const db::AutomationTest& c : loadCases) {
+                if (c.requestId != r.id) continue;
+                rows.push_back(
+                    CaseTreeRow(c.name, 1, selectedCaseId.Get() == c.id,
+                                [selectedRequestId, selectedCaseId, r, c] {
+                                    selectedRequestId = r.id;
+                                    selectedCaseId = c.id;
+                                })
+                        .Key(c.id));
+            }
+        }
+        caseTree = huxerui::ScrollView{huxerui::Column(std::move(rows))
+                                           .With(huxerui::Spacing(theme.spacing.extra_small),
+                                                 huxerui::CrossAlign(
+                                                     huxerui::CrossAxisAlignment::Stretch))}
+                       .With(huxerui::ScrollBar(), huxerui::Grow(1.0F));
+    }
+
     return huxerui::Column {
         PageHeader("压测", k6ok ? "k6 引擎：就绪" : "k6 引擎：未找到（engines/ 或 PATH）"),
-        huxerui::ScrollView{huxerui::Column {
+        huxerui::Row {
+            // 左：用例树面板（请求 → 接口用例）。头部 = 标题 + 新建用例。
+            huxerui::Column {
+                huxerui::Row {
+                    huxerui::Text("接口用例", huxerui::TextRole::Title)
+                        .With(huxerui::Grow(1.0F)),
+                    AppIconButton(app::images::add, "为选中请求新建用例", createCase,
+                                  AppIconButtonShape::RoundedSquare, 28.0F),
+                }
+                    .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+                httpRequests.empty()
+                    ? huxerui::View{huxerui::Text("当前项目还没有 HTTP 请求——先在请求页创建",
+                                                  huxerui::TextRole::Body)
+                                        .With(huxerui::Foreground(
+                                            theme.colors.on_surface_variant))}
+                    : huxerui::View{std::move(caseTree)},
+            }
+                .With(huxerui::Padding(theme.spacing.small),
+                      huxerui::Spacing(theme.spacing.small),
+                      huxerui::Background(theme.colors.surface_container),
+                      huxerui::CornerRadius(islands.nested_radius),
+                      huxerui::Border(islands.outline_hair, 1.0F),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                      huxerui::Frame{.width = 250.0F}),
+            // 右：主区（参数 + 脚本 + 输出），岛内滚动。
+            huxerui::ScrollView{huxerui::Column {
             // 方法+URL 合并控件（自带 Grow 占满整行）。
             MethodUrlBar(
                 std::vector<std::string>(kMethodNames.begin(), kMethodNames.end()),
@@ -307,7 +479,29 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
                 PrimaryButton(huxerui::Button(running.Get() ? "压测进行中…" : "开始压测")
                     .OnClick([=] {
                         if (running.Get()) return;
+                        // 用例驱动：选中请求/用例时以其实际数据为基底（headers/
+                        // body 随行，URL/方法仍取输入框当前值可改）；无选中（项目
+                        // 无请求）退回手输模式。
                         api::RequestSpec spec;
+                        if (const db::SavedRequest* req =
+                                g_requests.find(selectedRequestId.Get())) {
+                            if (selectedCaseId.Get() != 0) {
+                                bool found = false;
+                                for (const db::AutomationTest& c : loadCases) {
+                                    if (c.id == selectedCaseId.Get()) {
+                                        spec = specFromAutomation(c);
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found)
+                                    spec = specFromAutomation(
+                                        g_loadtest.automationFromRequest(*req, 0, ""));
+                            } else {
+                                spec = specFromAutomation(
+                                    g_loadtest.automationFromRequest(*req, 0, ""));
+                            }
+                        }
                         spec.method = std::string{kMethodNames.at(methodIndex.Get())};
                         spec.url = url.Get().text;
                         if (spec.url.empty()) {
@@ -371,7 +565,11 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
         }
                             .With(huxerui::Spacing(theme.spacing.medium),
                                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
-            .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+                .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+        }
+            .With(huxerui::Spacing(theme.spacing.small),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                  huxerui::Grow(1.0F)),
     }
         .With(huxerui::Padding(compact ? theme.spacing.medium : theme.spacing.large),
               huxerui::Spacing(theme.spacing.medium),

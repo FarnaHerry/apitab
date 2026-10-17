@@ -212,6 +212,7 @@ CREATE TABLE IF NOT EXISTS history (
 CREATE TABLE IF NOT EXISTS automation_tests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL DEFAULT 0,
+    request_id INTEGER NOT NULL DEFAULT 0,
     name TEXT NOT NULL DEFAULT '',
     method TEXT NOT NULL DEFAULT 'GET',
     url TEXT NOT NULL DEFAULT '',
@@ -363,6 +364,17 @@ CREATE TABLE IF NOT EXISTS load_tests (
             }
             if (!hasLoadThreshold) {
                 db.exec("ALTER TABLE load_tests ADD COLUMN threshold_ok INTEGER NOT NULL DEFAULT -1");
+            }
+
+            // 迁移：automation_tests 关联到集合请求（压测用例树的挂载点）。
+            bool hasAutomationRequestId = false;
+            SQLite::Statement automationInfo(db, "PRAGMA table_info(automation_tests)");
+            while (automationInfo.executeStep()) {
+                if (automationInfo.getColumn(1).getString() == "request_id")
+                    hasAutomationRequestId = true;
+            }
+            if (!hasAutomationRequestId) {
+                db.exec("ALTER TABLE automation_tests ADD COLUMN request_id INTEGER NOT NULL DEFAULT 0");
             }
         }
     }
@@ -877,14 +889,14 @@ void Db::clearHistory() {
 
 // ---- automation_tests ----
 std::vector<AutomationTest> Db::listAutomationTests(std::int64_t projectId) {
-    SQLite::Statement q(impl_->db, "SELECT id,project_id,name,method,url,params,headers,cookies,body_kind,body,body_contents,follow_redirects,allow_json_comments,vus,duration,updated_at FROM automation_tests WHERE project_id=? ORDER BY id ASC");
+    SQLite::Statement q(impl_->db, "SELECT id,project_id,request_id,name,method,url,params,headers,cookies,body_kind,body,body_contents,follow_redirects,allow_json_comments,vus,duration,updated_at FROM automation_tests WHERE project_id=? ORDER BY id ASC");
     q.bind(1, projectId); std::vector<AutomationTest> out;
-    while (q.executeStep()) { AutomationTest t; t.id=q.getColumn(0).getInt64(); t.projectId=q.getColumn(1).getInt64(); t.name=q.getColumn(2).getString(); t.method=q.getColumn(3).getString(); t.url=q.getColumn(4).getString(); t.params=kvFromJson(q.getColumn(5).getString()); t.headers=kvFromJson(q.getColumn(6).getString()); t.cookies=kvFromJson(q.getColumn(7).getString()); t.bodyKind=static_cast<api::BodyKind>(q.getColumn(8).getInt()); t.body=q.getColumn(9).getString(); t.bodyContents=bodyContentsFromJson(q.getColumn(10).getString()); t.followRedirects=q.getColumn(11).getInt()!=0; t.allowJsonComments=q.getColumn(12).getInt()!=0; t.vus=q.getColumn(13).getInt(); t.duration=q.getColumn(14).getString(); t.updatedAt=q.getColumn(15).getInt64(); out.push_back(std::move(t)); }
+    while (q.executeStep()) { AutomationTest t; t.id=q.getColumn(0).getInt64(); t.projectId=q.getColumn(1).getInt64(); t.requestId=q.getColumn(2).getInt64(); t.name=q.getColumn(3).getString(); t.method=q.getColumn(4).getString(); t.url=q.getColumn(5).getString(); t.params=kvFromJson(q.getColumn(6).getString()); t.headers=kvFromJson(q.getColumn(7).getString()); t.cookies=kvFromJson(q.getColumn(8).getString()); t.bodyKind=static_cast<api::BodyKind>(q.getColumn(9).getInt()); t.body=q.getColumn(10).getString(); t.bodyContents=bodyContentsFromJson(q.getColumn(11).getString()); t.followRedirects=q.getColumn(12).getInt()!=0; t.allowJsonComments=q.getColumn(13).getInt()!=0; t.vus=q.getColumn(14).getInt(); t.duration=q.getColumn(15).getString(); t.updatedAt=q.getColumn(16).getInt64(); out.push_back(std::move(t)); }
     return out;
 }
 std::int64_t Db::saveAutomationTest(const AutomationTest& t) {
-    if (t.id == 0) { SQLite::Statement q(impl_->db, "INSERT INTO automation_tests(project_id,name,method,url,params,headers,cookies,body_kind,body,body_contents,follow_redirects,allow_json_comments,vus,duration,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"); q.bind(1,t.projectId); q.bind(2,t.name); q.bind(3,t.method); q.bind(4,t.url); q.bind(5,kvToJson(t.params)); q.bind(6,kvToJson(t.headers)); q.bind(7,kvToJson(t.cookies)); q.bind(8,static_cast<int>(t.bodyKind)); q.bind(9,t.body); q.bind(10,bodyContentsToJson(t.bodyContents)); q.bind(11,t.followRedirects?1:0); q.bind(12,t.allowJsonComments?1:0); q.bind(13,t.vus); q.bind(14,t.duration); q.bind(15,t.updatedAt); q.exec(); return impl_->db.getLastInsertRowid(); }
-    SQLite::Statement q(impl_->db, "UPDATE automation_tests SET name=?,method=?,url=?,params=?,headers=?,cookies=?,body_kind=?,body=?,body_contents=?,follow_redirects=?,allow_json_comments=?,vus=?,duration=?,updated_at=? WHERE id=? AND project_id=?"); q.bind(1,t.name); q.bind(2,t.method); q.bind(3,t.url); q.bind(4,kvToJson(t.params)); q.bind(5,kvToJson(t.headers)); q.bind(6,kvToJson(t.cookies)); q.bind(7,static_cast<int>(t.bodyKind)); q.bind(8,t.body); q.bind(9,bodyContentsToJson(t.bodyContents)); q.bind(10,t.followRedirects?1:0); q.bind(11,t.allowJsonComments?1:0); q.bind(12,t.vus); q.bind(13,t.duration); q.bind(14,t.updatedAt); q.bind(15,t.id); q.bind(16,t.projectId); q.exec(); return t.id;
+    if (t.id == 0) { SQLite::Statement q(impl_->db, "INSERT INTO automation_tests(project_id,request_id,name,method,url,params,headers,cookies,body_kind,body,body_contents,follow_redirects,allow_json_comments,vus,duration,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"); q.bind(1,t.projectId); q.bind(2,t.requestId); q.bind(3,t.name); q.bind(4,t.method); q.bind(5,t.url); q.bind(6,kvToJson(t.params)); q.bind(7,kvToJson(t.headers)); q.bind(8,kvToJson(t.cookies)); q.bind(9,static_cast<int>(t.bodyKind)); q.bind(10,t.body); q.bind(11,bodyContentsToJson(t.bodyContents)); q.bind(12,t.followRedirects?1:0); q.bind(13,t.allowJsonComments?1:0); q.bind(14,t.vus); q.bind(15,t.duration); q.bind(16,t.updatedAt); q.exec(); return impl_->db.getLastInsertRowid(); }
+    SQLite::Statement q(impl_->db, "UPDATE automation_tests SET request_id=?,name=?,method=?,url=?,params=?,headers=?,cookies=?,body_kind=?,body=?,body_contents=?,follow_redirects=?,allow_json_comments=?,vus=?,duration=?,updated_at=? WHERE id=? AND project_id=?"); q.bind(1,t.requestId); q.bind(2,t.name); q.bind(3,t.method); q.bind(4,t.url); q.bind(5,kvToJson(t.params)); q.bind(6,kvToJson(t.headers)); q.bind(7,kvToJson(t.cookies)); q.bind(8,static_cast<int>(t.bodyKind)); q.bind(9,t.body); q.bind(10,bodyContentsToJson(t.bodyContents)); q.bind(11,t.followRedirects?1:0); q.bind(12,t.allowJsonComments?1:0); q.bind(13,t.vus); q.bind(14,t.duration); q.bind(15,t.updatedAt); q.bind(16,t.id); q.bind(17,t.projectId); q.exec(); return t.id;
 }
 void Db::deleteAutomationTest(std::int64_t id, std::int64_t projectId) { SQLite::Statement q(impl_->db,"DELETE FROM automation_tests WHERE id=? AND project_id=?"); q.bind(1,id); q.bind(2,projectId); q.exec(); }
 
