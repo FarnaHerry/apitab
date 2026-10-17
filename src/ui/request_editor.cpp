@@ -26,6 +26,7 @@
 
 import apitab.api_engine;
 import apitab.db;
+import apitab.store.loadtest;
 import apitab.store.requests;
 import apitab.utils;
 import nlohmann.json;
@@ -206,7 +207,8 @@ huxerui::View SplitActionButton(
     huxerui::StateList<std::string> responseHeaders,
     huxerui::StateList<std::string> responseCookies,
     huxerui::State<ResponsePreview> responsePreview,
-    huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab) {
+    huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab,
+    huxerui::State<std::size_t> navPage, huxerui::State<int> linkTick) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto tasks = huxerui::UseTaskScope();
     auto toast = huxerui::UseToast();
@@ -808,6 +810,21 @@ huxerui::View SplitActionButton(
                 });
             }, "发送并下载", !inFlight.Get(), !inFlight.Get()),
             SplitActionButton("保存", saveDraft, "保存当前状态为用例", true),
+            // 压测联动：把当前草稿 spec（headers/body 完整）写进压测联动槽并跳
+            // 压测页——bump linkTick 让常驻挂载的压测页重组消费（仅 HTTP 草稿）。
+            huxerui::Button("压测")
+                .OnClick([=] {
+                    const std::vector<RequestDraft> snapshotNow = drafts.Get();
+                    if (index >= snapshotNow.size()) return;
+                    if (snapshotNow[index].kind != 0) {
+                        toast.Show("仅 HTTP 请求可压测");
+                        return;
+                    }
+                    g_loadtest.setPendingRequest(DraftDisplayName(snapshotNow[index]),
+                                                 SpecFromDraft(snapshotNow[index]));
+                    linkTick = linkTick.Get() + 1;
+                    navPage = kNavLoad;
+                }),
             // 更多溢出菜单：删除当前请求条（自绘 PopupMenu，删除项 hover 才显红；
             // 点击先弹危险确认框；已保存的连集合一起删，并关掉本标签）。
             // 删除会卸载本编辑器；确认按钮的回调直接完成删除和状态更新。

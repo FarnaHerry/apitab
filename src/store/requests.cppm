@@ -807,7 +807,24 @@ public:
     // DB 打开失败（目录不可写等）：返回 false，集合功能整体降级为空。
     bool healthy() const { return healthy_; }
 
+    // ---- 压测页 → 请求页联动槽（内存，不持久化）----
+    // 压测页「在请求页打开」写入 method/url，请求页 Lifecycle 消费新建草稿；
+    // methodIndex 沿草稿的 kMethodNames 下标（kMethodNames.size() = 未识别）。
+    void setPendingNewRequest(std::size_t methodIndex, std::string url) {
+        pendingNewMethodIndex_ = methodIndex;
+        pendingNewUrl_ = std::move(url);
+    }
+    bool hasPendingNewRequest() const { return pendingNewMethodIndex_ != kNoPending; }
+    std::size_t pendingNewMethodIndex() const { return pendingNewMethodIndex_; }
+    const std::string& pendingNewUrl() const { return pendingNewUrl_; }
+    void clearPendingNewRequest() { pendingNewMethodIndex_ = kNoPending; }
+
 private:
+    // kNoPending：无联动请求的哨兵（0 也是合法 methodIndex，不能用 0 兼任）。
+    static constexpr std::size_t kNoPending = static_cast<std::size_t>(-1);
+    std::size_t pendingNewMethodIndex_ = kNoPending;
+    std::string pendingNewUrl_;
+
     // 剥离 JSON 的 // 与 /* */ 注释（字符串字面量内除外），供 finalizeSpec 在
     // 发送前处理 allowJsonComments 的 JSON body。
     static std::string stripJsonComments(std::string_view input) {

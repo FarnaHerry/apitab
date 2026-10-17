@@ -401,7 +401,9 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                                 huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
-[[huxerui::composable]] huxerui::View RequestPage(huxerui::State<std::int64_t> opened) {
+[[huxerui::composable]] huxerui::View RequestPage(huxerui::State<std::int64_t> opened,
+                                                  huxerui::State<std::size_t> navPage,
+                                                  huxerui::State<int> linkTick) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     // 岛屿几何令牌：岛内边距统一从这里取（工具化密度 = small/8pt）。
     // 局部 islands 变量是右侧分支的 View 容器，与令牌命名避让。
@@ -411,6 +413,9 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     // 仍订阅 opened：切换项目时，保活的请求页需要重组一次，让环境选择器从
     // 当前项目游标重新读取并显示对应环境。
     (void)opened.Get();
+    // 联动信号订阅：压测页「在请求页打开」bump linkTick 后本页重组，下方
+    // Lifecycle 消费 g_requests 反向槽（Lifecycle 内写 State 为合法时点）。
+    (void)linkTick.Get();
 
     // 内部标签页：每个打开的请求一个草稿；响应区状态为页面级（单引擎）。
     auto openDrafts = huxerui::UseState<std::vector<RequestDraft>>({});
@@ -429,6 +434,24 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     // HTML 预览文档（原文 + base URL + 代数）：编辑器发送路径写入，响应区
     // Preview 标签消费。
     auto responsePreview = huxerui::UseState(ResponsePreview{});
+
+    // 压测页 → 请求页联动消费：反向槽非空 = 「在请求页打开」，新建 HTTP 草稿
+    // 填入 method/url 并激活该标签（槽一次性消费，避免下次重组重复建）。
+    huxerui::Lifecycle([openDrafts, activeTab, newTabOpen] {
+        if (!g_requests.hasPendingNewRequest()) return;
+        RequestDraft draft;
+        draft.kind = 0;
+        draft.methodIndex = g_requests.pendingNewMethodIndex();
+        if (draft.methodIndex >= kMethodNames.size()) draft.methodIndex = 0;
+        draft.url = huxerui::TextEditingValue::FromText(g_requests.pendingNewUrl());
+        std::vector<RequestDraft> copy = openDrafts.Get();
+        copy.push_back(std::move(draft));
+        openDrafts = copy;
+        activeTab = copy.size() - 1;
+        newTabOpen = false;
+        g_requests.clearPendingNewRequest();
+    }, linkTick);
+
     auto leftIslandWidth = huxerui::UseState(260.0F);
     auto leftIslandOrigin = huxerui::UseState(260.0F);
     auto responseIslandHeight = huxerui::UseState(260.0F);
@@ -524,7 +547,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                 RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                 RequestEditor(openDrafts, current, activeTab, listVersion,
                               inFlight, responseBody, responseHeaders,
-                              responseCookies, responsePreview, envVersion, editorPage)
+                              responseCookies, responsePreview, envVersion, editorPage,
+                              navPage, linkTick)
                     .Key(contentKey)
                     .With(huxerui::Grow(1.0F)),
             }

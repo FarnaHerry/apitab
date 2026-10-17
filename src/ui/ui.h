@@ -22,6 +22,15 @@
 
 namespace apitab::ui {
 
+// 项目工作区内部页（app.cpp 侧栏/ProjectPages 与跨页跳转共用；值 = IndexedPages
+// 下标）。请求页↔压测页联动经 navPage State 写入切页（见 LoadTestPage）。
+enum NavPage : std::size_t {
+    kNavRequest = 0,
+    kNavLoad = 1,
+    kNavHistory = 2,
+    kNavProjectSettings = 3,
+};
+
 // SlideCell / StartSlide：标签实时换位（拖过即交换）时邻居的让位滑动，
 // FLIP 简化版——数据重排后布局立即落到新槽位，给被挤动的标签加一个等于
 // 位移量的反向 Offset 残量（视觉留在原位），再用手写 tween（16ms 步进、
@@ -556,7 +565,11 @@ huxerui::View LoginPage(huxerui::State<bool> loggedIn);
 huxerui::View LoginPage(huxerui::DialogContext ctx, huxerui::State<bool> loggedIn);
 
 // request_page.cpp — 请求工作区根编排（薄组合：左岛集合树 + 右岛 HTTP/WS/TCP/gRPC 分派）。
-huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject);
+// navPage 可写（压测页「在请求页打开」回跳）；linkTick 是两页联动的重组信号
+//（任一方向设置联动槽后 bump，对方页面 Lifecycle 消费槽内容）。
+huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject,
+                          huxerui::State<std::size_t> navPage,
+                          huxerui::State<int> linkTick);
 
 // request_body_editor.cpp — Body 文本编辑器与格式化 helpers（P1-C1 自 request_page.cpp
 // 拆出）：SweetEditor 代码编辑器（行号/语法高亮/等宽，palette 跟随主题）+ JSON 注释
@@ -629,7 +642,8 @@ huxerui::View RequestEditor(
     huxerui::StateList<std::string> responseHeaders,
     huxerui::StateList<std::string> responseCookies,
     huxerui::State<ResponsePreview> responsePreview,
-    huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab);
+    huxerui::State<int> envVersion, huxerui::State<std::size_t> pageTab,
+    huxerui::State<std::size_t> navPage, huxerui::State<int> linkTick);
 
 // 把 vector 同步进 StateList（尾部对齐，多退少补）；KV 表批量导入与编辑器
 // 草稿回填共用，定义在 request_editor_kv.cpp。
@@ -693,8 +707,11 @@ huxerui::View TestCasePage(RequestDraft snapshot,
 huxerui::View MockPage(RequestDraft snapshot,
                        huxerui::State<std::vector<RequestDraft>> drafts, std::size_t index);
 
-// loadtest_page.cpp
-huxerui::View LoadTestPage();
+// loadtest_page.cpp — k6 压测页。navPage 可写（「在请求页打开」回跳请求页）；
+// linkTick 为联动重组信号：请求页「压测」按钮设置 g_loadtest 联动槽后 bump，
+// 本页 Lifecycle 消费槽预填 method/url 并挂出来源条（headers/body 随槽走）。
+huxerui::View LoadTestPage(huxerui::State<std::size_t> navPage,
+                           huxerui::State<int> linkTick);
 
 // searchable_picker.cpp：作者推荐的受控可搜索组合框。
 struct SearchItem {
