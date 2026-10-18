@@ -16,6 +16,7 @@
 
 #include "ui.h"
 #include "app_resources.h"
+#include "window_manager.h"
 
 import apitab.config;
 import apitab.db;
@@ -59,6 +60,7 @@ struct ProjectTabDragPayload {
 // 占位，视觉由条内覆盖层克隆接管。
 [[huxerui::composable]] huxerui::View TopTab(
     TopTabId tab, std::string name, huxerui::View leading, bool active, bool draggable,
+    bool applicationDragScope,
     const TopTabActions& actions, huxerui::State<std::vector<std::int64_t>> tabs,
     huxerui::State<std::int64_t> dragId, huxerui::State<float> dragDx,
     huxerui::State<float> dragDy, huxerui::State<bool> tearArmed,
@@ -197,12 +199,31 @@ struct ProjectTabDragPayload {
     // X 位移驱动覆盖层克隆）；竖向位移 ≥ kTearOffDragThreshold → 进入拆出武装态
     //（本次拖拽不再换位，覆盖层自由跟随指针），松手经 actions.tear_off 触发——
     // 主窗口接「拆成子窗口」、子窗口接「拖回主窗口」（多窗口，见 window_manager.h）。
+    // 拖拽 scope：仅子窗口的标签开 Application（跨窗口走原生拖拽传输，标签条
+    // DropTarget 实时合并；原生传输接管后源侧 Changed 停发，不能影响主窗口的
+    // 换位/拆出逻辑，所以主窗口标签保持 Window scope）。preview 是跨窗口拖拽
+    // 在「当前访问窗口」重建的跟随视觉（原生图标为 1x1 空壳）。
     // Chrome 式贴条滑动：无悬浮拖影；拖到容器外贴边停住。重排后持久化
     // open_projects。
     if (draggable) {
+        const auto dragPreview = [colors = theme.colors, name] {
+            return huxerui::Text(name, huxerui::TextRole::Label)
+                .Style(huxerui::TextStyle{
+                    .font = huxerui::Font::System(font_size::kChip)
+                                .WithWeight(huxerui::FontWeight::SemiBold),
+                    .foreground = colors.on_surface})
+                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(8.0F, 3.0F)),
+                      huxerui::Background(colors.surface_container_highest),
+                      huxerui::CornerRadius(6.0F),
+                      huxerui::Frame{.max_width = kProjectTabWidth});
+        };
+        huxerui::DragSource dragSource(ProjectTabDragPayload{tab.project_id},
+                                       dragPreview, huxerui::DragGesture{});
         tabView = std::move(tabView)
-                      .With(huxerui::DragSource(ProjectTabDragPayload{tab.project_id},
-                                                huxerui::DragGesture{}))
+                      .With(applicationDragScope
+                                ? std::move(dragSource).Scope(
+                                      huxerui::DragDropScope::Application)
+                                : std::move(dragSource))
                       // 拖拽开始：记录被拖标签与起点槽位，武装态/自由位移归零。
                       .On<huxerui::DragSourceEvents::Started>(
                           [dragId, dragOrig, dragDx, dragDy, tearArmed, id = tab.project_id,
@@ -339,6 +360,16 @@ struct ProjectTabDragPayload {
     // 悬停标签显示 key（-1 = 无；主页 0、设置 = kSettingsTabDisplayKey 也会写入）：
     // 分隔竖线显隐用。
     auto hoveredTab = huxerui::UseState<std::int64_t>(-1);
+    // 实时拖回（多窗口，Chrome 式全程不松手）：主窗口标签条是应用级 DropTarget
+    // ——子窗口拆出标签拖入即合并（Entered）、离开即撤销（Exited）、松手确认
+    // （Dropped）。mergePending 记录本次挂起合并的项目 id（0 = 无）；仅主窗口
+    // 响应，子窗口的同名组件只挂修饰符不做事。子窗口的标签 DragSource 开
+    // Application scope（原生跨窗口传输，Linux X11/Wayland 皆可；无原生传输的
+    // 宿主退化为武装态松手合并，见 TopTab 的 fallback）。
+    const huxerui::WindowIdentity stripIdentity = huxerui::UseEnvironment<huxerui::WindowIdentity>();
+    const auto stripWindowManager = huxerui::UseService<WindowManager>();
+    const bool childWindow = !stripIdentity.key.empty();
+    auto mergePending = huxerui::UseState<std::int64_t>(0);
     // 步进 = 标签宽 + 分隔竖线(1pt) + 两侧间距（竖线作为 Row 子节点占布局，
     // 用 Opacity 显隐避免悬停时回流抖动）。
     const float tabStride = kProjectTabWidth + 1.0F + 2.0F * theme.spacing.small;
@@ -418,6 +449,7 @@ struct ProjectTabDragPayload {
         const std::size_t dragCount = visibleTabs.size();
         chips.push_back(
             TopTab(entry.tab, entry.name, entry.leading, entry.active, entry.draggable,
+                   childWindow,
                    actions, tabs, dragId, dragDx, dragDy, tearArmed, dragPointer, dragOrig,
                    isProject ? dragIndex : 0, isProject ? dragCount : 1, tabStride,
                    slideCell, slideTick, hoveredTab)
@@ -484,8 +516,9 @@ struct ProjectTabDragPayload {
     // 主页标签：图标 only，无文字，不可关闭，固定最左（在 ScrollView 之外）。
     huxerui::View homeTab =
         TopTab(TopTabId{}, "", iconLeading(app::images::home, homeActive), homeActive,
-               /*draggable=*/false, actions, tabs, dragId, dragDx, dragDy, tearArmed,
-               dragPointer, dragOrig, 0, 1, tabStride, slideCell, slideTick, hoveredTab)
+               /*draggable=*/false, childWindow, actions, tabs, dragId, dragDx, dragDy,
+               tearArmed, dragPointer, dragOrig, 0, 1, tabStride, slideCell, slideTick,
+               hoveredTab)
             .Key(std::int64_t{0});
 
     // 主页与条内首个标签之间的分隔竖线：主页或右邻激活、悬停、被拖时隐藏
@@ -510,6 +543,8 @@ struct ProjectTabDragPayload {
         tabDivider(homeDividerVisible),
         // Stack 包裹：拖动时覆盖层克隆叠在标签行之上（绘制最上层），随
         // ScrollView 一起滚动（Offset 只平移绘制，布局原点仍在内容坐标系）。
+        // ScrollView 整体是应用级 DropTarget（覆盖标签条含空白区，Chrome 式
+        // 拖入即合并；仅主窗口在回调内做事）。
         huxerui::ScrollView(huxerui::Stack {
                                 huxerui::Row(std::move(chips))
                                     .With(huxerui::Spacing(theme.spacing.small),
@@ -518,7 +553,34 @@ struct ProjectTabDragPayload {
                                 overlayTab,
                             })
             .ScrollAxis(huxerui::Axis::Horizontal)
-            .With(huxerui::ScrollBar{}, huxerui::Grow(1.0F)),
+            .With(huxerui::ScrollBar{}, huxerui::Grow(1.0F),
+                  huxerui::DropTarget::Accepts<ProjectTabDragPayload>()
+                      .Scope(huxerui::DragDropScope::Application))
+            .On<huxerui::DropEvents<ProjectTabDragPayload>::Entered>(
+                [wm = stripWindowManager, isMain = !childWindow,
+                 mergePending](const ProjectTabDragPayload& payload,
+                               const huxerui::DropEvent&) {
+                    if (!isMain || mergePending.Get() != 0) return;
+                    if (wm->MergeBegin(payload.projectId)) {
+                        mergePending = payload.projectId;
+                    }
+                })
+            .On<huxerui::DropEvents<ProjectTabDragPayload>::Exited>(
+                [wm = stripWindowManager, isMain = !childWindow,
+                 mergePending](const ProjectTabDragPayload& payload,
+                               const huxerui::DropEvent&) {
+                    if (!isMain || mergePending.Get() != payload.projectId) return;
+                    mergePending = 0;
+                    wm->MergeAbort(payload.projectId);
+                })
+            .On<huxerui::DropEvents<ProjectTabDragPayload>::Dropped>(
+                [wm = stripWindowManager, isMain = !childWindow,
+                 mergePending](const ProjectTabDragPayload& payload,
+                               const huxerui::DropEvent&) {
+                    if (!isMain || mergePending.Get() != payload.projectId) return;
+                    mergePending = 0;
+                    wm->MergeCommit(payload.projectId);
+                }),
     }
         .With(huxerui::Spacing(theme.spacing.small),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),

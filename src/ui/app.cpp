@@ -1104,10 +1104,15 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     }());
 
     // 挂载登记 + 卸载清理（退役/应用退出都会走清理，窗口表不悬挂）。
+    // navPage 提供者给实时拖回的信封带走子窗口的工作区内部页。
     huxerui::Lifecycle(
-        [windowManager, window, projectId] {
-            windowManager->RegisterChild(projectId, window);
-            return [windowManager, projectId] { windowManager->UnregisterChild(projectId); };
+        [windowManager, window, projectId, ordinal = identity.ordinal, navPage] {
+            windowManager->RegisterChild(projectId, window, ordinal);
+            windowManager->RegisterNavPage(ordinal, [navPage] { return navPage.Get(); });
+            return [windowManager, projectId, ordinal] {
+                windowManager->UnregisterChild(projectId);
+                windowManager->UnregisterNavPage(ordinal);
+            };
         },
         0);
 

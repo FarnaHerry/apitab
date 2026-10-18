@@ -119,7 +119,45 @@ void WindowManager::MergeBack(std::uint32_t from_ordinal, std::int64_t project_i
     workspace.nav_page = nav_page;
     envelope_ = TabTransferEnvelope{project_id, std::move(workspace)};
     main_bridge_->restore_tab(project_id);
-    child->second.Retire();
+    child->second.handle.Retire();
+    if (main_window_) main_window_->Activate();
+}
+
+bool WindowManager::MergeBegin(std::int64_t project_id) {
+    // 已挂起（重复 Entered）：幂等。 子窗口必须存在（只有拆出窗口的标签参与
+    // 实时拖回）；主窗口桥负责把标签插入主窗口（含领域同步与持久化）。
+    if (pending_merge_ == project_id) return true;
+    if (pending_merge_.has_value() || !main_bridge_ || !main_bridge_->restore_tab) return false;
+    const auto child = children_.find(project_id);
+    if (child == children_.end()) return false;
+    // 信封从子窗口的快照提供者采集（其请求页仍挂载、状态活跃），nav_page 由
+    // 子窗口根组合的提供者给出；MergeAbort 即整份丢弃。
+    WorkspaceSnapshot workspace = CaptureFrom(child->second.ordinal).value_or(WorkspaceSnapshot{});
+    if (const auto nav = nav_providers_.find(child->second.ordinal); nav != nav_providers_.end() && nav->second) {
+        workspace.nav_page = nav->second();
+    }
+    envelope_ = TabTransferEnvelope{project_id, std::move(workspace)};
+    main_bridge_->restore_tab(project_id);
+    pending_merge_ = project_id;
+    return true;
+}
+
+void WindowManager::MergeAbort(std::int64_t project_id) {
+    if (pending_merge_ != project_id) return;
+    pending_merge_.reset();
+    envelope_.reset();
+    if (main_bridge_ && main_bridge_->detach_tab) {
+        main_bridge_->detach_tab(project_id);
+    }
+}
+
+void WindowManager::MergeCommit(std::int64_t project_id) {
+    if (pending_merge_ != project_id) return;
+    pending_merge_.reset();
+    const auto child = children_.find(project_id);
+    if (child != children_.end()) {
+        child->second.handle.Retire();
+    }
     if (main_window_) main_window_->Activate();
 }
 
@@ -129,7 +167,7 @@ void WindowManager::CloseChildTab(std::int64_t project_id) {
     // 主窗口按关闭语义回退（含持久化）；领域游标若在被关项目上，桥实现负责
     // 清零（与主窗口内 ✕ 关标签一致）。草稿按产品决策随窗口丢弃。
     main_bridge_->detach_tab(project_id);
-    child->second.Retire();
+    child->second.handle.Retire();
     if (main_window_) main_window_->Activate();
 }
 

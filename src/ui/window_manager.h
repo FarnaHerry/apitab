@@ -55,11 +55,18 @@ public:
     // ---- 窗口登记（各窗口根组合挂载时写入、卸载清理时移除） ----
     void SetMainWindow(huxerui::WindowHandle window) { main_window_.emplace(window); }
     void ClearMainWindow() { main_window_.reset(); }
-    void RegisterChild(std::int64_t project_id, huxerui::WindowHandle window) {
-        children_.insert_or_assign(project_id, window);
+    void RegisterChild(std::int64_t project_id, huxerui::WindowHandle window,
+                       std::uint32_t window_ordinal) {
+        children_.insert_or_assign(project_id, ChildEntry{window, window_ordinal});
     }
     void UnregisterChild(std::int64_t project_id) { children_.erase(project_id); }
     bool HasChild(std::int64_t project_id) const { return children_.contains(project_id); }
+
+    // 子窗口根组合注册的工作区内部页提供者（实时拖回的信封要带走 nav_page）。
+    void RegisterNavPage(std::uint32_t window_ordinal, std::function<std::size_t()> provider) {
+        nav_providers_.insert_or_assign(window_ordinal, std::move(provider));
+    }
+    void UnregisterNavPage(std::uint32_t window_ordinal) { nav_providers_.erase(window_ordinal); }
 
     // ---- 主窗口桥 ----
     void SetMainBridge(MainBridge bridge) { main_bridge_ = std::move(bridge); }
@@ -84,6 +91,19 @@ public:
     // 拖回（子窗口项目标签拖出窗口顶缘）：采集快照 → 存信封（nav_page 由子窗口
     // 根组合随调用给出）→ 主窗口 restore_tab → 退役子窗口并唤醒主窗口。
     void MergeBack(std::uint32_t from_ordinal, std::int64_t project_id, std::size_t nav_page);
+
+    // ---- 实时拖回（应用级类型化拖拽，全程不松手，Chrome 式）----
+    // 原生跨窗口拖拽传输要求源窗口在拖拽期间存活，所以合并拆成三段：
+    // MergeBegin（DropTarget::Entered，指针进入主窗口标签条）：采集信封并把
+    //   标签插入主窗口（挂起态）；子窗口不退役，仍显示原标签。
+    //   @return 是否真的开启了挂起合并（调用方据此记录本地 pending 门控）。
+    // MergeAbort（Exited，指针离开标签条）：撤销挂起合并——主窗口移除标签，
+    //   信封丢弃；标签与草稿仍在子窗口（其组合态从未动过）。
+    // MergeCommit（Dropped，松手确认）：退役子窗口，合并完成，主窗口已挂载的
+    //   项目页消费信封恢复草稿。
+    bool MergeBegin(std::int64_t project_id);
+    void MergeAbort(std::int64_t project_id);
+    void MergeCommit(std::int64_t project_id);
 
     // 关闭子窗口（✕ 或子窗口内点标签 ✕）：等价主窗口里关闭该标签——主窗口
     // detach 后按关闭语义回退并持久化，然后退役子窗口（草稿按设计丢弃）。
@@ -111,12 +131,19 @@ public:
 private:
     std::optional<WorkspaceSnapshot> CaptureFrom(std::uint32_t window_ordinal) const;
 
+    struct ChildEntry {
+        huxerui::WindowHandle handle;
+        std::uint32_t ordinal = 0;
+    };
+
     std::optional<huxerui::ApplicationHandle> application_;
     std::optional<huxerui::WindowHandle> main_window_;
-    std::unordered_map<std::int64_t, huxerui::WindowHandle> children_;
+    std::unordered_map<std::int64_t, ChildEntry> children_;
     std::optional<MainBridge> main_bridge_;
     std::unordered_map<std::uint32_t, Capture> captures_;
+    std::unordered_map<std::uint32_t, std::function<std::size_t()>> nav_providers_;
     std::optional<TabTransferEnvelope> envelope_;
+    std::optional<std::int64_t> pending_merge_;
 };
 
 // 子窗口 key 约定（WindowOptions::key ↔ WindowIdentity::key）。
