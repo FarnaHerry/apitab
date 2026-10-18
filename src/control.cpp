@@ -36,6 +36,7 @@
 #include "control.h"
 #include "control_server.h"
 #include "log.h"
+#include "ui/app.h"
 #include "ui/lightweight.h"
 
 // MSVC 例外：`import asio;` 在该工具链下会让本 TU 走文本包含路径并与模块配置冲突
@@ -162,6 +163,14 @@ void RunCommandOnApplicationThread(std::vector<std::string> args,
         // （端点文件在监听成功后立刻写出，但投递口要等首次组合才挂上）。
         if (!args.empty() && args.front() == "ping") {
             sink.Out("pong");
+            code = 0;
+        } else if (args.size() == 1 && args.front() == "show") {
+            // 二次启动的唤起入口（main.cpp alreadyRunning 转发到这里）：等价托盘
+            // "显示主窗口"——激活主窗口；拆出的子窗口由 ownership 跟随。轻量模式
+            // 下 Activate 即恢复显示。必须无参：`show <id>` 是既有的领域命令
+            // （按 id 显示请求），不能截胡。
+            ui::CurrentWindowController()->Activate();
+            sink.Out("已唤起主窗口");
             code = 0;
         } else if (!args.empty() && args.front() == "lightweight") {
             const bool off = args.size() > 1 && args[1] == "off";

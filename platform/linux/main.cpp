@@ -41,6 +41,13 @@ int main(int argc, char** argv) {
     }
     const apitab::SingleInstance single_instance("dev.farna.apitab");
     if (single_instance.alreadyRunning()) {
+        // 二次启动 ≠ 静默退出：唤起运行中实例的主窗口（控制面 show 命令，等价
+        // 托盘"显示主窗口"）。否则 ./run.sh / 桌面图标在实例已存在时"毫无反应"。
+        std::string error;
+        if (apitab::control::ForwardCommand(std::vector<std::string>{"show"}, error) != 0) {
+            std::fprintf(stderr, "apitab 已在运行，但唤起失败：%s\n",
+                         error.empty() ? "实例未就绪" : error.c_str());
+        }
         return 0;
     }
     if (!single_instance.acquired()) {
