@@ -58,7 +58,7 @@ jobs:
           # （p0960 花括号、hosttools-dynamic、resize 热区）均已被 fork 收编，
           # 对应 cmake/patches 文件已删除。
           git clone --filter=blob:none https://github.com/FarnaHerry/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout d5bd238a73d57ba5720837189743c84a4a2e2ed2
+          git -C third_party/huxerui checkout 42f0069d59e7e0295f6ed41cb512cf565817eb97
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
           git -C third_party/huxerui-sweetedit checkout 21925a2c088c4224b497c010c521422b11d36502
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
@@ -237,7 +237,7 @@ jobs:
           # HuxerUI 源码走 FarnaHerry/HuxerUI fork（同 Linux job；原 p0960 与
           # resize 热区补丁已被 fork 收编，无需再 apply）。
           git clone --filter=blob:none https://github.com/FarnaHerry/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout d5bd238a73d57ba5720837189743c84a4a2e2ed2
+          git -C third_party/huxerui checkout 42f0069d59e7e0295f6ed41cb512cf565817eb97
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
           git -C third_party/huxerui-sweetedit checkout 21925a2c088c4224b497c010c521422b11d36502
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
@@ -388,7 +388,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: huxerui-sdk
-          key: huxerui-sdk-windows-x86_64-msvc-d5bd238-farna-fork
+          key: huxerui-sdk-windows-x86_64-msvc-42f0069-farna-fork
 
       - name: Check HuxerUI SDK cache (Windows)
         if: runner.os == 'Windows' && steps.huxerui_sdk_cache.outputs.cache-hit == 'true'
