@@ -1,7 +1,8 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="apitab" Manufacturer="FarnaHerry" Version="@APITAB_WINDOWS_VERSION@"
            UpgradeCode="@_apitab_msi_upgrade_code@" Scope="perMachine">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of apitab is already installed." />
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of apitab is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFiles64Folder"><Directory Id="INSTALLFOLDER" Name="apitab" /></StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder"><Directory Id="APPLICATIONPROGRAMMENU" Name="apitab" /></StandardDirectory>

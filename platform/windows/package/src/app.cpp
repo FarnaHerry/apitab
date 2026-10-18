@@ -54,6 +54,21 @@ View InstallerPage() {
   } else if (status.phase == InstallerPhase::Detecting) {
     content.push_back(Text("Checking installed versions…").With(Foreground(theme.colors.on_surface_variant)));
     content.push_back(ProgressBar(status.progress));
+  } else if (status.phase == InstallerPhase::Ready && status.product == InstallerProductState::NewerVersion) {
+    // 这台机器上有更新的版本，本安装包是降级——只说明情况，不放行动作。
+    title = "A newer version is installed";
+    content.push_back(Text("This computer already has a newer apitab. Remove it before installing this release.")
+                          .With(Foreground(theme.colors.on_surface_variant)));
+    actions.push_back(Button("Close").OnClick([window] { window.Close(); }));
+  } else if (status.phase == InstallerPhase::Ready && status.product == InstallerProductState::SameVersion) {
+    // 同版本重复打开安装包：维护页（卸载/修复/重装），不再当全新安装。
+    // Install() 不带选项 = 沿用已注册的安装目录与快捷方式选择。
+    title = "apitab is already installed";
+    content.push_back(Text("This release is already on this computer. Repair it, reinstall it, or remove it.")
+                          .With(Foreground(theme.colors.on_surface_variant)));
+    actions.push_back(Button("Uninstall").OnClick([installer] { installer.Uninstall(); }));
+    actions.push_back(Button("Repair").OnClick([installer] { installer.Repair(); }));
+    actions.push_back(Button("Reinstall").OnClick([installer] { installer.Install(); }));
   } else if (status.phase == InstallerPhase::Ready && status.product == InstallerProductState::Absent) {
     title = "Install apitab";
     const TextEditingValue value = destination.Get().value_or(TextEditingValue::FromText(PathText(status.default_destination)));
@@ -80,11 +95,13 @@ View InstallerPage() {
       if (path) installer.Install({.destination = *path, .create_desktop_shortcut = shortcut});
     }).With(Enabled(path.has_value())));
   } else if (status.phase == InstallerPhase::Ready && status.product == InstallerProductState::Present) {
-    title = "apitab is already installed";
-    content.push_back(Text("Repair the existing installation or uninstall it from this computer.")
+    // 检测到更旧的已注册版本：升级为主，修复/卸载为辅（同 llm-switch 的维护布局）。
+    title = "An older apitab is installed";
+    content.push_back(Text("Upgrade the existing installation to this release, repair it, or uninstall it.")
                           .With(Foreground(theme.colors.on_surface_variant)));
     actions.push_back(Button("Uninstall").OnClick([installer] { installer.Uninstall(); }));
     actions.push_back(Button("Repair").OnClick([installer] { installer.Repair(); }));
+    actions.push_back(Button("Upgrade").OnClick([installer] { installer.Install(); }));
   } else if (status.phase == InstallerPhase::Planning || status.phase == InstallerPhase::Applying ||
              status.phase == InstallerPhase::Canceling) {
     title = status.phase == InstallerPhase::Canceling ? "Canceling and rolling back" : "Installing apitab";
