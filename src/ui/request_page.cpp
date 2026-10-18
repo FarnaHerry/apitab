@@ -19,6 +19,7 @@
 #include "draft.h"
 #include "api_import.h"
 #include "app_resources.h"
+#include "window_manager.h"
 
 import apitab.api_engine;
 import apitab.db;
@@ -412,8 +413,19 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     // 当前项目游标重新读取并显示对应环境。
     (void)opened.Get();
 
+    // 多窗口信封：拆出/拖回时项目标签随窗口迁移，未保存草稿经 WindowManager
+    // 的转移信封在首组合恢复（按当前项目游标匹配；重组时 UseState 丢弃初值，
+    // 重复消费返回空、无害）。
+    const auto windowManager = huxerui::UseService<WindowManager>();
+    const huxerui::WindowIdentity windowIdentity =
+        huxerui::UseEnvironment<huxerui::WindowIdentity>();
+    std::vector<RequestDraft> restoredDrafts;
+    if (auto workspace = windowManager->ConsumeWorkspace(g_requests.currentProjectId())) {
+        restoredDrafts = std::move(workspace->drafts);
+    }
+
     // 内部标签页：每个打开的请求一个草稿；响应区状态为页面级（单引擎）。
-    auto openDrafts = huxerui::UseState<std::vector<RequestDraft>>({});
+    auto openDrafts = huxerui::UseState<std::vector<RequestDraft>>(std::move(restoredDrafts));
     auto activeTab = huxerui::UseState<std::size_t>(0);
     auto newTabOpen = huxerui::UseState(false);
     auto listVersion = huxerui::UseState(0);
@@ -433,6 +445,18 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     auto leftIslandOrigin = huxerui::UseState(260.0F);
     auto responseIslandHeight = huxerui::UseState(260.0F);
     auto responseIslandOrigin = huxerui::UseState(260.0F);
+
+    // 多窗口快照采集：拆出/拖回的发起窗口侧经 WindowManager 采集本页草稿
+    //（nav_page 由根组合另行提供）。挂载注册、卸载注销；本窗口退役时清理
+    // 随协程帧走，指针不悬挂。
+    huxerui::Lifecycle(
+        [windowManager, ordinal = windowIdentity.ordinal, openDrafts, activeTab] {
+            windowManager->RegisterCapture(ordinal, [openDrafts, activeTab] {
+                return WorkspaceSnapshot{openDrafts.Get(), activeTab.Get(), 0};
+            });
+            return [windowManager, ordinal] { windowManager->UnregisterCapture(ordinal); };
+        },
+        windowIdentity.ordinal);
 
     // 响应式：Compact（<600pt）改上下堆叠，Medium/Expanded 保持左右双岛。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;

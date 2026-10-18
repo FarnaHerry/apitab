@@ -61,6 +61,8 @@ struct ProjectTabDragPayload {
     TopTabId tab, std::string name, huxerui::View leading, bool active, bool draggable,
     const TopTabActions& actions, huxerui::State<std::vector<std::int64_t>> tabs,
     huxerui::State<std::int64_t> dragId, huxerui::State<float> dragDx,
+    huxerui::State<float> dragDy, huxerui::State<bool> tearArmed,
+    huxerui::State<huxerui::Point> dragPointer,
     huxerui::State<int> dragOrig, std::size_t index, std::size_t count, float stride,
     huxerui::State<std::shared_ptr<SlideCell>> slideCell,
     huxerui::State<std::uint64_t> slideTick,
@@ -189,39 +191,49 @@ struct ProjectTabDragPayload {
                 }
             });
 
-    // 项目标签拖拽换位（主页/设置标签不挂任何拖拽修饰符：主页位置恒定最左，
+    // 项目标签拖拽（主页/设置标签不挂任何拖拽修饰符：主页位置恒定最左，
     // 设置不参与排序且不写入 open_projects，§13.4 B0.1）。
-    // 限水平轴（axis=Horizontal）：标签只在标签条行内移动，竖向拖出不进拖拽。
-    // Chrome 式贴条滑动：无悬浮拖影；Changed 回写钳制后的 X 位移（范围 =
-    // 本标签到条内容两端，拖到容器外贴边停住而不是被裁掉），驱动
-    // TopTabStrip 的覆盖层克隆。重排后持久化 open_projects。
-    // 注：设计上预留「竖向拖出 = 拆成独立窗口、可拖回」，但 SDK 0.2.0 仍是单窗口
-    // 模型（UseWindow 只有主窗口命令，无新建窗口 API；拖放是单视图树内
-    // in-process），待 SDK 支持多窗口后把这里改回二维拖拽并加拆出逻辑。
-    // 完整方案与检索规则见 docs/plans/project-tab-tear-off-window.md。
+    // 二维拖拽 + 双行为：水平位移在阈值内 → 「经过即换位」原地排序（钳制后的
+    // X 位移驱动覆盖层克隆）；竖向位移 ≥ kTearOffDragThreshold → 进入拆出武装态
+    //（本次拖拽不再换位，覆盖层自由跟随指针），松手经 actions.tear_off 触发——
+    // 主窗口接「拆成子窗口」、子窗口接「拖回主窗口」（多窗口，见 window_manager.h）。
+    // Chrome 式贴条滑动：无悬浮拖影；拖到容器外贴边停住。重排后持久化
+    // open_projects。
     if (draggable) {
         tabView = std::move(tabView)
-                      .With(huxerui::DragSource(
-                          ProjectTabDragPayload{tab.project_id},
-                          huxerui::DragGesture{.axis = huxerui::Axis::Horizontal}))
-                      // 拖拽开始：记录被拖标签与起点槽位。
+                      .With(huxerui::DragSource(ProjectTabDragPayload{tab.project_id},
+                                                huxerui::DragGesture{}))
+                      // 拖拽开始：记录被拖标签与起点槽位，武装态/自由位移归零。
                       .On<huxerui::DragSourceEvents::Started>(
-                          [dragId, dragOrig, id = tab.project_id,
+                          [dragId, dragOrig, dragDx, dragDy, tearArmed, id = tab.project_id,
                            index](const huxerui::DragEvent&) {
                               dragId = id;
                               dragOrig = static_cast<int>(index);
+                              dragDx = 0.0F;
+                              dragDy = 0.0F;
+                              tearArmed = false;
                           })
-                      // 拖动中每帧：钳制后的累计 X 位移写入 dragDx（驱动覆盖层，
-                      // axis=Horizontal 时 translation 已被约束到 X），并按"经过
-                      // 即换位"实时移动 tabs 顺序——目标槽位 = 起点 +
-                      // round(位移/步进)；每次换位顺带持久化 open_projects。
+                      // 拖动中每帧：未武装 → 钳制后的累计 X 位移写入 dragDx（驱动
+                      // 覆盖层）并按"经过即换位"实时移动 tabs 顺序——目标槽位 =
+                      // 起点 + round(位移/步进)；每次换位顺带持久化 open_projects。
                       // 钳制范围 = 起点槽位到条内容两端，拖到容器外贴边停住。
                       // keyed 重排不卸载节点，同步写即可。
+                      // 武装后 → 位移原样进 dragDx/dragDy（覆盖层自由跟随），
+                      // 不做换位；指针窗口内位置随时记录，供松手时合成拆出落点。
                       .On<huxerui::DragSourceEvents::Changed>(
-                          [dragId, dragDx, dragOrig, tabs, tasks, slideCell, slideTick,
-                           id = tab.project_id, count,
+                          [dragId, dragDx, dragDy, dragOrig, tearArmed, dragPointer, tabs,
+                           tasks, slideCell, slideTick, id = tab.project_id, count,
                            stride](const huxerui::DragEvent& e) {
                               dragId = id;
+                              dragPointer = e.window_position;
+                              if (std::abs(e.translation.y) >= kTearOffDragThreshold) {
+                                  tearArmed = true;
+                              }
+                              if (tearArmed.Get()) {
+                                  dragDx = e.translation.x;
+                                  dragDy = e.translation.y;
+                                  return;
+                              }
                               const float orig = static_cast<float>(dragOrig.Get());
                               const float hi =
                                   static_cast<float>(count > 0 ? count - 1 : 0) * stride -
@@ -259,16 +271,25 @@ struct ProjectTabDragPayload {
                               }
                               saveSessionPreference("open_projects", csv);
                           })
-                      // 结束/取消：归零会移除覆盖层节点。
+                      // 结束：武装态 → 触发拆出/拖回（用 Changed 里记录的指针窗口
+                      // 内位置合成屏幕落点）。随后归零会移除覆盖层节点。
                       .On<huxerui::DragSourceEvents::Ended>(
-                          [dragId, dragDx](const huxerui::DragDropResult&) {
+                          [dragId, dragDx, dragDy, tearArmed, dragPointer, actions,
+                           id = tab.project_id](const huxerui::DragDropResult&) {
+                              if (tearArmed.Get() && actions.tear_off) {
+                                  actions.tear_off(id, dragPointer.Get());
+                              }
                               dragId = 0;
                               dragDx = 0.0F;
+                              dragDy = 0.0F;
+                              tearArmed = false;
                           })
                       .On<huxerui::DragSourceEvents::Canceled>(
-                          [dragId, dragDx](const huxerui::DragEvent&) {
+                          [dragId, dragDx, dragDy, tearArmed](const huxerui::DragEvent&) {
                               dragId = 0;
                               dragDx = 0.0F;
+                              dragDy = 0.0F;
+                              tearArmed = false;
                           });
     }
     return tabView;
@@ -302,6 +323,12 @@ struct ProjectTabDragPayload {
     // 绘制最上层；克隆无事件 handler，命中测试穿透到下方静止标签）。
     auto dragId = huxerui::UseState<std::int64_t>(0);
     auto dragDx = huxerui::UseState(0.0F);
+    // 拆出武装态（多窗口手势）：竖向位移超阈值后置位——本次拖拽不再水平换位，
+    // 覆盖层自由跟随指针（dragDy），松手触发 actions.tear_off（主窗口 = 拆出、
+    // 子窗口 = 拖回）。dragPointer 记录指针窗口内位置供松手时合成落点。
+    auto dragDy = huxerui::UseState(0.0F);
+    auto tearArmed = huxerui::UseState(false);
+    auto dragPointer = huxerui::UseState(huxerui::Point{});
     // 拖动起点槽位（Started 时记录）：覆盖层 X = 起点槽位 + 累计位移，
     // 与实时换位后的数据下标解耦，视觉连续不跳变。
     auto dragOrig = huxerui::UseState(0);
@@ -391,8 +418,9 @@ struct ProjectTabDragPayload {
         const std::size_t dragCount = visibleTabs.size();
         chips.push_back(
             TopTab(entry.tab, entry.name, entry.leading, entry.active, entry.draggable,
-                   actions, tabs, dragId, dragDx, dragOrig, isProject ? dragIndex : 0,
-                   isProject ? dragCount : 1, tabStride, slideCell, slideTick, hoveredTab)
+                   actions, tabs, dragId, dragDx, dragDy, tearArmed, dragPointer, dragOrig,
+                   isProject ? dragIndex : 0, isProject ? dragCount : 1, tabStride,
+                   slideCell, slideTick, hoveredTab)
                 .Key(entry.key));
         // 标签间分隔竖线（最后一个不加）：相邻标签激活/悬停/被拖时隐藏，
         // 始终占布局（Opacity 显隐，不回流）。
@@ -407,8 +435,10 @@ struct ProjectTabDragPayload {
     }
 
     // 拖拽覆盖层：被拖标签的视觉克隆（纯展示，无 handler），X = 拖拽起点
-    // 槽位 + 钳制后的累计位移，Y 恒 0。仅项目标签可拖（dragId 只含项目 id），
-    // 覆盖层关闭动作与本体保持同一图标资源（业务特例，仅展示不接收点击）。
+    // 槽位 + 累计位移；未武装时 Y 恒 0，拆出武装态后 Y 自由跟随指针
+    //（dragDy），呈现「标签离开标签条」的视觉。仅项目标签可拖（dragId 只含
+    // 项目 id），覆盖层关闭动作与本体保持同一图标资源（业务特例，仅展示不
+    // 接收点击）。
     huxerui::View overlayTab = huxerui::Row{};
     if (dragId.Get() != 0 && !visibleTabs.empty()) {
         std::string dragName;
@@ -448,14 +478,14 @@ struct ProjectTabDragPayload {
                       huxerui::ClipChildren(),
                       huxerui::Offset(huxerui::Point{
                           static_cast<float>(dragOrig.Get()) * tabStride + dragDx.Get(),
-                          0.0F}));
+                          tearArmed.Get() ? dragDy.Get() : 0.0F}));
     }
 
     // 主页标签：图标 only，无文字，不可关闭，固定最左（在 ScrollView 之外）。
     huxerui::View homeTab =
         TopTab(TopTabId{}, "", iconLeading(app::images::home, homeActive), homeActive,
-               /*draggable=*/false, actions, tabs, dragId, dragDx, dragOrig, 0, 1, tabStride,
-               slideCell, slideTick, hoveredTab)
+               /*draggable=*/false, actions, tabs, dragId, dragDx, dragDy, tearArmed,
+               dragPointer, dragOrig, 0, 1, tabStride, slideCell, slideTick, hoveredTab)
             .Key(std::int64_t{0});
 
     // 主页与条内首个标签之间的分隔竖线：主页或右邻激活、悬停、被拖时隐藏

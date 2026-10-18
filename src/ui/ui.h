@@ -748,11 +748,18 @@ inline constexpr std::int64_t kSettingsTabDisplayKey =
 
 // 顶级标签条 → AppRoot 的操作入口：activate/close 的实现由 AppRoot 提供（在事件回调
 // 里完成 TopTabState helper 计算、领域写入与 State 写回；TopTab/TopTabStrip 不直接
-// 持有顶级状态写入）。
+// 持有顶级状态写入）。tear_off：项目标签竖向拖出标签条（≥ kTearOffDragThreshold）
+// 后松手的多窗口拆分手势——主窗口接成「拆成子窗口」、子窗口接成「拖回主窗口」；
+// 第二个参数是指针在宿主窗口内的逻辑坐标（合成屏幕落点时由调用方加窗口原点）。
 struct TopTabActions {
     std::function<void(TopTabId)> activate;
     std::function<void(TopTabId)> close;
+    std::function<void(std::int64_t, huxerui::Point pointer_window_local)> tear_off;
 };
+
+// 拆出武装阈值（竖向位移，逻辑像素）：超过即进入拆出/拖回武装态，本次拖拽
+// 不再进行水平换位，松手触发 tear_off。
+inline constexpr float kTearOffDragThreshold = 48.0F;
 
 // 标题栏（title_bar.cpp）：居中 Logo + 顶级标签条（含主页/项目/设置单例、拖拽换位）
 huxerui::View TitleBarLogo(float slotWidth);

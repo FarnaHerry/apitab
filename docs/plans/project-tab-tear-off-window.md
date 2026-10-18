@@ -1,6 +1,20 @@
 # 计划：项目标签拖出成独立窗口（tear-off）与拖回
 
-状态：**阻塞于 SDK 能力**，未实施。代码侧已留标记（`src/ui/app.cpp` ProjectTab 拖拽注释）。
+状态：**初步实现，手动验证存在多处问题，待修复**（2026-10-18）。
+阻塞已解除：HuxerUI fork eab74b0 已落地 Linux 多窗口移植（`Runtime::OpenWindow`、
+`Retire`、`WindowOptions::initial_position` / `WindowHandle::Position()`，X11/Windows
+定位、Wayland 退化）。apitab 侧已接线：窗口身份路由（AppRoot → ChildWindowRoot）、
+WindowManager 应用服务（窗口表/转移信封/主窗口桥）、二维拖拽拆出/拖回手势、
+主页唤醒、✕ 关闭策略、焦点驱动领域游标重同步。用户手动验证反馈"仍有不少问题"，
+具体问题清单待逐条记录后修复；验证过的部分：fork [linux-native] 原生多窗口测试
+（开窗/退役/定位）、apitab 启动组合、构建链路。
+
+## 已知风险区（修复时优先排查）
+
+1. 拆出/拖回瞬间子窗口组合（信封消费、领域游标时序）。
+2. 双窗口领域游标串台（焦点重同步的覆盖面，后台轮询回写守卫尚未逐点审计）。
+3. 子窗口 ✕ / 标签 ✕ 的关闭策略与主窗口 open_projects 持久化的一致性。
+4. Wayland 下窗口落位退化（协议限制）与拖出武装态的视觉反馈。
 
 ## 需求
 

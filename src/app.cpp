@@ -9,6 +9,7 @@
 
 #include "control_server.h"
 #include "ui/app.h"
+#include "ui/window_manager.h"
 
 // EUI 时代由框架提供的 UI 唤醒钩子。HuxerUI 是 State 驱动失效模型，
 // 引擎结果由 TaskScope 的轮询任务在 UI 线程取回并写 State，这里降级为 no-op。
@@ -37,6 +38,7 @@ const huxerui::Application application{
         // webkitgtk-6.0 开发包时后端不存在，InstallWebView 会抛异常，经
         // APITAB_HAS_WEBVIEW 编译期宏整条摘除。
         .application_hooks = {apitab::ui::InstallSystemTray,
+                              apitab::ui::InstallWindowManager,
                               apitab::control::InstallControlServer,
 #ifdef APITAB_HAS_WEBVIEW
                               huxerui::InstallWebView,

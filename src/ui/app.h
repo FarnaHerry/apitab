@@ -44,6 +44,11 @@ void PublishWindowController(TrayWindowController* controller);
 TrayWindowController* CurrentWindowController();
 
 // 应用根：侧栏导航 + 页面切换。由 src/app.cpp 注册到 Application。
+// 多窗口：初始窗口走完整装配；子窗口（WindowIdentity.key = "project:<id>"）
+// 在 AppRoot 入口分流到 ChildWindowRoot（见 app.cpp）。
 huxerui::View AppRoot();
+
+// 子窗口根：拆出的项目工作区窗口（外观与主窗口一致，行为路由见 app.cpp 注释）。
+huxerui::View ChildWindowRoot(const huxerui::WindowIdentity& identity);
 
 } // namespace apitab::ui

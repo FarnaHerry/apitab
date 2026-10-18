@@ -28,6 +28,7 @@
 #include "app.h"
 #include "control_server.h"
 #include "lightweight.h"
+#include "window_manager.h"
 #include "app_resources.h"
 
 import apitab.config;
@@ -559,12 +560,23 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
 // CloseGuard 已移至 app_dialogs.cpp（P1-C2 纯搬移）
 
 [[huxerui::composable]] huxerui::View AppRoot() {
+    // 多窗口内容路由：RootFactory 全局唯一，每个窗口首组合前被注入自己的
+    // WindowIdentity（WindowOptions::key + ordinal）。初始窗口（ordinal 0、key 空）
+    // 走下方完整装配；子窗口（key = "project:<id>"，拆出/拖回创建）走轻量装配，
+    // 不执行主窗口专属的应用级接线（托盘/控制面/会话恢复/关闭询问）。
+    const huxerui::WindowIdentity windowIdentity = huxerui::UseEnvironment<huxerui::WindowIdentity>();
+    if (!windowIdentity.key.empty()) {
+        return ChildWindowRoot(windowIdentity);
+    }
+
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     const huxerui::WindowHandle window = huxerui::UseWindow();
     const huxerui::SystemTrayHandle tray = application.SystemTray();
     // 托盘激活处理器已由 InstallSystemTray（应用安装钩子）一次性注册；这里只取
     // 它用来定位窗口的应用级控制器。必须无条件取服务，不能放进 if (trayAvailable)。
     const auto trayWindow = huxerui::UseService<TrayWindowController>();
+    // 多窗口控制器（InstallWindowManager 应用级 Provide）：主窗口桥 + 拆出窗口创建。
+    const auto windowManager = huxerui::UseService<WindowManager>();
     auto toast = huxerui::UseToast();
     // IsAvailable() 内部会观察托盘可用性 State：DBus 托盘宿主就绪较晚时，
     // 这里在组合期订阅，可用性翻转后本作用域重组、托盘随后注册。
@@ -764,7 +776,70 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
 
     auto activateTopTab = activateTopTabNow;
     auto closeTopTab = closeTopTabNow;
-    TopTabActions topTabActions{activateTopTab, closeTopTab};
+
+    // ---- 多窗口：主窗口桥 + 焦点驱动的领域游标重同步 ----
+    // detach_tab：拆出/子窗口关闭时移除主窗口侧标签——状态回退与持久化同关闭
+    // 标签，但不写领域游标（游标归发起方：拆出后归子窗口、关闭后随主窗口焦点
+    // 重同步归位）。
+    auto detachTopTab = [=](std::int64_t id) {
+        const TopTabState before = topTabSnapshot();
+        const TopTabState after = CloseTopTab(before, TopTabId{TopTabKind::Project, id});
+        commitTopTab(before, after);
+    };
+    huxerui::Lifecycle(
+        [windowManager, window, detachTopTab, activateTopTabNow, navPage] {
+            windowManager->SetMainWindow(window);
+            windowManager->SetMainBridge(MainBridge{
+                .detach_tab = detachTopTab,
+                .restore_tab =
+                    [activateTopTabNow](std::int64_t id) {
+                        activateTopTabNow(TopTabId{TopTabKind::Project, id});
+                    },
+                .wake_to_tab = activateTopTabNow,
+                .current_nav_page = [navPage] { return navPage.Get(); },
+            });
+            return [windowManager] {
+                windowManager->ClearMainBridge();
+                windowManager->ClearMainWindow();
+            };
+        },
+        0);
+
+    // 焦点驱动重同步：本窗口回到前台时把领域游标拉回自己的活动顶级标签，
+    // 防止另一窗口操作期间游标漂移导致本窗口读到别的项目数据。游标已一致时
+    // 不写（避免多余重组）；不一致时写 activeProject 触发本窗口重组刷新。
+    window.OnLifecycleChanged(
+        [activeTopTab, activeProject, toast](const huxerui::WindowLifecycleState state) {
+            if (state != huxerui::WindowLifecycleState::Active) return;
+            const TopTabId active = activeTopTab.Get();
+            const std::int64_t want = active.kind == TopTabKind::Project ? active.project_id : 0;
+            if (g_requests.currentProjectId() == want) return;
+            if (auto selected = g_requests.selectProject(want); !selected) {
+                toast.Show("切换项目失败: " + selected.error().message);
+                return;
+            }
+            if (auto loaded = g_loadtest.setProject(want); !loaded)
+                toast.Show("加载压测配置失败: " + loaded.error().message);
+            saveSessionPreference("active_project", std::to_string(want));
+            activeProject = want;
+        });
+
+    TopTabActions topTabActions{
+        activateTopTab,
+        closeTopTab,
+        // 项目标签拖出标签条：拆成独立子窗口（Chrome 式 tear-off）。落点屏幕
+        // 坐标 = 本窗口客户区原点 + 拖拽指针窗口内位置；Position 在 Wayland 无
+        // 值，子窗口退化为窗口管理器默认摆放。
+        [windowManager, window, ordinal = windowIdentity.ordinal](
+            std::int64_t id, const huxerui::Point pointer) {
+            std::optional<huxerui::Point> screen;
+            if (const std::optional<huxerui::Point> origin = window.Position();
+                origin.has_value()) {
+                screen = huxerui::Point{origin->x + pointer.x, origin->y + pointer.y};
+            }
+            windowManager->TearOff(ordinal, id, screen);
+        },
+    };
 
     // HomePage 打开项目回调：ProjectCard 在完成领域写入后调用，内部走同一
     // activateTopTabNow——新增/激活顶级项目标签 + State
@@ -992,6 +1067,167 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     // 关闭询问弹窗宿主挂在 provider 之下（AppRoot 自身读不到主题，CloseGuard 能）。
     return MinimalThemed(dark, CloseGuard(closeBehavior, closeDialogOpen, content));
 
+}
+
+// 子窗口根（拆出的项目工作区窗口）：外观与主窗口完全一致（Custom 标题栏 24pt、
+// 标签条、侧栏、状态条、同一主题），唯一差别是身份——主窗口全局唯一，这里只有
+// 一个项目标签：
+//   - 主页标签点击 = 单纯唤醒主窗口并切主页（WakeMainToHome），自己不导航；
+//   - 齿轮 = 唤醒主窗口打开全局设置；头像 = 唤醒主窗口（账号页在主窗口）；
+//   - 项目标签拖出窗口顶缘 = 拖回主窗口（MergeBack，草稿随信封迁移）；
+//   - ✕（标题栏或标签）= 直接关闭该标签（主窗口 open_projects 移除并持久化），
+//     然后退役本窗口；
+//   - 焦点回到本窗口 = 领域游标重同步到本窗口项目（单游标 store 的多窗口治理）。
+// 主窗口专属接线（托盘/控制面/会话恢复/关闭询问弹窗）不在这里执行——AppRoot
+// 在路由时已把子窗口分流到本函数。
+[[huxerui::composable]] huxerui::View ChildWindowRoot(const huxerui::WindowIdentity& identity) {
+    const std::int64_t projectId = ParseChildWindowKey(identity.key);
+    const huxerui::WindowHandle window = huxerui::UseWindow();
+    const auto windowManager = huxerui::UseService<WindowManager>();
+    auto toast = huxerui::UseToast();
+
+    // 组合态：单项目工作区。初值仅在首组合消费一次——navPage/草稿从转移信封
+    // 恢复（拆出瞬间主窗口的内部页与未保存请求），信封不在或已消费则取缺省
+    //（重组时 UseState 丢弃初值，重复调用 Consume* 返回空、无害）。
+    const std::optional<std::size_t> restoredNav = windowManager->ConsumeNavPage(projectId);
+    auto navPage = huxerui::UseState<std::size_t>(restoredNav.value_or(std::size_t{pages::kRequest}));
+    auto activeProject = huxerui::UseState(projectId);
+    auto activeTopTab = huxerui::UseState(TopTabId{TopTabKind::Project, projectId});
+    auto tabs = huxerui::UseState<std::vector<std::int64_t>>(std::vector<std::int64_t>{projectId});
+    auto settingsOpen = huxerui::UseState(false);
+    auto themeMode = huxerui::UseState([] {
+        // 子窗口没有设置页：主题跟随会话偏好（主窗口修改主题对已开子窗口不
+        // 追溯，重启/新开子窗口生效）。
+        if (sessionPreference("theme_mode") == "1") return 1;
+        if (sessionPreference("theme_mode") == "2") return 2;
+        return 0;
+    }());
+
+    // 挂载登记 + 卸载清理（退役/应用退出都会走清理，窗口表不悬挂）。
+    huxerui::Lifecycle(
+        [windowManager, window, projectId] {
+            windowManager->RegisterChild(projectId, window);
+            return [windowManager, projectId] { windowManager->UnregisterChild(projectId); };
+        },
+        0);
+
+    // 标题栏 ✕ = 直接关闭该标签（等价主窗口内 ✕），随后退役本窗口。
+    window.OnCloseRequest([windowManager, projectId] {
+        windowManager->CloseChildTab(projectId);
+        return true;
+    });
+
+    // 焦点驱动重同步（与主窗口同一治理规则）。
+    window.OnLifecycleChanged(
+        [projectId, activeProject, toast](const huxerui::WindowLifecycleState state) {
+            if (state != huxerui::WindowLifecycleState::Active) return;
+            if (g_requests.currentProjectId() == projectId) return;
+            if (auto selected = g_requests.selectProject(projectId); !selected) {
+                toast.Show("切换项目失败: " + selected.error().message);
+                return;
+            }
+            if (auto loaded = g_loadtest.setProject(projectId); !loaded)
+                toast.Show("加载压测配置失败: " + loaded.error().message);
+            activeProject = projectId;
+        });
+
+    // 领域兜底：拆出流程已在 OpenWindow 前同步游标；信封缺失的异常路径（如
+    // 手动重建窗口）在首组合时再同步一次。首次组合后游标一致，重复执行无效果。
+    if (g_requests.currentProjectId() != projectId) {
+        if (auto selected = g_requests.selectProject(projectId); selected) {
+            (void)g_loadtest.setProject(projectId);
+            activeProject = projectId;
+        }
+    }
+
+    // 顶级标签操作：主页/设置路由到主窗口（身份是子窗口），项目标签就地激活，
+    // ✕ 关标签并关窗口，拖出标签条 = 拖回主窗口。
+    TopTabActions topTabActions{
+        [windowManager, projectId](const TopTabId target) {
+            switch (target.kind) {
+                case TopTabKind::Home:
+                    windowManager->WakeMainToHome();
+                    break;
+                case TopTabKind::Project:
+                    // 本窗口只有这一个项目标签：激活 = 确保游标在本项目
+                    //（正常情况下焦点重同步已覆盖；点击是显式兜底）。
+                    if (g_requests.currentProjectId() != projectId) {
+                        (void)g_requests.selectProject(projectId);
+                        (void)g_loadtest.setProject(projectId);
+                    }
+                    break;
+                case TopTabKind::GlobalSettings:
+                    // 子窗口没有设置标签，防御路由到主窗口。
+                    windowManager->WakeMainToSettings();
+                    break;
+            }
+        },
+        [windowManager, projectId](const TopTabId target) {
+            if (target.kind == TopTabKind::Project) windowManager->CloseChildTab(projectId);
+        },
+        [windowManager, ordinal = identity.ordinal, navPage, projectId](
+            std::int64_t, const huxerui::Point&) {
+            windowManager->MergeBack(ordinal, projectId, navPage.Get());
+        },
+    };
+
+    const int themeModeValue = themeMode.Get();
+    const bool dark =
+        themeModeValue == 1 || (themeModeValue == 0 && cfg::systemPrefersDark());
+    const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
+    const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
+    const float gap = rootSpec.spacing.extra_small;
+    const float titleBarHorizontalPadding =
+        compact ? rootSpec.spacing.extra_small : rootSpec.spacing.small;
+    const float sideShellWidth =
+        compact ? kCompactSideShellWidth : kRegularSideShellWidth;
+    const float titleBarLogoWidth = sideShellWidth - 2.0F * titleBarHorizontalPadding;
+    const float statusTopPad = gap - rootSpec.spacing.extra_small;
+
+    // 内容区：子窗口只有项目工作区（无主页/设置页），navPage 表达内部页。
+    huxerui::View page = pages::ProjectPages(navPage, activeProject)
+                             .Key(projectId)
+                             .With(huxerui::Grow(1.0F));
+
+    huxerui::View content = huxerui::Column {
+        huxerui::WindowTitleBar {
+            TitleBarLogo(titleBarLogoWidth).With(huxerui::WindowDragRegion{}),
+            TopTabStrip(tabs, settingsOpen, activeTopTab, topTabActions),
+            huxerui::Spacer{}.With(huxerui::Grow(1.0F), huxerui::WindowDragRegion{}),
+            // 齿轮 = 唤醒主窗口打开全局设置（与主窗口同款外观，行为路由主窗口）。
+            huxerui::Row {
+                huxerui::Image(app::images::gear)
+                    .Fit(huxerui::ImageFit::Contain)
+                    .Align(huxerui::HorizontalAlignment::Center,
+                           huxerui::VerticalAlignment::Center)
+                    .Tint(rootSpec.colors.on_surface)
+                    .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}),
+            }
+                .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
+                      huxerui::Frame{.height = kTitleBarContentHeight},
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
+                      huxerui::Tooltip("全局设置（主窗口）"),
+                      huxerui::Focusable(true),
+                      huxerui::Semantics{.role = huxerui::SemanticRole::Button,
+                                         .label = "全局设置"})
+                .OnClick([windowManager] { windowManager->WakeMainToSettings(); }),
+        }
+            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
+                      titleBarHorizontalPadding, 0.0F)),
+                  huxerui::Spacing(gap)),
+        huxerui::Row {
+            huxerui::View{SideShell(navPage)},
+            std::move(page).With(huxerui::Grow(1.0F)),
+        }
+            .With(huxerui::Spacing(gap),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                  huxerui::Grow(1.0F)),
+        huxerui::View{GlobalStatusBar(statusTopPad)},
+    }
+                               .With(huxerui::Spacing(rootSpec.spacing.extra_small),
+                                     huxerui::Background(rootSpec.colors.background),
+                                     huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    return MinimalThemed(dark, std::move(content));
 }
 
 } // namespace apitab::ui
