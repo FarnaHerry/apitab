@@ -154,6 +154,26 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   `third_party/huxerui` git pull 升级）后，按 `docs/plans/` 里各计划的
   「版本检索规则」检索新版能力（多窗口/跨窗口拖放等，见
   `docs/plans/project-tab-tear-off-window.md`）；不更新则无需检索。
+- **线条风布局与分隔线（2026-10 起强制，弃岛屿风）**：分区面板（原"岛"）
+  **无边框**、与海面同底色（`islands.base`）、直角——`IslandSurface` 与各
+  页面本地面板统一；面板边界由 1px 分隔线表达，**相邻面板之间只画一条线**：
+  - 静态分隔 = 通栏 1px 线：空 `Row{}`/`Column{}` + `Frame{.width/.height = 1.0F}`
+    + `Background(hairline)`，靠外层 `CrossAlign(Stretch)` 拉满；
+  - 可调宽高分隔 = `ResizeHandle`（request_page.cpp）：它**本身就是那条线**——
+    平时 1px hairline，悬停/拖动亮主题色（VS Code sash 式）；
+  - **禁止**「面板自带四边 `Border` + 相邻间隙」的组合：两面板相邻处会叠成
+    双竖线（请求页/首页/压测页先后实证）。`Border` 不支持单边，去重只能靠
+    面板弃边框、线交给布局层。
+  - 线强度分级：窗口骨架三条通栏线（标题栏下缘/侧栏右缘/状态栏上缘，主/子
+    窗口同款）用全强度 `outline`；页面级分隔用 hairline（outline 半透明档，
+    `ResolveIslandTheme().outline_hair`）。
+  - 色阶只保留在"状态/控件/浮层"语言里：列表行 hover/选中（`islands.raised`
+    /`islands.active`）、输入框与组合栏底、浮层（Overlay/Danger）、头像与裁剪
+    等媒体画布。分区底色不做色阶差。
+  - 色板骨架 = GitHub 中性值（深 `#0d1117`/`#151b23`/`#3d444d`/`#f0f6fc`，
+    浅 `#ffffff`/`#f6f8fa`/`#d0d7de`/`#1f2328`，见 MinimalDark/LightThemeSpec）；
+    **不用 GitHub 主题色**——primary/焦点环保持品牌青。
+  - 页面不重复展示全局状态栏已有的信息（如 k6 引擎就绪状态只在底部状态栏）。
 - **源码 main 937efb1 新能力（2026-09-02）**：新增受控可编辑 `ComboBox`
   （自由输入 + 应用提供候选，`OnChanged` 与 `OnSelected` 分离）、Snackbar，以及
   嵌套滚动/overscroll 统一。当前构建按 SDK 实际头文件检测 ComboBox 等 API，并在源码

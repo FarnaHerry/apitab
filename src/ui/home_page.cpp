@@ -380,7 +380,6 @@ namespace {
             .With(huxerui::Padding(theme.spacing.medium),
                   huxerui::Spacing(theme.spacing.small),
                   huxerui::Background(ResolveIslandTheme(theme).base),
-                  huxerui::Border(ResolveIslandTheme(theme).outline_hair, 1.0F),
                   huxerui::Frame{.width = 240.0F},
                   huxerui::Frame{.min_width = 200.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
@@ -447,27 +446,30 @@ namespace {
             .With(huxerui::Padding(theme.spacing.large),
                   huxerui::Spacing(theme.spacing.medium),
                   huxerui::Background(ResolveIslandTheme(theme).base),
-                  huxerui::Border(ResolveIslandTheme(theme).outline_hair, 1.0F),
                   huxerui::Grow(1.0F),
                   huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
     // Compact 把定宽组织岛移到顶部并限高，项目岛取得剩余高度；Medium/Expanded
     // 维持左右双岛。不用外层 ScrollView（其内容宽度无界会让 Row 收缩漂移）。
+    // 线条风：两岛无边框，岛间只留一条 1px 分隔线（请求页同款单线）。
+    const huxerui::Color hair = ResolveIslandTheme(theme).outline_hair;
     if (compact) {
         return huxerui::Column {
                    std::move(orgIsland).With(huxerui::Frame{.max_height = 220.0F}),
+                   huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+                                       huxerui::Background(hair)),
                    projectIsland,
                }
-            .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
+            .With(huxerui::Grow(1.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
-    return huxerui::Column {
-        huxerui::Row {orgIsland, projectIsland}
-            .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+    return huxerui::Row {
+        std::move(orgIsland),
+        huxerui::Row{}.With(huxerui::Frame{.width = 1.0F}, huxerui::Background(hair)),
+        projectIsland,
     }
-        .With(huxerui::Spacing(theme.spacing.small), huxerui::Grow(1.0F),
+        .With(huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
 

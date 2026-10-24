@@ -426,13 +426,14 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
                 .With(huxerui::Padding(theme.spacing.medium),
                       huxerui::Spacing(theme.spacing.small),
                       huxerui::Background(islands.base),
-                      huxerui::Border(islands.outline_hair, 1.0F),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                       huxerui::Frame{.width = 250.0F}),
-            // 右：主区岛——PageHeader 住岛内（仿首页项目岛），内容岛内滚动。
+            // 线条风：左右两岛之间只留一条 1px 分隔线（岛无边框）。
+            huxerui::Row{}.With(huxerui::Frame{.width = 1.0F},
+                                huxerui::Background(islands.outline_hair)),
+            // 右：主区岛——内容岛内滚动。页面标题与 k6 引擎状态不再重复展示
+            //（k6 就绪与否由底部全局状态栏表达）。
             huxerui::Column {
-                PageHeader("压测",
-                           k6ok ? "k6 引擎：就绪" : "k6 引擎：未找到（engines/ 或 PATH）"),
                 huxerui::ScrollView{huxerui::Column {
             // 方法+URL 合并控件（自带 Grow 占满整行）。
             MethodUrlBar(
@@ -573,12 +574,10 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
                 .With(huxerui::Padding(compact ? theme.spacing.medium : theme.spacing.large),
                       huxerui::Spacing(theme.spacing.medium),
                       huxerui::Background(ResolveIslandTheme(theme).base),
-                      huxerui::Border(ResolveIslandTheme(theme).outline_hair, 1.0F),
                       huxerui::Grow(1.0F),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
     }
-        .With(huxerui::Spacing(theme.spacing.small),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+        .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
               huxerui::Grow(1.0F));
 }
 
