@@ -110,7 +110,7 @@ struct IslandTheme {
     // icon_button_compact / icon_button_regular：图标按钮正方形命中区两档 28/32pt；
     // control_height：普通控件（按钮/输入行）统一高度 32pt。
     // 线条风（2026-10）：island_radius/nested_radius 归零——分区直角，结构由
-    // hairline 线框与骨架分隔线承担；控件圆角随主题 shapes 收敛（4/6pt）；
+    // 主题语义线框与骨架分隔线承担；控件圆角随主题 shapes 收敛（4/6pt）；
     // 对话框等浮层保留更大外轮廓（shapes.extra_large）。
     // **页面禁止再散落圆角/图标按钮尺寸魔法数字**——同类列表、组合栏、按钮的
     // 几何只从这里取值（经 ResolveIslandTheme），调整尺寸只改这一处。
@@ -125,10 +125,13 @@ struct IslandTheme {
     huxerui::Color raised;
     huxerui::Color active;
     huxerui::Color overlay;
-    huxerui::Color outline_soft;
-    // outline_soft 的半透明档：仅供组合栏内部竖分隔线等纯装饰线，
-    // 让装饰线视觉上弱于输入框描边等交互线。
-    huxerui::Color outline_hair;
+    // 中性结构线从当前主题的 outline 派生；焦点/危险状态分别取 primary/error。
+    // 页面只按职责取语义令牌，不再各自混合灰阶或乘局部 alpha。
+    huxerui::Color line_subtle;
+    huxerui::Color line_default;
+    huxerui::Color line_focus;
+    huxerui::Color line_danger;
+    huxerui::Color line_disabled;
 };
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme);
@@ -408,10 +411,10 @@ huxerui::View FlatSelectRow(std::vector<std::string> labels, std::size_t selecte
 // InputSurfaceTone::Focused 点亮。优先级：
 // Disabled > Error > Busy > （Focused 或自动跟踪的聚焦）> Normal。
 enum class InputSurfaceTone {
-    Normal,   // 常态：柔和描边（outline_soft）
+    Normal,   // 常态：主题默认描边（line_default）
     Focused,  // 聚焦（显式）：主色描边（焦点边界）
     Error,    // 校验失败：error 描边
-    Disabled, // 禁用：半透明柔和描边（最弱）
+    Disabled, // 禁用：主题 disabled 线条令牌（最弱）
     Busy,     // 发送中/处理中：主色弱化描边（几何不变，不阻塞 body 交互）
 };
 
@@ -479,7 +482,7 @@ struct PopupMenuItem {
     // on_click，点击 = 执行回调并关闭整链（直达该层级的动作，如"移动到
     // 分组 A"本身也是一个目的地）；不设则点击仅展开。
     std::vector<PopupMenuItem> children;
-    // true = 本行上方画 1pt 分隔线（outline 色、随菜单宽度拉满），用于把
+    // true = 本行上方画 1pt 分隔线（subtle 线条令牌、随菜单宽度拉满），用于把
     // 条目分成视觉组（如"＋ 新建"菜单的请求类型/目录/导入三段）。
     bool separator_before = false;
 };

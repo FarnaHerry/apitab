@@ -34,7 +34,7 @@ namespace apitab::ui {
     const IslandTheme islands = ResolveIslandTheme(theme);
     auto hovered = huxerui::UseState(false);
     auto focused = huxerui::UseState(false);
-    // 入口卡常态安静（仅底色分层），悬停/聚焦才出线提示可点；
+    // 入口卡常态安静（仅底色分层），悬停时出中性线提示可点；键盘聚焦交给全局焦点环。
     // 只换颜色，几何与内边距两态一致，避免悬停时内容抖动。
     const bool highlight = hovered.Get() || focused.Get();
     return huxerui::Column {
@@ -47,8 +47,8 @@ namespace apitab::ui {
               huxerui::Frame{.width = 220.0F, .height = 128.0F},
               huxerui::Background(highlight ? islands.active : islands.raised),
               huxerui::CornerRadius(islands.large_control_radius),
-              huxerui::Border(highlight ? islands.outline_soft
-                                        : huxerui::Color::Transparent(),
+              huxerui::Border(hovered.Get() ? islands.line_default
+                                            : huxerui::Color::Transparent(),
                               1.0F),
               huxerui::ClipChildren(), huxerui::Padding(theme.spacing.medium),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
@@ -140,13 +140,12 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
         zone.width = 6.0F;
     // Stack 才是 6pt 拖拽热区；Divider 只保留主题默认的 1pt 固有粗细。
     // Stack 沿分割线方向 Stretch、短轴 Center，故线严格落在热区中心。
-    // 线条风：拖条平时就是 1px hairline 分隔线（VS Code sash 式，岛间只此
-    // 一条线），悬停/拖动时亮起 2pt 视觉的主题色细条。
-    huxerui::Color hair = theme.colors.outline;
-    hair.alpha *= 0.5F;
+    // 线条风：拖条平时使用主题 subtle 档（区域间只此一条线），悬停/拖动时
+    // 同宽切换为主题焦点线。
+    const IslandTheme lines = ResolveIslandTheme(theme);
     return huxerui::Stack {
                huxerui::Divider(axis).With(
-                   huxerui::Background(lit ? theme.colors.primary : hair)),
+                   huxerui::Background(lit ? lines.line_focus : lines.line_subtle)),
            }
         .With(zone,
               horizontal ? huxerui::Align(huxerui::HorizontalAlignment::Stretch,
@@ -172,8 +171,8 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
         .On<huxerui::DragEvents::Canceled>([dragging](const huxerui::DragEvent&) { dragging = false; });
 }
 
-// 右侧一级岛屿的统一表面：与左岛（RequestListIsland）同一套令牌——线条风
-// 分区（海面同色底 + hairline 线框 + 直角，见 ResolveIslandTheme）。岛屿靠
+// 右侧一级区域的统一表面：与左侧请求树同一套令牌——线条风
+// 分区（海面同色底 + 主题 subtle 线框 + 直角，见 ResolveIslandTheme）。区域靠
 // Grow 自动拉伸占满右侧区块，内容在岛内滚动。
 huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSpec& theme,
                                    huxerui::Frame minimum = {.min_width = 320.0F,
@@ -588,7 +587,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                    RequestListIsland(openDrafts, activeTab, listVersion, true, 260.0F),
                    // 线条风：上下两岛之间 1px 通栏分隔线。
                    huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
-                                       huxerui::Background(islandTheme.outline_hair)),
+                                       huxerui::Background(islandTheme.line_subtle)),
                    rightArea,
                }
             .With(huxerui::Grow(1.0F),

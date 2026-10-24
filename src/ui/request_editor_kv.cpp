@@ -255,6 +255,8 @@ std::optional<std::vector<KvRow>> KvRowsFromCsv(std::string_view csv, std::strin
     std::function<void(const huxerui::TextEditingValue&)> onChanged) {
     huxerui::TextFieldStyle style = huxerui::UseEnvironment<huxerui::TextFieldStyle>();
     style.show_label = false;
+    // KV 紧凑表格的常态单元格不画边框，避免每个输入框组成密集网格；全局
+    // MinimalThemeStyles 的 hover/focus 线条仍保留，用于指示当前交互单元格。
     style.outlined.border = huxerui::Color::Transparent();
     style.outlined.minimum_height = 30.0F;
     style.outlined.corner_radii = huxerui::CornerRadii{8.0F};

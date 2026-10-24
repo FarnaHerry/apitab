@@ -600,7 +600,7 @@ constexpr AboutDependency kAboutDependencies[] = {
                  .With(huxerui::Grow(1.0F),
                        huxerui::Frame{.min_width = 280.0F, .min_height = 280.0F});
     } else {
-        // 标准：整个设置工作区共用一层边框和内边距。分类栏、竖向 hairline、
+        // 标准：整个设置工作区共用一层边框和内边距。分类栏、竖向 subtle 线、
         // 独立滚动的右侧内容直接相邻，避免两个相邻面板各自描边形成双竖线。
         const IslandTheme islands = ResolveIslandTheme(theme);
         huxerui::View content = huxerui::Column {
@@ -613,7 +613,7 @@ constexpr AboutDependency kAboutDependencies[] = {
                   huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
         huxerui::View divider = huxerui::Column{}
                                     .With(huxerui::Frame{.width = 1.0F},
-                                          huxerui::Background(islands.outline_hair));
+                                          huxerui::Background(islands.line_subtle));
         page = IslandSurface(huxerui::Row {SettingsCategoryRail(category), divider, content}
                                  .With(huxerui::Spacing(0.0F),
                                        huxerui::Grow(1.0F),

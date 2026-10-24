@@ -28,13 +28,23 @@ namespace apitab::ui {
 }
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
-    huxerui::Color outline_hair = theme.colors.outline;
-    // 线条风主要依赖 1px 轮廓表达分区；半透明过低时浅色主题几乎看不见，
-    // 因此提高页面级 hairline 的可见度，同时仍弱于窗口骨架的全强度 outline。
-    outline_hair.alpha *= 0.75F;
+    // GitHub 中性 outline 是全项目唯一静态线色源。两档只沿 outline → 次级中性
+    // 前景方向提升对比：装饰线弱档 30%，交互/骨架边界标准档 60%。
+    const auto mixLine = [](huxerui::Color base, huxerui::Color emphasis, float amount) {
+        return huxerui::Color{
+            base.red + (emphasis.red - base.red) * amount,
+            base.green + (emphasis.green - base.green) * amount,
+            base.blue + (emphasis.blue - base.blue) * amount,
+            base.alpha + (emphasis.alpha - base.alpha) * amount,
+        };
+    };
+    const huxerui::Color lineSubtle =
+        mixLine(theme.colors.outline, theme.colors.on_surface_variant, 0.30F);
+    const huxerui::Color lineDefault =
+        mixLine(theme.colors.outline, theme.colors.on_surface_variant, 0.60F);
     // 线条风（2026-10 从岛屿风整体重构）：结构由 1px 线条定义，不再由"面"定义——
     // 分区无色阶（base/raised/active 统一同海面 surface）、无圆角（island_radius
-    // 与 nested_radius 归零），IslandSurface 只保留 hairline 线框；窗口骨架的
+    // 与 nested_radius 归零），IslandSurface 只保留主题 subtle 线框；窗口骨架的
     // 分隔线（标题栏下/侧栏右/状态栏上）由 app.cpp 通栏画 1px。控件层保留克制
     // 圆角（4/6pt，IDE 风格），浮层（overlay）保留对比底色保证弹层可读性。
     // 历史值：岛屿风 page_gap/圆角 16/12 → 工具化密度 8/6 → 线条风 0/0。
@@ -56,7 +66,7 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .rail_width = 48.0F,
         .ocean = theme.colors.background,
         // 分区底（IslandColor 的 Base/Raised/Active 都走它）：与海面同色，由
-        // IslandSurface 的 hairline 线框与骨架分隔线承担结构表达。
+        // IslandSurface 的主题线框与骨架分隔线承担结构表达。
         .base = theme.colors.surface,
         // 行状态底色（列表行 hover/选中，见 environment/loadtest/history/
         // settings 各页的手工行底）：保留色阶——选中比 hover 深一档、都比
@@ -64,8 +74,12 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .raised = theme.colors.surface_container_low,
         .active = theme.colors.surface_container,
         .overlay = theme.colors.surface_container_highest,
-        .outline_soft = theme.colors.outline,
-        .outline_hair = outline_hair,
+        .line_subtle = lineSubtle,
+        .line_default = lineDefault,
+        .line_focus = theme.colors.primary,
+        .line_danger = theme.colors.error,
+        .line_disabled = huxerui::Color{
+            lineSubtle.red, lineSubtle.green, lineSubtle.blue, lineSubtle.alpha * 0.45F},
     };
 }
 
@@ -101,16 +115,16 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View surface = content;
+    const huxerui::Color line = level == IslandLevel::Danger
+                                    ? islands.line_danger
+                                    : level == IslandLevel::Overlay ? islands.line_default
+                                                                    : islands.line_subtle;
     return std::move(surface).With(huxerui::Background(IslandColor(islands, theme, level)),
                                    huxerui::CornerRadius(islands.island_radius),
-                                   // 线条风：分区结构由 1px hairline 线框表达（底色
-                                   // 与海面同色，见 ResolveIslandTheme）；浮层/危险
-                                   // 态保留全强度 outline 强调 + 对比底色。
-                                   huxerui::Border(
-                                       (level == IslandLevel::Overlay || level == IslandLevel::Danger)
-                                           ? islands.outline_soft
-                                           : islands.outline_hair,
-                                       1.0F),
+                                   // 线条风：分区结构由 1px 主题线框表达（底色
+                                   // 与海面同色，见 ResolveIslandTheme）；浮层用默认线，
+                                   // 危险面用语义危险线。
+                                   huxerui::Border(line, 1.0F),
                                    huxerui::Padding(islands.island_padding),
                                    huxerui::Frame{.min_width = islands.island_min_width,
                                                   .min_height = islands.island_min_height});
@@ -143,7 +157,7 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
         huxerui::Background(islands.overlay),
         huxerui::CornerRadius(ConcentricRadius(theme.shapes.extra_large,
                                                theme.spacing.extra_small)),
-        huxerui::Border(islands.outline_soft, 1.0F), huxerui::ClipChildren(),
+        huxerui::Border(islands.line_default, 1.0F), huxerui::ClipChildren(),
         huxerui::Padding(islands.island_padding));
 }
 
@@ -390,6 +404,7 @@ namespace {
     std::function<void(std::size_t)> onChanged, std::string semanticsPrefix,
     FlatSelectStyle style) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
     const bool framed = style == FlatSelectStyle::Framed;
     huxerui::Color hoverFill = theme.colors.on_surface;
     hoverFill.alpha = 0.08F;
@@ -411,7 +426,7 @@ namespace {
         const bool active = selected == i;
         const std::string label = labels[i];
         const huxerui::Color labelColor =
-            active ? theme.colors.primary : theme.colors.on_surface_variant;
+            active ? islands.line_focus : theme.colors.on_surface_variant;
         huxerui::View content;
         if (framed) {
             // 内容行不得设非 Start 的 MainAlign：流式布局里 MainAlign 会 claim 可用
@@ -428,7 +443,7 @@ namespace {
                 // 两态同高的短线：选中显示主色，未选中透明占位，无布局跳动。
                 huxerui::Row{}
                     .With(huxerui::Frame{.height = 2.0F},
-                          active ? huxerui::Background(theme.colors.primary)
+                          active ? huxerui::Background(islands.line_focus)
                                  : huxerui::Background(huxerui::Color::Transparent()),
                           huxerui::CornerRadius(theme.shapes.full)),
             }.With(huxerui::Spacing(3.0F),
@@ -439,7 +454,7 @@ namespace {
                 .With(huxerui::Padding(itemPadding),
                       // 未选中用透明描边（宽度恒为 1pt）保住几何，避免选中时整项
                       // 尺寸跳动；Underline 模式恒为透明，不画框。
-                      huxerui::Border(framed && active ? theme.colors.primary
+                      huxerui::Border(framed && active ? islands.line_focus
                                                        : huxerui::Color::Transparent(),
                                       1.0F),
                       huxerui::CornerRadius(theme.shapes.small),
@@ -483,25 +498,24 @@ namespace {
     input = std::move(input).On<huxerui::ViewEvents::FocusChanged>(
         [focused](bool value) { focused = value; });
 
-    // tone → 描边色（优先级 Disabled > Error > Busy > 聚焦 > Normal）。
+    // tone → 主题线条令牌（优先级 Disabled > Error > Busy > 聚焦 > Normal）。
     // 只换颜色：描边宽度、圆角、内边距在任何 tone 下完全一致。
-    huxerui::Color stroke = islands.outline_soft;
+    huxerui::Color stroke = islands.line_default;
     switch (tone) {
     case InputSurfaceTone::Normal:
-        if (focused.Get()) stroke = theme.colors.primary;
+        if (focused.Get()) stroke = islands.line_focus;
         break;
     case InputSurfaceTone::Focused:
-        stroke = theme.colors.primary;
+        stroke = islands.line_focus;
         break;
     case InputSurfaceTone::Error:
-        stroke = theme.colors.error;
+        stroke = islands.line_danger;
         break;
     case InputSurfaceTone::Disabled:
-        stroke = islands.outline_soft;
-        stroke.alpha *= 0.5F;
+        stroke = islands.line_disabled;
         break;
     case InputSurfaceTone::Busy:
-        stroke = theme.colors.primary;
+        stroke = islands.line_focus;
         stroke.alpha = 0.55F;
         break;
     }
@@ -799,11 +813,11 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
     }
     huxerui::View line = std::move(row).Key(static_cast<std::int64_t>(index));
     if (item.separator_before) {
-        // 分隔线：空 Row 固定 1pt 高 + outline 底色，外层 Column 交叉轴
+        // 分隔线：空 Row 固定 1pt 高 + 主题 subtle 线色，外层 Column 交叉轴
         // Stretch 自动拉满菜单宽度；线上/下各留一档间距形成组界。
         line = huxerui::Column {
             huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
-                                huxerui::Background(theme.colors.outline)),
+                                huxerui::Background(ResolveIslandTheme(theme).line_subtle)),
             line,
         }
             .With(huxerui::Spacing(4.0F),
@@ -984,6 +998,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     std::function<bool(const huxerui::KeyEvent&)> onUrlKeyIntercept) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
+    auto urlFocused = huxerui::UseState(false);
     auto popup = huxerui::UsePopup(); // 方法下拉：自绘内容（DELETE 常驻红，MenuItem 无文字配色 API）
     const std::size_t safe = methodIndex < methods.size() ? methodIndex : 0;
 
@@ -1125,6 +1140,8 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
                                       .Placeholder(std::move(placeholder))
                                       .Variant(huxerui::TextFieldVariant::Outlined)
                                       .OnChanged(std::move(onUrlChanged));
+    urlField = std::move(urlField).On<huxerui::ViewEvents::FocusChanged>(
+        [urlFocused](bool focused) { urlFocused = focused; });
     if (onUrlKeyIntercept) {
         urlField = std::move(urlField).On<huxerui::ViewEvents::KeyIntercept>(
             std::move(onUrlKeyIntercept));
@@ -1133,17 +1150,18 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     return huxerui::Row {
         trigger,
         baseSegment,
-        // 分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用半透明档，
+        // 分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用主题 subtle 档，
         // 弱于输入框描边等交互线。
         huxerui::Column{}.With(huxerui::Frame{.width = 1.0F},
-                               huxerui::Background(islands.outline_hair)),
+                               huxerui::Background(islands.line_subtle)),
         huxerui::ProvideEnvironment(
             urlStyle,
             huxerui::View{std::move(urlField).With(huxerui::Grow(1.0F))}),
     }
         .With(huxerui::Spacing(0.0F),
               huxerui::Background(islands.raised),
-              huxerui::Border(theme.colors.outline, 1.0F),
+              huxerui::Border(urlFocused.Get() ? islands.line_focus : islands.line_default,
+                              1.0F),
               huxerui::CornerRadius(islands.large_control_radius), huxerui::ClipChildren(),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
               huxerui::Grow(1.0F),

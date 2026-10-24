@@ -102,6 +102,7 @@ namespace {
     const std::function<std::string(std::int64_t)>& onDeleteProject,
     huxerui::State<int> refresh) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
     auto toast = huxerui::UseToast();
     auto menu = huxerui::UsePopup();    // 右键菜单（ShowAt 不需要锚点，本卡片专用）
     auto dialog = huxerui::UseDialog(); // 重命名 / 删除确认
@@ -111,8 +112,8 @@ namespace {
     const std::int64_t id = project.id;
     const std::string name = project.name;
     const bool is_open = activeProject.Get() == id;
-    // 嵌套卡常态不描边（岛已靠底色分层，卡再画线会双框）；悬停/聚焦才出线
-    // 提示可点。只换颜色，几何与内边距两态一致，避免悬停时内容抖动。
+    // 嵌套卡常态不描边（岛已靠底色分层，卡再画线会双框）；悬停时使用默认线，
+    // 键盘聚焦由全局品牌焦点环表达，避免双层轮廓。
     const bool highlight = hovered.Get() || focused.Get();
 
     // 打开项目：点击卡片与菜单「打开项目」同一路径。
@@ -222,8 +223,8 @@ namespace {
               huxerui::Padding(theme.spacing.medium), huxerui::Spacing(4.0F),
               huxerui::Background(highlight ? theme.colors.surface_container_high
                                             : theme.colors.surface_container),
-              huxerui::Border(highlight ? theme.colors.outline
-                                        : huxerui::Color::Transparent(),
+              huxerui::Border(hovered.Get() ? islands.line_default
+                                            : huxerui::Color::Transparent(),
                               1.0F),
               huxerui::CornerRadius(theme.shapes.small),
               // 键盘/语义（P1-B0.4，§13.6 键盘要求）：卡片可聚焦 + Button 语义，
@@ -453,12 +454,12 @@ namespace {
     // Compact 把定宽组织岛移到顶部并限高，项目岛取得剩余高度；Medium/Expanded
     // 维持左右双岛。不用外层 ScrollView（其内容宽度无界会让 Row 收缩漂移）。
     // 线条风：两岛无边框，岛间只留一条 1px 分隔线（请求页同款单线）。
-    const huxerui::Color hair = ResolveIslandTheme(theme).outline_hair;
+    const huxerui::Color dividerLine = ResolveIslandTheme(theme).line_subtle;
     if (compact) {
         return huxerui::Column {
                    std::move(orgIsland).With(huxerui::Frame{.max_height = 220.0F}),
                    huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
-                                       huxerui::Background(hair)),
+                                       huxerui::Background(dividerLine)),
                    projectIsland,
                }
             .With(huxerui::Grow(1.0F),
@@ -466,7 +467,8 @@ namespace {
     }
     return huxerui::Row {
         std::move(orgIsland),
-        huxerui::Row{}.With(huxerui::Frame{.width = 1.0F}, huxerui::Background(hair)),
+        huxerui::Row{}.With(huxerui::Frame{.width = 1.0F},
+                            huxerui::Background(dividerLine)),
         projectIsland,
     }
         .With(huxerui::Grow(1.0F),

@@ -2,7 +2,7 @@
 //   标题栏（不做岛，直接落海面）：居中 Logo + 顶级标签条（TopTabStrip：主页钉在最左、
 //     项目标签横向滚动、设置单例标签固定追加在所有项目标签之后）+ 齿轮（全局设置
 //     单例标签）+ 框架窗口按钮；收窄为 24px 高，
-//     主题为黑白灰极简风，青色品牌色用于主操作按钮、细线和焦点提示。
+//     主题为黑白灰极简风，青色品牌色用于主操作、焦点提示和明确的交互状态。
 //   下方：左侧图标侧边栏（同样不做岛，直接落海面）｜内容区（页面自己的一级岛屿
 //   划分区域，外壳不再套岛）。根节点刷整窗底色（rootSpec.colors.background——
 //   AppRoot 在主题 provider 之上，UseTheme 只能拿到默认浅色 spec，须按 dark 自选）。
@@ -192,6 +192,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
 // 组件样式从当前 Material 值复制，再覆盖品牌需要的字段，保留未自定义的行为。
 [[huxerui::composable]] huxerui::View MinimalThemeStyles(huxerui::View content) {
     const huxerui::ThemeSpec& spec = huxerui::UseTheme();
+    const IslandTheme lines = ResolveIslandTheme(spec);
     huxerui::ThemeDefinition definition;
     const auto withAlpha = [](huxerui::Color c, float a) {
         c.alpha = a;
@@ -236,8 +237,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     segments.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                               spec.colors.on_surface};
     segments.selected_label = spec.colors.on_surface;
-    segments.border = huxerui::Border{spec.colors.outline, 1.0F};
-    segments.selected_border = huxerui::Border{spec.colors.primary, 1.0F};
+    segments.border = huxerui::Border{lines.line_subtle, 1.0F};
+    segments.selected_border = huxerui::Border{lines.line_focus, 1.0F};
     segments.padding = huxerui::EdgeInsets::Symmetric(12.0F, 6.0F);
     segments.minimum_height = 32.0F;
     segments.corner_radii = huxerui::CornerRadii{spec.shapes.medium};
@@ -249,8 +250,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     chips.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kChip),
                                            spec.colors.on_surface_variant};
     chips.selected_label = spec.colors.on_surface;
-    chips.border = huxerui::Border{spec.colors.outline, 1.0F};
-    chips.selected_border = huxerui::Border{spec.colors.primary, 1.0F};
+    chips.border = huxerui::Border{lines.line_subtle, 1.0F};
+    chips.selected_border = huxerui::Border{lines.line_focus, 1.0F};
     chips.padding = huxerui::EdgeInsets::Symmetric(10.0F, 4.0F);
     chips.minimum_height = 24.0F;
     chips.corner_radii = huxerui::CornerRadii{spec.shapes.full};
@@ -261,7 +262,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     tabs.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                           spec.colors.on_surface_variant};
     tabs.selected_label = spec.colors.on_surface;
-    tabs.indicator = spec.colors.primary;
+    tabs.indicator = lines.line_focus;
     tabs.indicator_height = 2.0F;
     tabs.indicator_corner_radius = 1.0F;
     tabs.divider_color = huxerui::Color::Transparent();
@@ -281,7 +282,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     tree.disabled_foreground = withAlpha(spec.colors.on_surface, 0.42F);
     tree.selected_background = withAlpha(spec.colors.on_surface, 0.10F);
     tree.active_background = withAlpha(spec.colors.on_surface, 0.05F);
-    tree.focus_indicator = spec.colors.primary;
+    tree.focus_indicator = lines.line_focus;
     tree.item_extent = 32.0F;
     tree.item_padding = 6.0F;
     tree.indication = huxerui::Indication{
@@ -291,7 +292,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     definition.Set(tree);
 
     huxerui::DividerStyle divider = huxerui::UseEnvironment<huxerui::DividerStyle>();
-    divider.color = spec.colors.outline;
+    divider.color = lines.line_subtle;
     divider.thickness = 1.0F;
     definition.Set(divider);
 
@@ -311,10 +312,10 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                                                     &fields.outlined}) {
         variant->background = spec.colors.surface_container_highest;
         variant->disabled_background = withAlpha(spec.colors.on_surface, 0.06F);
-        variant->border = spec.colors.outline;
-        variant->hovered_border = spec.colors.secondary;
-        variant->focused_border = spec.colors.primary;
-        variant->disabled_border = withAlpha(spec.colors.on_surface, 0.18F);
+        variant->border = lines.line_subtle;
+        variant->hovered_border = lines.line_default;
+        variant->focused_border = lines.line_focus;
+        variant->disabled_border = lines.line_disabled;
         variant->minimum_height = 36.0F;
         variant->corner_radii = huxerui::CornerRadii{spec.shapes.medium};
     }
@@ -353,7 +354,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
         .hover = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.06F)},
         .press = huxerui::IndicationLayer{.fill = withAlpha(spec.colors.on_surface, 0.12F)},
     };
-    dialogs.action_separator_color = spec.colors.outline;
+    dialogs.action_separator_color = lines.line_subtle;
     dialogs.corner_radii = huxerui::CornerRadii{
         spec.shapes.large + spec.spacing.extra_small * 0.5F};
     dialogs.action_corner_radii = huxerui::CornerRadii{spec.shapes.medium};
@@ -365,7 +366,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     huxerui::SelectStyle selects = huxerui::UseEnvironment<huxerui::SelectStyle>();
     selects.background = spec.colors.surface_container_highest;
     selects.foreground = spec.colors.on_surface;
-    selects.border = huxerui::Border{spec.colors.outline, 1.0F};
+    selects.border = huxerui::Border{lines.line_default, 1.0F};
     selects.indicator = spec.colors.on_surface_variant;
     selects.popup_background = spec.colors.surface_container;
     selects.active_item_background = withAlpha(spec.colors.on_surface, 0.06F);
@@ -399,7 +400,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     menus.background = spec.colors.surface_container;
     menus.foreground = spec.colors.on_surface;
     menus.icon_tint = spec.colors.on_surface_variant;
-    menus.separator_color = spec.colors.outline;
+    menus.separator_color = lines.line_subtle;
     menus.shadow = huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.16F), {}, 12.0F, 0.0F};
     menus.corner_radii = huxerui::CornerRadii{spec.shapes.medium};
     menus.item_indication = selectIndication;
@@ -895,9 +896,8 @@ void TrayWindowController::ShowWindow() {
     // 配色（整窗背景、标题栏底、间距）必须直接按 dark 选 spec；子组件在 provider
     // 之下，它们的 UseTheme() 是正常的。
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
-    // 线条风骨架线：窗口级分区（标题栏下缘/侧栏右缘/状态栏上缘）用全强度
-    // outline 画 1px 通栏线，比页面分区的 hairline（outline 半透明档）重一档。
-    const huxerui::Color shellLine = rootSpec.colors.outline;
+    // 窗口骨架同样读取主题线条令牌；比页面装饰分隔使用的 subtle 档更重。
+    const huxerui::Color shellLine = ResolveIslandTheme(rootSpec).line_default;
     // 响应式：Compact(<600) 收窄间距，Medium/Expanded 保持现状。
     // 根 Column 子项间隙统一 extra_small(4pt)：标题栏↔主行贴紧一些。底部状态栏
     // 仅属于项目工作区；主页和通用设置页没有它，主岛直接吃满标题栏以下的高度。
@@ -1231,6 +1231,7 @@ void TrayWindowController::ShowWindow() {
     const bool dark =
         themeModeValue == 1 || (themeModeValue == 0 && cfg::systemPrefersDark());
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
+    const huxerui::Color shellLine = ResolveIslandTheme(rootSpec).line_default;
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const float gap = rootSpec.spacing.extra_small;
     const float titleBarHorizontalPadding =
@@ -1273,19 +1274,19 @@ void TrayWindowController::ShowWindow() {
                   huxerui::Spacing(gap)),
         // 线条风：标题栏下缘 1px 通栏分隔线（与主窗口同款骨架）。
         huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
-                            huxerui::Background(rootSpec.colors.outline)),
+                            huxerui::Background(shellLine)),
         huxerui::Row {
             huxerui::View{SideShell(navPage)},
             // 线条风：侧栏与内容区之间 1px 通栏竖线。
             huxerui::Row{}.With(huxerui::Frame{.width = 1.0F},
-                                huxerui::Background(rootSpec.colors.outline)),
+                                huxerui::Background(shellLine)),
             std::move(page).With(huxerui::Grow(1.0F)),
         }
             .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Grow(1.0F)),
         // 线条风：底栏上缘 1px 通栏分隔线。
         huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
-                            huxerui::Background(rootSpec.colors.outline)),
+                            huxerui::Background(shellLine)),
         huxerui::View{GlobalStatusBar(statusTopPad)},
     }
                                .With(huxerui::Background(rootSpec.colors.background),

@@ -405,7 +405,7 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
 
     // 双面板仿首页（HomePage）：左 = 用例树面板（定宽），右 = 主区岛
     // （PageHeader + 参数/脚本/输出，岛内滚动）。无整页外底板——面板直接
-    // 落海面，hairline 线框表达边界；PageHeader 像首页项目岛一样住在岛内。
+    // 落海面，主题 subtle 线框表达边界；PageHeader 像首页项目岛一样住在岛内。
     return huxerui::Row {
         // 左：用例树面板（请求 → 接口用例）。头部 = 标题 + 新建用例。
             huxerui::Column {
@@ -430,7 +430,7 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
                       huxerui::Frame{.width = 250.0F}),
             // 线条风：左右两岛之间只留一条 1px 分隔线（岛无边框）。
             huxerui::Row{}.With(huxerui::Frame{.width = 1.0F},
-                                huxerui::Background(islands.outline_hair)),
+                                huxerui::Background(islands.line_subtle)),
             // 右：主区岛——内容岛内滚动。页面标题与 k6 引擎状态不再重复展示
             //（k6 就绪与否由底部全局状态栏表达）。
             huxerui::Column {

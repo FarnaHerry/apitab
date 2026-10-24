@@ -218,6 +218,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
     huxerui::State<std::vector<RequestDraft>> drafts, huxerui::State<std::size_t> activeTab,
     huxerui::State<int> envVersion, huxerui::State<bool> newTabOpen) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
     auto tasks = huxerui::UseTaskScope();
     auto dialog = huxerui::UseDialog();
     auto toast = huxerui::UseToast();
@@ -265,7 +266,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
     auto chipDivider = [&](bool visible) {
         return huxerui::View{
             huxerui::Column{}.With(huxerui::Frame{.width = 1.0F, .height = 14.0F},
-                                   huxerui::Background(theme.colors.outline),
+                                   huxerui::Background(islands.line_subtle),
                                    huxerui::Opacity(visible ? 1.0F : 0.0F))};
     };
     // 实时换位（Chrome 式：拖过邻居槽位即交换，不等松手）：把 uid 移动到
@@ -469,7 +470,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
     newTabButton = std::move(newTabButton)
                        .With(huxerui::CornerRadius(theme.shapes.full),
                              huxerui::Border(newTabHovered.Get()
-                                                 ? theme.colors.outline
+                                                 ? islands.line_default
                                                  : huxerui::Color::Transparent(),
                                              1.0F))
                        .On<huxerui::ViewEvents::Hover>(
@@ -545,7 +546,6 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
     // 环境选择 + 菜单图标合并控件。选项 = "无" + 当前项目环境；搜索、展开/收起和
     // 闭合态选中项显示统一由作者推荐的 SearchablePicker 负责。
     const std::vector<db::Environment>& envs = g_requests.environments();
-    const IslandTheme islands = ResolveIslandTheme(theme);
     std::vector<SearchItem> envItems{{.id = "0", .label = "无"}};
     envItems.reserve(envs.size() + 1);
     for (const db::Environment& env : envs)
@@ -606,8 +606,11 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
     envFieldStyle.trailing_icon = theme.colors.on_surface_variant;
     envFieldStyle.focused_trailing_icon = theme.colors.primary;
 
+    auto envPickerFocused = huxerui::UseState(false);
     huxerui::View envPicker = SearchablePicker(envItems, selectedEnvId, app::images::chevron_down,
                                                app::images::search, applyEnvChoice, true);
+    envPicker = std::move(envPicker).On<huxerui::ViewEvents::FocusChanged>(
+        [envPickerFocused](bool focused) { envPickerFocused = focused; });
     huxerui::View envTrigger = huxerui::ProvideEnvironment(
         envFieldStyle,
         std::move(envPicker)
@@ -634,11 +637,6 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
                           AppIconButtonShape::Bare, 28.0F),
         }
             .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
-
-    // 环境组合控件处于无底板的标签条上，常规 outline 在深色主题下辨识度不足；
-    // 以次级前景色的半透明档加强外轮廓，内部装饰分隔线仍保持更轻的 hairline。
-    huxerui::Color environmentOutline = theme.colors.on_surface_variant;
-    environmentOutline.alpha *= 0.55F;
 
     return huxerui::Row {
         // 标签 chips 占满剩余宽度（Grow 把环境区推到最右）。打开草稿多到放不下时
@@ -673,13 +671,15 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
         TabTrailingProbe(tabsScroll, trailingPinned, pinnedGroup),
         huxerui::Row {
             envTrigger,
-            // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用半透明档。
+            // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用主题 subtle 档。
             huxerui::Column{}.With(huxerui::Frame{.width = 1.0F},
-                                   huxerui::Background(islands.outline_hair)),
+                                   huxerui::Background(islands.line_subtle)),
             envSettingsTrigger,
         }
             .With(huxerui::Spacing(0.0F),
-                  huxerui::Border(environmentOutline, 1.0F),
+                  huxerui::Border(envPickerFocused.Get() ? islands.line_focus
+                                                         : islands.line_default,
+                                  1.0F),
                   huxerui::CornerRadius(islands.control_radius), huxerui::ClipChildren(),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
     }

@@ -1,6 +1,6 @@
 # 计划：GitHub 中性线条体系统一与页面区域重构
 
-状态：**方案已建立，代码重构待执行**。
+状态：**实现、Linux 双主题截图抽查与构建已完成（2026-10-24）；跨平台和缩放矩阵待实机补验**。
 
 ## 目标
 
@@ -9,7 +9,7 @@ apitab 采用 GitHub 风格的中性灰阶，以线条组织主内容；品牌�
 规则逐区整理页面。它延续 `docs/plans/island-structure-theme.md` 的线条风几何约定，
 只收束线条颜色与其使用方式，不恢复岛屿卡片层级。
 
-## 当前基线与问题
+## 实施前基线与问题
 
 - `src/ui/app.cpp` 中深色画布为 `#0d1117`、outline 为 `#3d444d`、次级前景为
   `#9198a1`；浅色画布为 `#ffffff`、outline 为 `#d0d7de`、次级前景为 `#59636e`。
@@ -33,20 +33,24 @@ apitab 采用 GitHub 风格的中性灰阶，以线条组织主内容；品牌�
 
 | 角色 | 用途 | 规则 |
 |---|---|---|
-| `line_subtle` | 内容区之间的装饰分隔、表格行分隔 | outline 的弱档；单条 1px，必须可辨，不承担交互状态表达 |
-| `line_default` | 面板轮廓、输入/选择器外框、表格外框 | outline 的标准档；主体区域同一色系、同一规则 |
+| `line_subtle` | 内容区之间的装饰分隔、表格行分隔、普通输入框边界 | `outline → on_surface_variant` 插值 30%；不承担交互状态表达 |
+| `line_default` | 窗口骨架、面板/选择器外框、悬停输入框边界 | 同一插值 60%；关键边界深浅主题均达到 3:1 |
 | `line_focus` | 键盘焦点、活动输入、明确的当前选择 | 主题 `primary` 青色；只表达状态，不作为常态结构线 |
 | `line_danger` | 删除等危险状态的显式反馈 | 主题 `error`；不能用于 HTTP 方法色或一般分隔 |
+| `line_disabled` | 禁用控件边界 | 保持 `line_subtle` 色相并使用 0.45 alpha |
 
-令牌命名以实现前复核为准；优先把当前 `outline_soft` / `outline_hair` 改成职责清楚的
-名称，避免在页面继续读取抽象层级不明的颜色。常态线条的数值要在深浅底色上分别检查：
-交互控件边界以清楚可辨为准，承担唯一分区提示的主要边界优先达到 3:1 对比；纯装饰线
-可以更弱，但不能在 100% 缩放下消失。具体颜色由主题 token 统一确定，不用局部 alpha
-补丁逐页修饰。
+`IslandTheme` 统一提供上述语义令牌，页面和控件不再读取含义不清的
+`outline_soft` / `outline_hair`，也不从次级文字色自行派生或叠加局部 alpha。
+按 8-bit sRGB 取整并以 WCAG 相对亮度公式计算，当前令牌约为：深色
+`line_subtle #565d66`（2.84:1）、`line_default #6f767f`（4.12:1）；浅色
+`line_subtle #acb4bc`（2.10:1）、`line_default #89919b`（3.19:1）。纯装饰线
+允许低于 3:1，但不能在 100% 缩放下消失；主要边界达到 3:1。颜色由
+`ResolveIslandTheme` 集中从 `ThemeSpec` 计算，不逐页修饰。
 
-交互态约定：默认边界用 `line_default`，hover 使用主题定义的 hover 线档或轻微状态底，
-focus 使用 `line_focus` / 焦点环；disabled 使用明确的 disabled token。页面不自行从
-`on_surface_variant` 混合出边框颜色。
+交互态约定：普通输入框默认边界用 `line_subtle`，hover 用 `line_default`，focus 使用
+`line_focus` / 焦点环；disabled 使用 `line_disabled`。窗口骨架、面板和选择器外框用
+`line_default`，静态内容分隔用 `line_subtle`。页面不自行从 `on_surface_variant` 混合
+出边框颜色。
 
 ## 区域清单与改造顺序
 
@@ -151,7 +155,8 @@ separator、自绘 PopupMenu 和弹层边界。
 2. 删除过期的“outline 半透明档”等注释；更新 `docs/plans/island-structure-theme.md`
    的线条风交叉引用，不重写其历史实施记录。
 3. 在深色/浅色、100%/125%/150% 缩放、主/子窗口、Compact/标准视口下截屏对比；重点
-   看文字与线条相邻处、线条交汇点、面板边缘和鼠标焦点状态。
+   看文字与线条相邻处、线条交汇点、面板边缘和鼠标焦点状态。当前已在 Linux 运行态抽查
+   深色主页与浅色请求入口，其他矩阵仍待实机补验。
 4. 运行 `cmake --build build --target apitab --parallel $(nproc)`；按任务要求执行项目验证，
    汇总未解决的 Linux/Windows/macOS 差异。
 
@@ -169,3 +174,21 @@ separator、自绘 PopupMenu 和弹层边界。
 - 深浅主题都可辨，关键交互边界清楚；纯装饰线不抢正文，但不会在常用缩放下消失。
 - 没有相邻双线、面板旧 Border 残留、边框被裁切或焦点双重描边。
 - 构建成功；计划实施的提交只包含当前批次文件，并推送当前分支上游。
+
+## 实施记录（2026-10-24）
+
+- `IslandTheme` 统一为 `line_subtle`、`line_default`、`line_focus`、`line_danger`、
+  `line_disabled`；`ResolveIslandTheme` 集中由 GitHub 中性主题色计算，页面不再各自
+  取 outline、混次级文字色或叠局部 alpha。
+- 应用主/子窗口骨架、标题标签、请求页分隔与组合栏、主页、历史、压测、项目/全局设置、
+  测试用例、框架输入/选择器/菜单/对话框统一迁移到语义令牌。输入框常态与 hover 分档；
+  环境/URL 组合栏在获得焦点时由外层单边界切换为品牌焦点色，避免内部双描边。
+- `rg` 审计后，直接读取 `ThemeSpec::colors.outline` 的位置只保留主题定义与统一令牌解析，
+  以及 WebSocket/TCP 的“已关闭”状态色；头像裁剪框是内容叠层，不属于结构线。KV 表格单元格
+  保持透明常态描边，代码内说明这是为了避免密集网格，hover/focus 仍采用全局主题线色。
+- Linux 当前窗口截图检查：深色主页与浅色请求入口均为 2360×1520；可见主骨架和页面分区线
+  清晰，抽查区域未见叠加双线。Linux 的其他页面/焦点交互、125%/150% 缩放、子窗口以及
+  Windows/macOS 尚未截图验证。
+- `cmake --build build --target apitab --parallel $(nproc)`：通过（Linux GCC 16.2.1，源码版
+  HuxerUI，WebView 可用）；`git diff --check` 通过。构建输出包含 HuxerUI coroutine
+  lambda 的 `-Wsubobject-linkage` 警告，无编译或链接错误。

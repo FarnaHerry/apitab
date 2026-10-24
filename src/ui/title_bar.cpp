@@ -378,7 +378,7 @@ struct ProjectTabDragPayload {
     auto tabDivider = [&](bool visible) {
         return huxerui::View{
             huxerui::Column{}.With(huxerui::Frame{.width = 1.0F, .height = 12.0F},
-                                   huxerui::Background(theme.colors.outline),
+                                   huxerui::Background(ResolveIslandTheme(theme).line_subtle),
                                    huxerui::Opacity(visible ? 1.0F : 0.0F))};
     };
 
