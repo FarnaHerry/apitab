@@ -148,16 +148,24 @@ bool IsHtmlResponse(const huxerui::StateList<std::string>& headers, const std::s
 // 脚本参与渲染是 HTML 预览的常态。
 [[huxerui::composable]] huxerui::View ResponsePreviewPane(const ResponsePreview& doc) {
     auto controller = huxerui::UseWebViewController();
-    huxerui::Lifecycle([controller, doc] {
+    auto allowInitialDocumentNavigation = huxerui::UseState(true);
+    huxerui::Lifecycle([controller, doc, allowInitialDocumentNavigation] {
+        allowInitialDocumentNavigation = true;
         controller.LoadHtml({.content = doc.html, .base_url = doc.base_url});
     }, doc.revision);
     return huxerui::WebView({.url = "about:blank", .java_script_enabled = true},
                             controller)
         .On<huxerui::WebViewEvents::NavigationRequested>(
-            [](const huxerui::WebViewNavigationRequest& request) {
-                // LoadHtml 的内存文档在 WebKitGTK 中以 about:blank 作为主框架
-                // URL；放行它才能显示响应正文，其他主框架跳转仍保持在预览页内。
-                return !request.is_main_frame || request.url == "about:blank";
+            [allowInitialDocumentNavigation](const huxerui::WebViewNavigationRequest& request) {
+                // WebKitGTK 的 LoadHtml 会把 base_url 作为初始主框架策略 URL
+                // （例如 https://www.acgu.net/），不是 about:blank。放行每份响应
+                // 的首次主框架导航；后续链接/重定向仍留在当前预览文档。
+                if (!request.is_main_frame || request.url == "about:blank")
+                    return true;
+                if (!allowInitialDocumentNavigation.Get())
+                    return false;
+                allowInitialDocumentNavigation = false;
+                return true;
             })
         .With(huxerui::Grow(1.0F), huxerui::ClipChildren());
 }
