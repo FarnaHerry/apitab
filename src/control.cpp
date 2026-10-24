@@ -167,9 +167,9 @@ void RunCommandOnApplicationThread(std::vector<std::string> args,
         } else if (args.size() == 1 && args.front() == "show") {
             // 二次启动的唤起入口（main.cpp alreadyRunning 转发到这里）：等价托盘
             // "显示主窗口"——激活主窗口；拆出的子窗口由 ownership 跟随。轻量模式
-            // 下 Activate 即恢复显示。必须无参：`show <id>` 是既有的领域命令
-            // （按 id 显示请求），不能截胡。
-            ui::CurrentWindowController()->Activate();
+            // 下窗口已销毁，ShowWindow 走 OpenWindow 重建路径。必须无参：
+            // `show <id>` 是既有的领域命令（按 id 显示请求），不能截胡。
+            ui::CurrentWindowController()->ShowWindow();
             sink.Out("已唤起主窗口");
             code = 0;
         } else if (!args.empty() && args.front() == "lightweight") {

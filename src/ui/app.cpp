@@ -550,7 +550,31 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     PublishWindowController(controller.get());
     context.Provide(controller);
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
-    application.SystemTray().OnActivate([controller] { controller->Activate(); });
+    // ApplicationHandle 供轻量模式退出时重建主窗口（ShowWindow 的 OpenWindow 路径）。
+    controller->SetApplication(application);
+    application.SystemTray().OnActivate([controller] { controller->ShowWindow(); });
+}
+
+void TrayWindowController::ShowWindow() {
+    if (window_ && !retired_) {
+        window_->Show();
+        window_->Activate();
+        return;
+    }
+    if (!application_) return;
+    // 重建主窗口：与 src/app.cpp 的 AppOptions.window 同值（title/尺寸/chrome），
+    // 两处需同步修改。新窗口走同一 AppRoot 路由（key 空 = 主窗口），会话持久化
+    // 的标签/主题/关闭行为按启动路径恢复；未持久化的组合态不继承。
+    huxerui::WindowOptions options;
+    options.title = "apitab — API 测试与压测";
+    options.initial_size = {1180.0F, 760.0F};
+    options.minimum_size = huxerui::Size{800.0F, 600.0F};
+    options.chrome_mode = huxerui::WindowChromeMode::Custom;
+    options.title_bar_height = 24.0F;
+    const huxerui::WindowHandle rebuilt = application_->OpenWindow(options);
+    retired_ = false;
+    rebuilt.Show();
+    rebuilt.Activate();
 }
 
 // 关闭询问弹窗宿主：必须在 MinimalThemed provider 之下组合——AppRoot 自身在
@@ -892,16 +916,19 @@ void InstallSystemTray(huxerui::ApplicationContext& context) {
     // 待可用性翻转触发重组后再 Show。
     if (trayAvailable) {
         huxerui::Lifecycle(
-            [tray, window, application, tasks] {
+            [tray, trayWindow, application, tasks] {
                 // 菜单项用 push_back 构造：GCC 16 对 menu 列表初始化内的
                 // MenuItem/MenuSection 隐式转换报 "expected primary-expression"
                 std::vector<huxerui::MenuEntry> menuEntries;
+                // 走控制器而非捕获窗口句柄：轻量模式期间句柄已退役，
+                // ShowWindow 会按需重建主窗口。
                 menuEntries.push_back(
-                    huxerui::MenuItem("显示主窗口", [window] { window.Activate(); }));
-                // 轻量模式（伪纯 CLI 形态）：隐藏窗口 + 释放应用侧缓存，控制面继续服务。
-                // Hide 在系统托盘回调返回后执行，避免回调栈内销毁窗口。
+                    huxerui::MenuItem("显示主窗口", [trayWindow] { trayWindow->ShowWindow(); }));
+                // 轻量模式（伪纯 CLI 形态）：销毁全部窗口（fork 级联退役）真正
+                // 释放渲染内存，控制面继续服务；托盘/`show` 命令可唤回重建。
+                // Enter 在系统托盘回调返回后执行，避免回调栈内销毁窗口。
                 menuEntries.push_back(huxerui::MenuItem(
-                    "轻量模式（隐藏并释放缓存）", [tasks] {
+                    "轻量模式（销毁窗口，释放内存）", [tasks] {
                         tasks.Launch([]() -> huxerui::Task<void> {
                             co_await huxerui::Delay(std::chrono::duration<double>{0});
                             (void)EnterLightweightMode();

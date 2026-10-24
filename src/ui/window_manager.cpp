@@ -4,6 +4,8 @@
 #include <charconv>
 #include <utility>
 
+#include "app.h"
+
 import apitab.db;
 import apitab.preferences;
 import apitab.store.loadtest;
@@ -181,6 +183,12 @@ void WindowManager::WakeMainToTab(TopTabId target) const {
     if (main_window_) main_window_->Activate();
     if (main_bridge_ && main_bridge_->wake_to_tab) {
         main_bridge_->wake_to_tab(target);
+        return;
+    }
+    // 主窗口桥缺失（轻量模式或主窗口退役窗口期）：唤回重建主窗口；目标标签
+    // 的切换交由新主窗口按会话持久化恢复，不在本次调用里补投。
+    if (TrayWindowController* controller = CurrentWindowController()) {
+        controller->ShowWindow();
     }
 }
 

@@ -61,6 +61,21 @@ public:
     }
     void UnregisterChild(std::int64_t project_id) { children_.erase(project_id); }
     bool HasChild(std::int64_t project_id) const { return children_.contains(project_id); }
+    bool HasChildren() const { return !children_.empty(); }
+
+    // 轻量模式进入防御：Retire 主窗口会级联退役全部窗口，未保存草稿随窗口
+    // 丢弃。前置条件是无拆出子窗口（HasChildren() == false）——此时快照提供者
+    // 只剩主窗口的，任一快照带未保存草稿即代表主窗口有未保存工作。
+    bool AnyUnsavedDrafts() const {
+        for (const auto& [ordinal, capture] : captures_) {
+            if (capture) {
+                if (const WorkspaceSnapshot snapshot = capture(); !snapshot.drafts.empty()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     // 子窗口根组合注册的工作区内部页提供者（实时拖回的信封要带走 nav_page）。
     void RegisterNavPage(std::uint32_t window_ordinal, std::function<std::size_t()> provider) {
