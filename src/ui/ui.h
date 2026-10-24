@@ -105,12 +105,13 @@ struct IslandTheme {
     float island_min_width;
     float island_min_height;
     // ---- 几何令牌（P1-A1，全项目唯一圆角/控件尺寸来源）----
-    // control_radius：普通按钮/选择器/局部分组的 8pt 圆角（取 theme.shapes.small）；
-    // large_control_radius：大输入行/请求组合栏的 12pt 圆角（取 theme.shapes.medium）；
+    // control_radius：普通按钮/选择器/局部分组的圆角（随主题 shapes.small）；
+    // large_control_radius：大输入行/请求组合栏的圆角（随主题 shapes.medium）；
     // icon_button_compact / icon_button_regular：图标按钮正方形命中区两档 28/32pt；
     // control_height：普通控件（按钮/输入行）统一高度 32pt。
-    // island_radius/nested_radius 维持一级岛 8pt / 嵌套底板 6pt（工具化密度，
-    // 2026-10 从 16/12 收敛）；对话框单独使用 14pt 外轮廓。
+    // 线条风（2026-10）：island_radius/nested_radius 归零——分区直角，结构由
+    // hairline 线框与骨架分隔线承担；控件圆角随主题 shapes 收敛（4/6pt）；
+    // 对话框等浮层保留更大外轮廓（shapes.extra_large）。
     // **页面禁止再散落圆角/图标按钮尺寸魔法数字**——同类列表、组合栏、按钮的
     // 几何只从这里取值（经 ResolveIslandTheme），调整尺寸只改这一处。
     float control_radius;

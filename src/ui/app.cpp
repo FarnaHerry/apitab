@@ -91,11 +91,11 @@ huxerui::ThemeSpec MinimalDarkThemeSpec() {
         .title_large = font_size::kTitle,
         .headline_small = 26.0F,
     };
-    spec.shapes = huxerui::ShapeScheme{.extra_small = 4.0F,
-                                       .small = 6.0F,
-                                       .medium = 8.0F,
-                                       .large = 12.0F,
-                                       .extra_large = 18.0F,
+    spec.shapes = huxerui::ShapeScheme{.extra_small = 2.0F,
+                                       .small = 4.0F,
+                                       .medium = 6.0F,
+                                       .large = 8.0F,
+                                       .extra_large = 12.0F,
                                        .full = 10000.0F};
     spec.spacing = huxerui::SpacingScheme{.extra_small = 4.0F,
                                           .small = 8.0F,
@@ -143,11 +143,11 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
         .title_large = font_size::kTitle,
         .headline_small = 26.0F,
     };
-    spec.shapes = huxerui::ShapeScheme{.extra_small = 4.0F,
-                                       .small = 6.0F,
-                                       .medium = 8.0F,
-                                       .large = 12.0F,
-                                       .extra_large = 18.0F,
+    spec.shapes = huxerui::ShapeScheme{.extra_small = 2.0F,
+                                       .small = 4.0F,
+                                       .medium = 6.0F,
+                                       .large = 8.0F,
+                                       .extra_large = 12.0F,
                                        .full = 10000.0F};
     spec.spacing = huxerui::SpacingScheme{.extra_small = 4.0F,
                                           .small = 8.0F,
@@ -890,6 +890,9 @@ void TrayWindowController::ShowWindow() {
     // 配色（整窗背景、标题栏底、间距）必须直接按 dark 选 spec；子组件在 provider
     // 之下，它们的 UseTheme() 是正常的。
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
+    // 线条风骨架线：窗口级分区（标题栏下缘/侧栏右缘/状态栏上缘）用全强度
+    // outline 画 1px 通栏线，比页面分区的 hairline（outline 半透明档）重一档。
+    const huxerui::Color shellLine = rootSpec.colors.outline;
     // 响应式：Compact(<600) 收窄间距，Medium/Expanded 保持现状。
     // 根 Column 子项间隙统一 extra_small(4pt)：标题栏↔主行贴紧一些。底部状态栏
     // 仅属于项目工作区；主页和通用设置页没有它，主岛直接吃满标题栏以下的高度。
@@ -1061,6 +1064,9 @@ void TrayWindowController::ShowWindow() {
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                       titleBarHorizontalPadding, 0.0F)),
                   huxerui::Spacing(gap)),
+        // 线条风：标题栏下缘 1px 通栏分隔线（Column CrossAlign Stretch 拉满宽）。
+        huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+                            huxerui::Background(shellLine)),
         // 主行：图标侧栏（直接落海面）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
         // 仅 Project(id) 顶级标签显示侧栏；主页/设置整宽覆盖。
@@ -1068,22 +1074,35 @@ void TrayWindowController::ShowWindow() {
         huxerui::Row {
             showSideShell ? huxerui::View{SideShell(navPage)}
                           : huxerui::View{huxerui::Row{}},
+            // 线条风：侧栏与内容区之间 1px 通栏竖线（主行 CrossAlign Stretch
+            // 拉满高），代替原来的 4pt 间隙。
+            showSideShell ? huxerui::View{huxerui::Row{}.With(
+                                huxerui::Frame{.width = 1.0F},
+                                huxerui::Background(shellLine))}
+                          : huxerui::View{huxerui::Row{}},
             // IndexedPages 的子页面有 Grow，但外层容器本身也必须作为主 Row 的
             // 弹性项接收“侧栏之外的剩余宽度”。漏掉这里会按页面固有宽度测量，
             // 请求编辑器右岛向窗口外溢出并被裁切。
             std::move(page).With(huxerui::Grow(1.0F)),
         }
-            .With(huxerui::Spacing(gap),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+            .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Grow(1.0F)),
         // 仅项目工作区显示底栏：代理与项目 Cookie 都是项目范围的配置。Home 和
         // GlobalSettings 返回零尺寸占位，主行 Grow 自动填满释放的全部高度。
-        showProjectStatusBar ? huxerui::View{GlobalStatusBar(statusTopPad)}
-                             : huxerui::View{huxerui::Row{}},
+        // 线条风：底栏上缘 1px 通栏分隔线。
+        showProjectStatusBar
+            ? huxerui::View{huxerui::Column{
+                  huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+                                      huxerui::Background(shellLine)),
+                  GlobalStatusBar(statusTopPad),
+              }
+                  .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
+            : huxerui::View{huxerui::Row{}},
     }
-                               .With(huxerui::Spacing(rootSpec.spacing.extra_small),
-                                     // 窗口整体背景：主题背景色刷满根节点，
-                                     // 否则深色模式下岛间缝隙透出窗口默认白底。
+                               .With(
+                                     // 线条风：根列分区紧贴（间隙归零），结构由
+                                     // 上面三条骨架线承担；窗口整体背景：主题背景
+                                     // 色刷满根节点。
                                      huxerui::Background(rootSpec.colors.background),
                                      // 交叉轴必须 Stretch：否则主行（侧栏+页面区）按内容
                                      // 收缩成内容宽，页面里所有 Grow 失去上界、岛屿无法
@@ -1247,17 +1266,24 @@ void TrayWindowController::ShowWindow() {
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                       titleBarHorizontalPadding, 0.0F)),
                   huxerui::Spacing(gap)),
+        // 线条风：标题栏下缘 1px 通栏分隔线（与主窗口同款骨架）。
+        huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+                            huxerui::Background(rootSpec.colors.outline)),
         huxerui::Row {
             huxerui::View{SideShell(navPage)},
+            // 线条风：侧栏与内容区之间 1px 通栏竖线。
+            huxerui::Row{}.With(huxerui::Frame{.width = 1.0F},
+                                huxerui::Background(rootSpec.colors.outline)),
             std::move(page).With(huxerui::Grow(1.0F)),
         }
-            .With(huxerui::Spacing(gap),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+            .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Grow(1.0F)),
+        // 线条风：底栏上缘 1px 通栏分隔线。
+        huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+                            huxerui::Background(rootSpec.colors.outline)),
         huxerui::View{GlobalStatusBar(statusTopPad)},
     }
-                               .With(huxerui::Spacing(rootSpec.spacing.extra_small),
-                                     huxerui::Background(rootSpec.colors.background),
+                               .With(huxerui::Background(rootSpec.colors.background),
                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     return MinimalThemed(dark, std::move(content));
 }

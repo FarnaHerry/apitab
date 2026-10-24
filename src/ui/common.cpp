@@ -30,32 +30,37 @@ namespace apitab::ui {
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     huxerui::Color outline_hair = theme.colors.outline;
     outline_hair.alpha *= 0.5F;
+    // 线条风（2026-10 从岛屿风整体重构）：结构由 1px 线条定义，不再由"面"定义——
+    // 分区无色阶（base/raised/active 统一同海面 surface）、无圆角（island_radius
+    // 与 nested_radius 归零），IslandSurface 只保留 hairline 线框；窗口骨架的
+    // 分隔线（标题栏下/侧栏右/状态栏上）由 app.cpp 通栏画 1px。控件层保留克制
+    // 圆角（4/6pt，IDE 风格），浮层（overlay）保留对比底色保证弹层可读性。
+    // 历史值：岛屿风 page_gap/圆角 16/12 → 工具化密度 8/6 → 线条风 0/0。
     return IslandTheme{
-        // 工具化密度（2026-10 收敛）：岛间主间隙 16→8、一级岛圆角 16→8、嵌套层
-        // 12→6、岛内边距 12→8 —— 页面区块收紧成 IDE 面板节奏，一级岛只保留
-        // 「能看出是块」的最小圆角。历史值：page_gap=spacing.medium(16)、
-        // island_radius=large(16)、island_padding=spacing.medium(12)。
-        // 岛内边距影响「岛间视觉空隙」：相邻两岛 2×padding + 热区间隙，叠加
-        // 后才是用户看到的卡片间距。
         .page_gap = theme.spacing.small,
         .island_padding = theme.spacing.small,
-        .island_radius = theme.shapes.small,       // 8pt：一级岛外轮廓
-        .nested_radius = 6.0F,                     // 嵌套底板/弹窗底板（比岛小一档）
+        .island_radius = 0.0F,                     // 一级分区直角：线定义边界
+        .nested_radius = 0.0F,                     // 嵌套底板同步直角
         .island_min_width = 160.0F,
         .island_min_height = 120.0F,
         // 几何令牌（ui.h IslandTheme 中段字段）：全项目唯一圆角/图标按钮尺寸
-        // 来源，页面不得再散落魔法数字。普通控件 8pt、输入/分段控件 12pt；
-        // 只有对话框才使用更大的外轮廓。
-        .control_radius = theme.shapes.small,           // 8pt：普通按钮/选择器/局部控件
-        .large_control_radius = theme.shapes.medium,    // 12pt：大输入行/请求组合栏
-        .icon_button_compact = 28.0F,                   // 图标按钮紧凑命中区（正方形）
-        .icon_button_regular = 32.0F,                   // 图标按钮舒适命中区（正方形）
-        .control_height = 32.0F,                        // 普通控件统一高度
+        // 来源，页面不得再散落魔法数字。线条风控件圆角随主题 shapes 收敛
+        // （4/6pt），与全部组件联动。
+        .control_radius = theme.shapes.small,           // 普通按钮/选择器/局部控件
+        .large_control_radius = theme.shapes.medium,    // 大输入行/请求组合栏
+        .icon_button_compact = 28.0F,              // 图标按钮紧凑命中区（正方形）
+        .icon_button_regular = 32.0F,              // 图标按钮舒适命中区（正方形）
+        .control_height = 32.0F,                   // 普通控件统一高度
         .rail_width = 48.0F,
         .ocean = theme.colors.background,
-        .base = theme.colors.surface_container_low,
-        .raised = theme.colors.surface_container,
-        .active = theme.colors.surface_container_high,
+        // 分区底（IslandColor 的 Base/Raised/Active 都走它）：与海面同色，由
+        // IslandSurface 的 hairline 线框与骨架分隔线承担结构表达。
+        .base = theme.colors.surface,
+        // 行状态底色（列表行 hover/选中，见 environment/loadtest/history/
+        // settings 各页的手工行底）：保留色阶——选中比 hover 深一档、都比
+        // 海面深，这是"状态"语言，不参与分区统一。
+        .raised = theme.colors.surface_container_low,
+        .active = theme.colors.surface_container,
         .overlay = theme.colors.surface_container_highest,
         .outline_soft = theme.colors.outline,
         .outline_hair = outline_hair,
@@ -63,6 +68,9 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
 }
 
 float ConcentricRadius(float outer_radius, float inset) {
+    // 外层直角（线条风分区）时内层同步直角：同心公式在 outer=0 下会推出
+    // kMinRadius 下限，直角容器里出现孤立圆角反而突兀。
+    if (outer_radius <= 0.0F) return 0.0F;
     // 内层半径 = 外层半径 − inset，保下限 4pt：更小的半径在视觉上与父级
     // 圆角几乎相切，出现反同心（子角比父角"尖"）。
     constexpr float kMinRadius = 4.0F;
@@ -72,9 +80,11 @@ float ConcentricRadius(float outer_radius, float inset) {
 static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::ThemeSpec& theme,
                                   IslandLevel level) {
     switch (level) {
+    // 线条风：Base/Raised/Active 三档分区统一与海面同色（islands.base），
+    // 结构由线框承担；Overlay 保留对比底色保证浮层可读性。
     case IslandLevel::Base: return islands.base;
-    case IslandLevel::Raised: return islands.raised;
-    case IslandLevel::Active: return islands.active;
+    case IslandLevel::Raised: return islands.base;
+    case IslandLevel::Active: return islands.base;
     case IslandLevel::Overlay: return islands.overlay;
     case IslandLevel::Danger: {
         huxerui::Color danger = theme.colors.error;
@@ -91,9 +101,9 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
     huxerui::View surface = content;
     return std::move(surface).With(huxerui::Background(IslandColor(islands, theme, level)),
                                    huxerui::CornerRadius(islands.island_radius),
-                                   // 所有岛统一 1px 框线（outline 半透明档）：深浅
-                                   // 主题下都给岛一个可辨的边界；浮层/危险态用
-                                   // 全强度 outline 强调。
+                                   // 线条风：分区结构由 1px hairline 线框表达（底色
+                                   // 与海面同色，见 ResolveIslandTheme）；浮层/危险
+                                   // 态保留全强度 outline 强调 + 对比底色。
                                    huxerui::Border(
                                        (level == IslandLevel::Overlay || level == IslandLevel::Danger)
                                            ? islands.outline_soft
