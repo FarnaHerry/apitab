@@ -388,7 +388,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: huxerui-sdk
-          key: huxerui-sdk-windows-x86_64-msvc-42f0069-farna-fork
+          key: huxerui-sdk-windows-x86_64-msvc-501e8ca-farna-fork
 
       - name: Check HuxerUI SDK cache (Windows)
         if: runner.os == 'Windows' && steps.huxerui_sdk_cache.outputs.cache-hit == 'true'
