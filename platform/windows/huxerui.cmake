@@ -68,11 +68,22 @@ function(huxerui_configure_windows_project_package target_name install_component
         NAME "dev.farna.apitab.bundle" TYPE SHA1 UPPER)
     set(APITAB_WINDOWS_PACKAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/huxerui-package/windows")
     set(APITAB_WINDOWS_VERSION "${PROJECT_VERSION}")
+    set(HUXERUI_WINDOWS_ICON_FILE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../assets/icon.ico")
     file(MAKE_DIRECTORY "${APITAB_WINDOWS_PACKAGE_DIR}")
     configure_file("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/Package.wxs.in"
         "${APITAB_WINDOWS_PACKAGE_DIR}/Package.wxs" @ONLY)
     configure_file("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/Bundle.wxs.in"
         "${APITAB_WINDOWS_PACKAGE_DIR}/Bundle.wxs" @ONLY)
+
+    # 安装器资源暂存：strings 多语言 + 品牌 logo。资源编译器把 images/ 下的
+    # 文件生成为 apitab_installer::images::*，logo 取自主应用 icon.png，不
+    # 污染源码 resources 目录（Clash-Flux 安装器同款两段式暂存）。
+    set(_apitab_installer_resource_dir "${CMAKE_CURRENT_BINARY_DIR}/huxerui-installer-resources")
+    file(COPY "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/resources/"
+        DESTINATION "${_apitab_installer_resource_dir}")
+    file(MAKE_DIRECTORY "${_apitab_installer_resource_dir}/images")
+    configure_file("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../assets/icon.png"
+        "${_apitab_installer_resource_dir}/images/apitab_logo.png" COPYONLY)
 
     file(GLOB_RECURSE _apitab_installer_sources CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/src/*.cpp")
@@ -81,7 +92,7 @@ function(huxerui_configure_windows_project_package target_name install_component
             ${_apitab_installer_sources}
             "${HUXERUI_WINDOWS_RESOURCE}"
         RESOURCES
-            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package/resources"
+            "${_apitab_installer_resource_dir}"
         RESOURCE_NAMESPACE apitab_installer
         INTEGRATION_OUTPUT "${APITAB_WINDOWS_PACKAGE_DIR}/$<CONFIG>/installer.json")
     set_target_properties(${target_name}_installer PROPERTIES OUTPUT_NAME "apitab-Installer")

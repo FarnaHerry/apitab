@@ -1,20 +1,25 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="apitab" Manufacturer="FarnaHerry" Version="@APITAB_WINDOWS_VERSION@"
            UpgradeCode="@_apitab_msi_upgrade_code@" Scope="perMachine">
-    <MajorUpgrade AllowSameVersionUpgrades="yes"
+    <!-- Schedule=afterInstallInitialize 让旧版移除加入 MSI 回滚事务（Clash-Flux
+         安装器同款）；AllowSameVersionUpgrades 保留同版本重装通道，配合安装器
+         壳子的 SameVersion 维护页。 -->
+    <MajorUpgrade Schedule="afterInstallInitialize" AllowSameVersionUpgrades="yes"
                   DowngradeErrorMessage="A newer version of apitab is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="ApitabApplicationIcon" SourceFile="@HUXERUI_WINDOWS_ICON_FILE@" />
+    <Property Id="ARPPRODUCTICON" Value="ApitabApplicationIcon" />
     <StandardDirectory Id="ProgramFiles64Folder"><Directory Id="INSTALLFOLDER" Name="apitab" /></StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder"><Directory Id="APPLICATIONPROGRAMMENU" Name="apitab" /></StandardDirectory>
     <StandardDirectory Id="DesktopFolder" />
     <ComponentGroup Id="ApplicationFiles" Directory="INSTALLFOLDER"><Files Include="!(bindpath.Application)\**" /></ComponentGroup>
     <Component Id="ApplicationShortcut" Directory="APPLICATIONPROGRAMMENU">
-      <Shortcut Id="ApplicationStartMenuShortcut" Name="apitab" Target="[INSTALLFOLDER]apitab.exe" WorkingDirectory="INSTALLFOLDER" />
+      <Shortcut Id="ApplicationStartMenuShortcut" Name="apitab" Target="[INSTALLFOLDER]apitab.exe" WorkingDirectory="INSTALLFOLDER" Icon="ApitabApplicationIcon" />
       <RemoveFolder Id="RemoveApplicationProgramMenu" On="uninstall" />
       <RegistryValue Root="HKLM" Key="Software\FarnaHerry\apitab" Name="installed" Type="integer" Value="1" KeyPath="yes" />
     </Component>
     <Component Id="ApplicationDesktopShortcut" Directory="DesktopFolder">
-      <Shortcut Id="ApplicationDesktopShortcutLink" Name="apitab" Target="[INSTALLFOLDER]apitab.exe" WorkingDirectory="INSTALLFOLDER" />
+      <Shortcut Id="ApplicationDesktopShortcutLink" Name="apitab" Target="[INSTALLFOLDER]apitab.exe" WorkingDirectory="INSTALLFOLDER" Icon="ApitabApplicationIcon" />
       <RegistryValue Root="HKLM" Key="Software\FarnaHerry\apitab" Name="desktopShortcut" Type="integer" Value="1" KeyPath="yes" />
     </Component>
     <Feature Id="Application" Title="apitab" Level="1"><ComponentGroupRef Id="ApplicationFiles" /><ComponentRef Id="ApplicationShortcut" /></Feature>
