@@ -55,11 +55,10 @@ namespace apitab::ui {
                 .OnChanged([name](const huxerui::TextEditingValue& value) { name = value; })
                 .With(huxerui::Grow(1.0F)),
         },
-        // ---- 项目说明：多行输入（LineLimits(MultiLine) 回车换行、按词换行）----
-        huxerui::Text("项目说明", huxerui::TextRole::Label)
-            .With(huxerui::Foreground(theme.colors.on_surface_variant)),
+        // ---- 项目说明：Outlined 浮动标签 + 多行输入 ----
         huxerui::Row {
             huxerui::TextField(description)
+                .Label("项目说明")
                 .Placeholder("这个项目是做什么的（可选）")
                 .Variant(huxerui::TextFieldVariant::Outlined)
                 .LineLimits(huxerui::TextFieldLineLimits::MultiLine(4))
