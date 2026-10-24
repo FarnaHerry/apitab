@@ -1001,18 +1001,13 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     urlStyle.outlined.hovered_border = huxerui::Color::Transparent();
     urlStyle.outlined.focused_border = huxerui::Color::Transparent();
     urlStyle.outlined.corner_radii = huxerui::CornerRadii{0.0F};
-    // 高度对齐旁边的"发送"按钮：ButtonStyle 默认 minimum_height=0，按钮高由内容
-    // 撑出 = 14pt 文字行高（约 16pt）+ padding Symmetric(10,6) 的 12pt ≈ 28pt；
-    // 而 Outlined 变体默认 minimum_height=36，整条控件比按钮高一截。这里把
-    // minimum_height 收到 control_height(32)，内容高（14pt 文字 + 垂直 padding
-    // 12pt ≈ 28pt）低于它，由 minimum_height 定高且文字垂直居中；padding 同步
-    // 收 8→6 保持居中余量。
-    urlStyle.outlined.minimum_height = islands.control_height;
+    // 高度对齐旁边的"发送"按钮：Outlined 默认 minimum_height=36 会让控件偏高；
+    // 内层字段高度减 2pt，再加外层上下各 1pt 内缩，组合栏总高仍为 control_height。
+    urlStyle.outlined.minimum_height = islands.control_height - 2.0F;
     urlStyle.padding = huxerui::EdgeInsets::Symmetric(10.0F, 6.0F);
 
     // 方法触发器：扁平文本，点击弹锚定 Popup（自绘下拉，外观对齐菜单层语义）。
-    // 垂直内边距 8→6：与上面 URL 字段收到的 32pt 同高对齐（文字 14pt + 12pt ≈
-    // 26pt < 32pt，外层 Row Stretch 拉满后由 CrossAlign(Center) 垂直居中）。
+    // 垂直内边距收至 6pt：文字行高加内边距约 28pt，在 30pt 内容区内垂直居中。
     // 触发器与下拉项文字统一使用主题中性色。
     huxerui::View trigger =
         huxerui::Row {
@@ -1149,7 +1144,10 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
               huxerui::Border(theme.colors.outline, 1.0F),
               huxerui::CornerRadius(islands.large_control_radius), huxerui::ClipChildren(),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-              huxerui::Grow(1.0F));
+              huxerui::Grow(1.0F),
+              // Border 在父级内容绘制阶段先于子控件；留出 1pt 内缩，避免
+              // URL TextField 贴边绘制时盖住组合栏外框，保证整行轮廓连续。
+              huxerui::Padding(1.0F));
 }
 
 // 页面标题 + 副标题。
