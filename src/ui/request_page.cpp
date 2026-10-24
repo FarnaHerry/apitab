@@ -140,10 +140,13 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
         zone.width = 6.0F;
     // Stack 才是 6pt 拖拽热区；Divider 只保留主题默认的 1pt 固有粗细。
     // Stack 沿分割线方向 Stretch、短轴 Center，故线严格落在热区中心。
+    // 线条风：拖条平时就是 1px hairline 分隔线（VS Code sash 式，岛间只此
+    // 一条线），悬停/拖动时亮起 2pt 视觉的主题色细条。
+    huxerui::Color hair = theme.colors.outline;
+    hair.alpha *= 0.5F;
     return huxerui::Stack {
                huxerui::Divider(axis).With(
-                   huxerui::Background(lit ? theme.colors.primary
-                                            : huxerui::Color::Transparent())),
+                   huxerui::Background(lit ? theme.colors.primary : hair)),
            }
         .With(zone,
               horizontal ? huxerui::Align(huxerui::HorizontalAlignment::Stretch,
@@ -177,8 +180,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                                                              .min_height = 140.0F}) {
     const IslandTheme islands = ResolveIslandTheme(theme);
     return std::move(content).With(huxerui::Background(islands.base),
-                                   // 线条风：分区直角，边界由线框表达（与 IslandSurface 同规）。
-                                   huxerui::Border(islands.outline_hair, 1.0F),
+                                   // 线条风：分区直角无边框——请求页各岛的边界由
+                                   // 骨架线与拖条分隔线表达，避免相邻边框叠成双线。
                                    // 各调用方可按内容指定最低可用工作区；拖条与 Grow
                                    // 只能在该下限之上分配，避免内容被挤没。
                                    minimum);
@@ -574,7 +577,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
         rightArea = huxerui::Column(std::move(islands))
                         // ResizeHandle 已承担调试页两岛间的 6pt 间隙；其余模式没有
                         // 第二岛，保留该 spacing 不影响布局。
-                        .With(huxerui::Spacing(debugging ? 0.0F : theme.spacing.small),
+                        .With(huxerui::Spacing(0.0F),
                               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                               huxerui::Grow(1.0F));
     }
@@ -583,10 +586,12 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
         // Compact：上 = 请求列表（限高 220、宽度撑满），下 = 编辑区（撑满剩余）。
         return huxerui::Column {
                    RequestListIsland(openDrafts, activeTab, listVersion, true, 260.0F),
+                   // 线条风：上下两岛之间 1px 通栏分隔线。
+                   huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+                                       huxerui::Background(islandTheme.outline_hair)),
                    rightArea,
                }
-            .With(huxerui::Spacing(theme.spacing.small),
-                  huxerui::Grow(1.0F),
+            .With(huxerui::Grow(1.0F),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
     // 拖条占据两岛之间的标准 8pt 间隙，因此指示条与热区都以卡片间隔为中心；
