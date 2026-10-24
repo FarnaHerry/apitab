@@ -727,8 +727,7 @@ std::vector<RequestTreeNodePtr> BuildRequestTree(const std::vector<db::SavedRequ
                            }
                                .With(huxerui::Padding(islands.island_padding),
                                      huxerui::Spacing(theme.spacing.small),
-                                     huxerui::Background(theme.colors.surface_container_low),
-                                     huxerui::CornerRadius(theme.shapes.small),
+                                     huxerui::Background(islands.base),
                                      huxerui::Border(islands.outline_hair, 1.0F),
                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     // 方向相关尺寸：竖排（Compact）限高撑宽；横排宽度由请求页拖拽状态控制。

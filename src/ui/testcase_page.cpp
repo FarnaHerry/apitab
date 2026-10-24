@@ -551,8 +551,9 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
             return huxerui::Column(std::move(card))
                 .With(huxerui::Padding(theme.spacing.medium),
                       huxerui::Spacing(theme.spacing.small),
-                      huxerui::Background(theme.colors.surface_container),
-                      huxerui::CornerRadius(theme.shapes.medium),
+                      // 线条风：用例卡片与分区同底色，hairline 线框表达边界。
+                      huxerui::Background(ResolveIslandTheme(theme).base),
+                      huxerui::Border(ResolveIslandTheme(theme).outline_hair, 1.0F),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
                 .Key(c.uid);
         };

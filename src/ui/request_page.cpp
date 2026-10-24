@@ -169,16 +169,15 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
         .On<huxerui::DragEvents::Canceled>([dragging](const huxerui::DragEvent&) { dragging = false; });
 }
 
-// 右侧一级岛屿的统一表面：与左岛（RequestListIsland）同一套令牌——
-// surface_container_low 底 + shapes.small 圆角（工具化密度，几何令牌见 ui.h）。岛屿靠 Grow 自动拉伸占满
-// 右侧区块，内容在岛内滚动。
+// 右侧一级岛屿的统一表面：与左岛（RequestListIsland）同一套令牌——线条风
+// 分区（海面同色底 + hairline 线框 + 直角，见 ResolveIslandTheme）。岛屿靠
+// Grow 自动拉伸占满右侧区块，内容在岛内滚动。
 huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSpec& theme,
                                    huxerui::Frame minimum = {.min_width = 320.0F,
                                                              .min_height = 140.0F}) {
     const IslandTheme islands = ResolveIslandTheme(theme);
-    return std::move(content).With(huxerui::Background(theme.colors.surface_container_low),
-                                   huxerui::CornerRadius(theme.shapes.small),
-                                   // 与 IslandSurface 同规：所有岛统一 1px 框线。
+    return std::move(content).With(huxerui::Background(islands.base),
+                                   // 线条风：分区直角，边界由线框表达（与 IslandSurface 同规）。
                                    huxerui::Border(islands.outline_hair, 1.0F),
                                    // 各调用方可按内容指定最低可用工作区；拖条与 Grow
                                    // 只能在该下限之上分配，避免内容被挤没。

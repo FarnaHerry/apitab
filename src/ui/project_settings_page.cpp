@@ -102,8 +102,7 @@ namespace apitab::ui {
     }
         .With(huxerui::Padding(theme.spacing.large),
               huxerui::Spacing(theme.spacing.medium),
-              huxerui::Background(theme.colors.surface_container_low),
-              huxerui::CornerRadius(theme.shapes.small),
+              huxerui::Background(ResolveIslandTheme(theme).base),
               huxerui::Border(ResolveIslandTheme(theme).outline_hair, 1.0F),
               huxerui::Grow(1.0F),
               huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
