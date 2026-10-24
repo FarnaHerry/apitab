@@ -155,7 +155,9 @@ bool IsHtmlResponse(const huxerui::StateList<std::string>& headers, const std::s
                             controller)
         .On<huxerui::WebViewEvents::NavigationRequested>(
             [](const huxerui::WebViewNavigationRequest& request) {
-                return !request.is_main_frame;
+                // LoadHtml 的内存文档在 WebKitGTK 中以 about:blank 作为主框架
+                // URL；放行它才能显示响应正文，其他主框架跳转仍保持在预览页内。
+                return !request.is_main_frame || request.url == "about:blank";
             })
         .With(huxerui::Grow(1.0F), huxerui::ClipChildren());
 }
