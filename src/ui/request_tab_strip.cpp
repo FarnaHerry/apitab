@@ -589,10 +589,11 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
     envFieldStyle.floating_label_style.foreground = theme.colors.on_surface_variant;
     // 标签条中的环境选择器是 32pt 紧凑控件；Material TextField 默认最小高
     // 度为 56pt、上下 padding 为 16pt，放进固定高度并裁剪的环境区后会把
-    // 编辑文字挤出可视区域。这里沿用 URL 工具栏的紧凑尺寸，同时把外框交给
-    // envTrigger，避免内部描边覆盖主题边界。
+    // 编辑文字挤出可视区域。这里沿用 URL 工具栏的紧凑尺寸；底色和外框由环境
+    // 选择 + 设置齿轮的组合控件统一提供，避免内部出现第二层边界。
     envFieldStyle.variant = huxerui::TextFieldVariant::Outlined;
     envFieldStyle.outlined.minimum_height = islands.control_height;
+    envFieldStyle.outlined.background = huxerui::Color::Transparent();
     envFieldStyle.outlined.border = huxerui::Color::Transparent();
     envFieldStyle.outlined.hovered_border = huxerui::Color::Transparent();
     envFieldStyle.outlined.focused_border = huxerui::Color::Transparent();
@@ -669,14 +670,17 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
             })
             .With(huxerui::ClipChildren(), huxerui::Grow(1.0F)),
         TabTrailingProbe(tabsScroll, trailingPinned, pinnedGroup),
+        // 作为一个组合控件共用底色和唯一外框；内部细线只用于区分环境选择与
+        // 设置动作，不再让 ComboBox 自己绘制独立底板。
         huxerui::Row {
             envTrigger,
-            // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用主题 subtle 档。
+            // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高；用主题 subtle 档分开两个动作。
             huxerui::Column{}.With(huxerui::Frame{.width = 1.0F},
                                    huxerui::Background(islands.line_subtle)),
             envSettingsTrigger,
         }
             .With(huxerui::Spacing(0.0F),
+                  huxerui::Background(theme.colors.surface_container_highest),
                   huxerui::Border(envPickerFocused.Get() ? islands.line_focus
                                                          : islands.line_default,
                                   1.0F),
