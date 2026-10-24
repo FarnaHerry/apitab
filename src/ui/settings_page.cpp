@@ -1,6 +1,6 @@
 // settings_page.cpp — 全局设置工作区（顶级"设置"单例标签的内容，AppRoot 全宽
-// 渲染）。岛屿式双岛布局（island-structure-theme.md §13.3）：左侧分类岛
-// （通用（含外观）/ 个人信息 / 关于，固定宽不随内容滚动）+ 右侧内容岛（独立滚动）；
+// 渲染）。线条式单工作区：左侧分类栏（通用（含外观）/ 个人信息 / 关于，固定宽
+// 不随内容滚动）+ 右侧内容（独立滚动），中间仅一条分隔线；
 // Compact 视口下左栏折叠为内容岛上方的横向三分段条（官方 SegmentedButton，
 // 不引入 Drawer），标准/Compact 共用同一个分类 State。
 //
@@ -145,9 +145,9 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
         });
 }
 
-// 左侧分类岛：固定宽（kCategoryRailWidth），不随右侧长表单滚动。行 Key 用
+// 左侧分类栏：固定宽（kCategoryRailWidth），不随右侧长表单滚动。行 Key 用
 // 分类下标（稳定、与顺序一致），选中变化原位更新不重挂载。
-[[huxerui::composable]] huxerui::View SettingsCategoryIsland(huxerui::State<std::size_t> category) {
+[[huxerui::composable]] huxerui::View SettingsCategoryRail(huxerui::State<std::size_t> category) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const std::size_t current = category.Get();
     std::vector<huxerui::View> rows;
@@ -156,12 +156,15 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
         rows.push_back(
             SettingsCategoryRow(kCategoryNames[i], current == i, i, category).Key(i));
     }
-    return IslandSurface(huxerui::Column(std::move(rows))
-                             .With(huxerui::Spacing(theme.spacing.extra_small),
-                                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-                         IslandLevel::Base)
-        .With(huxerui::Frame{.width = kCategoryRailWidth,
-                             .min_width = 176.0F,
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    // 外层工作区负责统一边框与内边距。这里扣除它左侧的 1px 边框和内边距，
+    // 让分类栏仍占原来的 192pt 视觉宽度，并避免与中间分隔线留缝。
+    const float outerLeadingInset = islands.island_padding + 1.0F;
+    return huxerui::Column(std::move(rows))
+        .With(huxerui::Spacing(theme.spacing.extra_small),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+              huxerui::Frame{.width = kCategoryRailWidth - outerLeadingInset,
+                             .min_width = 176.0F - outerLeadingInset,
                              .min_height = 220.0F});
 }
 
@@ -571,7 +574,7 @@ constexpr AboutDependency kAboutDependencies[] = {
         break;
     }
 
-    // 页面根：标准 = 双岛（左分类岛 + 右内容岛）；Compact = 单内容岛 + 岛内
+    // 页面根：标准 = 单工作区（左分类栏 + 单条竖线 + 右内容）；Compact = 单内容岛 + 岛内
     // 顶部分类选择器。section 只在当前分支消费一次（两分支各自组岛）。
     huxerui::View page;
     if (huxerui::UseViewportClass() == huxerui::ViewportClass::Compact) {
@@ -597,23 +600,27 @@ constexpr AboutDependency kAboutDependencies[] = {
                  .With(huxerui::Grow(1.0F),
                        huxerui::Frame{.min_width = 280.0F, .min_height = 280.0F});
     } else {
-        // 标准：右侧内容岛——页面标题固定在顶部（不随内容滚走），分区内容独立
-        // 滚动（ScrollView + ScrollBar + Grow）。左右两块属于同一个设置工作区，
-        // 只用 small 间距（8pt），不套页面级 page_gap；避免两个相邻岛被拉得过散。
-        huxerui::View contentIsland = IslandSurface(
-            huxerui::Column {
-                huxerui::ScrollView{section}
-                    .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
-            }
-                .With(huxerui::Spacing(theme.spacing.medium),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                      huxerui::Grow(1.0F)),
-            IslandLevel::Base)
-            .With(huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
-        page = huxerui::Row {SettingsCategoryIsland(category), contentIsland}
-                   .With(huxerui::Spacing(theme.spacing.small),
-                         huxerui::Grow(1.0F),
-                         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+        // 标准：整个设置工作区共用一层边框和内边距。分类栏、竖向 hairline、
+        // 独立滚动的右侧内容直接相邻，避免两个相邻面板各自描边形成双竖线。
+        const IslandTheme islands = ResolveIslandTheme(theme);
+        huxerui::View content = huxerui::Column {
+            huxerui::ScrollView{section}
+                .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+        }
+            .With(huxerui::Spacing(theme.spacing.medium),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                  huxerui::Grow(1.0F),
+                  huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
+        huxerui::View divider = huxerui::Column{}
+                                    .With(huxerui::Frame{.width = 1.0F},
+                                          huxerui::Background(islands.outline_hair));
+        page = IslandSurface(huxerui::Row {SettingsCategoryRail(category), divider, content}
+                                 .With(huxerui::Spacing(0.0F),
+                                       huxerui::Grow(1.0F),
+                                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+                             IslandLevel::Base)
+                   .With(huxerui::Grow(1.0F),
+                         huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
     }
 
     return std::move(page).With(

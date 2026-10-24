@@ -29,7 +29,9 @@ namespace apitab::ui {
 
 IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
     huxerui::Color outline_hair = theme.colors.outline;
-    outline_hair.alpha *= 0.5F;
+    // 线条风主要依赖 1px 轮廓表达分区；半透明过低时浅色主题几乎看不见，
+    // 因此提高页面级 hairline 的可见度，同时仍弱于窗口骨架的全强度 outline。
+    outline_hair.alpha *= 0.75F;
     // 线条风（2026-10 从岛屿风整体重构）：结构由 1px 线条定义，不再由"面"定义——
     // 分区无色阶（base/raised/active 统一同海面 surface）、无圆角（island_radius
     // 与 nested_radius 归零），IslandSurface 只保留 hairline 线框；窗口骨架的
