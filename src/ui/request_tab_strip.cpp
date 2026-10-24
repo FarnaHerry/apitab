@@ -635,6 +635,11 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
         }
             .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 
+    // 环境组合控件处于无底板的标签条上，常规 outline 在深色主题下辨识度不足；
+    // 以次级前景色的半透明档加强外轮廓，内部装饰分隔线仍保持更轻的 hairline。
+    huxerui::Color environmentOutline = theme.colors.on_surface_variant;
+    environmentOutline.alpha *= 0.55F;
+
     return huxerui::Row {
         // 标签 chips 占满剩余宽度（Grow 把环境区推到最右）。打开草稿多到放不下时
         // 不再直接裁掉，而是横向滚动（与标题栏项目标签条同一套做法）。
@@ -674,7 +679,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
             envSettingsTrigger,
         }
             .With(huxerui::Spacing(0.0F),
-                  huxerui::Border(theme.colors.outline, 1.0F),
+                  huxerui::Border(environmentOutline, 1.0F),
                   huxerui::CornerRadius(islands.control_radius), huxerui::ClipChildren(),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
     }
