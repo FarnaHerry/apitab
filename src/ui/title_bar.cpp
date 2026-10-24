@@ -377,7 +377,7 @@ struct ProjectTabDragPayload {
     // 高度小于行高，上下留空隙不连通。
     auto tabDivider = [&](bool visible) {
         return huxerui::View{
-            huxerui::Column{}.With(huxerui::Frame{.width = 1.0F, .height = 12.0F},
+            huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth, .height = 12.0F},
                                    huxerui::Background(ResolveIslandTheme(theme).line_subtle),
                                    huxerui::Opacity(visible ? 1.0F : 0.0F))};
     };

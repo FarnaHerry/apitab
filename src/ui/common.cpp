@@ -42,10 +42,10 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         mixLine(theme.colors.outline, theme.colors.on_surface_variant, 0.30F);
     const huxerui::Color lineDefault =
         mixLine(theme.colors.outline, theme.colors.on_surface_variant, 0.60F);
-    // 线条风（2026-10 从岛屿风整体重构）：结构由 1px 线条定义，不再由"面"定义——
+    // 线条风（2026-10 从岛屿风整体重构）：结构由细线定义，不再由"面"定义——
     // 分区无色阶（base/raised/active 统一同海面 surface）、无圆角（island_radius
     // 与 nested_radius 归零），IslandSurface 只保留主题 subtle 线框；窗口骨架的
-    // 分隔线（标题栏下/侧栏右/状态栏上）由 app.cpp 通栏画 1px。控件层保留克制
+    // 分隔线（标题栏下/侧栏右/状态栏上）由 app.cpp 通栏绘制。控件层保留克制
     // 圆角（4/6pt，IDE 风格），浮层（overlay）保留对比底色保证弹层可读性。
     // 历史值：岛屿风 page_gap/圆角 16/12 → 工具化密度 8/6 → 线条风 0/0。
     return IslandTheme{
@@ -121,10 +121,10 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
                                                                     : islands.line_subtle;
     return std::move(surface).With(huxerui::Background(IslandColor(islands, theme, level)),
                                    huxerui::CornerRadius(islands.island_radius),
-                                   // 线条风：分区结构由 1px 主题线框表达（底色
+                                   // 线条风：分区结构由主题细线框表达（底色
                                    // 与海面同色，见 ResolveIslandTheme）；浮层用默认线，
                                    // 危险面用语义危险线。
-                                   huxerui::Border(line, 1.0F),
+                                   huxerui::Border(line, kLineWidth),
                                    huxerui::Padding(islands.island_padding),
                                    huxerui::Frame{.min_width = islands.island_min_width,
                                                   .min_height = islands.island_min_height});
@@ -157,7 +157,7 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
         huxerui::Background(islands.overlay),
         huxerui::CornerRadius(ConcentricRadius(theme.shapes.extra_large,
                                                theme.spacing.extra_small)),
-        huxerui::Border(islands.line_default, 1.0F), huxerui::ClipChildren(),
+        huxerui::Border(islands.line_default, kLineWidth), huxerui::ClipChildren(),
         huxerui::Padding(islands.island_padding));
 }
 
@@ -395,7 +395,7 @@ namespace {
 
 // 扁平选择行（契约见 ui.h）：横向排布的纯文本选项，无外框、无卡片分段。选中外观由
 // style 决定——Underline = 主色文字 + 底部 2pt 主色下划线（未选中用同高透明占位，
-// 布局不跳动）；Framed = 主色文字 + 整项 1pt 主色圆角描边（未选中用透明描边，几何
+// 布局不跳动）；Framed = 主色文字 + 整项 kLineWidth 主色圆角描边（未选中用透明描边，几何
 // 不变）。两者都靠"选择中"（hover/press）的普通按钮式叠加填充与选中态区分：常态
 // 透明，指针进入出 8% 圆角填充、按下 14%。
 // 每项自带 Focusable + Button 语义，键盘可 Tab 聚焦、Enter/Space 激活。
@@ -452,11 +452,11 @@ namespace {
         items.push_back(
             std::move(content)
                 .With(huxerui::Padding(itemPadding),
-                      // 未选中用透明描边（宽度恒为 1pt）保住几何，避免选中时整项
+                      // 未选中用透明描边（宽度恒为 kLineWidth）保住几何，避免选中时整项
                       // 尺寸跳动；Underline 模式恒为透明，不画框。
                       huxerui::Border(framed && active ? islands.line_focus
                                                        : huxerui::Color::Transparent(),
-                                      1.0F),
+                                      kLineWidth),
                       huxerui::CornerRadius(theme.shapes.small),
                       indication,
                       huxerui::Focusable(true),
@@ -537,7 +537,7 @@ namespace {
               huxerui::Background(islands.raised),
               huxerui::CornerRadius(multiline ? islands.large_control_radius
                                               : theme.shapes.full),
-              huxerui::Border(stroke, 1.0F),
+              huxerui::Border(stroke, kLineWidth),
               huxerui::ClipChildren(),
               huxerui::Padding(huxerui::EdgeInsets::Symmetric(kPaddingH, kPaddingV)),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
@@ -663,7 +663,7 @@ void ClearSweetLineProviders() {
 // 危险项按 PopupMenuDanger 取 error 红（kHoverRed 由逐条 Hover 事件驱动，仅
 // hover 时变红）；点击先关闭整链再回调（同系统菜单语义，回调脱离指针路径，
 // 但仍需自行推迟会卸载节点的 State 写）；条目超限时限高内部滚动（带
-// ScrollBar）；separator_before 的条目在行上方叠一条 1pt outline 分隔线
+// ScrollBar）；separator_before 的条目在行上方叠一条 kLineWidth subtle 线分隔
 // （空 Row + 固定高，外层 Column 交叉轴 Stretch 自动拉满菜单宽度），用于
 // 分组条目（如"＋ 新建"菜单）；不设该字段的现有菜单渲染零变化。
 // **级联子菜单**：item.children 非空 = 父项（行尾右箭头图标），hover/点击以本行为锚
@@ -813,10 +813,10 @@ huxerui::View PopupMenuContent(huxerui::PopupContext ctx, std::vector<PopupMenuI
     }
     huxerui::View line = std::move(row).Key(static_cast<std::int64_t>(index));
     if (item.separator_before) {
-        // 分隔线：空 Row 固定 1pt 高 + 主题 subtle 线色，外层 Column 交叉轴
+        // 分隔线：空 Row 固定 kLineWidth 高 + 主题 subtle 线色，外层 Column 交叉轴
         // Stretch 自动拉满菜单宽度；线上/下各留一档间距形成组界。
         line = huxerui::Column {
-            huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+            huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
                                 huxerui::Background(ResolveIslandTheme(theme).line_subtle)),
             line,
         }
@@ -1020,7 +1020,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     urlStyle.outlined.corner_radii = huxerui::CornerRadii{0.0F};
     // 高度对齐旁边的"发送"按钮：Outlined 默认 minimum_height=36 会让控件偏高；
     // 内层字段高度减 2pt，再加外层上下各 1pt 内缩，组合栏总高仍为 control_height。
-    urlStyle.outlined.minimum_height = islands.control_height - 2.0F;
+    urlStyle.outlined.minimum_height = islands.control_height - 2.0F * kLineWidth;
     urlStyle.padding = huxerui::EdgeInsets::Symmetric(10.0F, 6.0F);
 
     // 方法触发器：扁平文本，点击弹锚定 Popup（自绘下拉，外观对齐菜单层语义）。
@@ -1152,7 +1152,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
         baseSegment,
         // 分隔线：父 Row 交叉轴 Stretch 拉满全高；纯装饰线用主题 subtle 档，
         // 弱于输入框描边等交互线。
-        huxerui::Column{}.With(huxerui::Frame{.width = 1.0F},
+        huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth},
                                huxerui::Background(islands.line_subtle)),
         huxerui::ProvideEnvironment(
             urlStyle,
@@ -1161,13 +1161,13 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
         .With(huxerui::Spacing(0.0F),
               huxerui::Background(islands.raised),
               huxerui::Border(urlFocused.Get() ? islands.line_focus : islands.line_default,
-                              1.0F),
+                              kLineWidth),
               huxerui::CornerRadius(islands.large_control_radius), huxerui::ClipChildren(),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
               huxerui::Grow(1.0F),
-              // Border 在父级内容绘制阶段先于子控件；留出 1pt 内缩，避免
+              // Border 在父级内容绘制阶段先于子控件；留出线宽内缩，避免
               // URL TextField 贴边绘制时盖住组合栏外框，保证整行轮廓连续。
-              huxerui::Padding(1.0F));
+              huxerui::Padding(kLineWidth));
 }
 
 // 页面标题 + 副标题。

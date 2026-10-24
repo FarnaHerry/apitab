@@ -22,6 +22,9 @@
 
 namespace apitab::ui {
 
+// 统一静态线宽。HuxerUI 使用逻辑尺寸，最终物理像素宽度随窗口缩放系数映射。
+inline constexpr float kLineWidth = 0.5F;
+
 // SlideCell / StartSlide：标签实时换位（拖过即交换）时邻居的让位滑动，
 // FLIP 简化版——数据重排后布局立即落到新槽位，给被挤动的标签加一个等于
 // 位移量的反向 Offset 残量（视觉留在原位），再用手写 tween（16ms 步进、
@@ -387,7 +390,7 @@ huxerui::View OverflowButton(std::function<void()> onOpenMenu, bool enabled = tr
 // 扁平选择行的选中外观：
 // - Underline：选中项 = 主色文字 + 底部 2pt 下划线（未选中同高透明占位，无布局
 //   跳动）——用于分区切换条这类"标签"语义。
-// - Framed：选中项 = 主色文字 + 整项 1pt 主色圆角描边（未选中透明描边，几何不变）
+// - Framed：选中项 = 主色文字 + 整项 kLineWidth 主色圆角描边（未选中透明描边，几何不变）
 //   ——用于分区内部的二级选项，选中的是一个"按钮"而不是标签。
 enum class FlatSelectStyle {
     Underline,
@@ -482,7 +485,7 @@ struct PopupMenuItem {
     // on_click，点击 = 执行回调并关闭整链（直达该层级的动作，如"移动到
     // 分组 A"本身也是一个目的地）；不设则点击仅展开。
     std::vector<PopupMenuItem> children;
-    // true = 本行上方画 1pt 分隔线（subtle 线条令牌、随菜单宽度拉满），用于把
+    // true = 本行上方画 kLineWidth 分隔线（subtle 线条令牌、随菜单宽度拉满），用于把
     // 条目分成视觉组（如"＋ 新建"菜单的请求类型/目录/导入三段）。
     bool separator_before = false;
 };
@@ -535,7 +538,7 @@ std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> SweetLineProvider
     std::string syntax, std::string initialText, std::string documentKey);
 // 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（无尾下箭头弹菜单），
 // 之后是当前环境 baseUrl 显示区（灰色只读、可截断；为空则不渲染；URL 输入自带
-// URI scheme 时弱化显示表示不拼接），1pt 分隔线，右侧 URL 输入，整体共用一个
+// URI scheme 时弱化显示表示不拼接），kLineWidth 分隔线，右侧 URL 输入，整体共用一个
 // 8pt 大圆角描边外框（large_control_radius 组合栏，不做 full capsule，见
 // §5.2）。自带 Grow(1)。
 huxerui::View MethodUrlBar(std::vector<std::string> methods, std::size_t methodIndex,

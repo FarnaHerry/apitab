@@ -612,7 +612,7 @@ constexpr AboutDependency kAboutDependencies[] = {
                   huxerui::Grow(1.0F),
                   huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
         huxerui::View divider = huxerui::Column{}
-                                    .With(huxerui::Frame{.width = 1.0F},
+                                    .With(huxerui::Frame{.width = kLineWidth},
                                           huxerui::Background(islands.line_subtle));
         page = IslandSurface(huxerui::Row {SettingsCategoryRail(category), divider, content}
                                  .With(huxerui::Spacing(0.0F),

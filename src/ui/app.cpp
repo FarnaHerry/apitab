@@ -237,8 +237,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     segments.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kBody),
                                               spec.colors.on_surface};
     segments.selected_label = spec.colors.on_surface;
-    segments.border = huxerui::Border{lines.line_subtle, 1.0F};
-    segments.selected_border = huxerui::Border{lines.line_focus, 1.0F};
+    segments.border = huxerui::Border{lines.line_subtle, kLineWidth};
+    segments.selected_border = huxerui::Border{lines.line_focus, kLineWidth};
     segments.padding = huxerui::EdgeInsets::Symmetric(12.0F, 6.0F);
     segments.minimum_height = 32.0F;
     segments.corner_radii = huxerui::CornerRadii{spec.shapes.medium};
@@ -250,8 +250,11 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     chips.label_style = huxerui::TextStyle{huxerui::Font::System(font_size::kChip),
                                            spec.colors.on_surface_variant};
     chips.selected_label = spec.colors.on_surface;
-    chips.border = huxerui::Border{lines.line_subtle, 1.0F};
-    chips.selected_border = huxerui::Border{lines.line_focus, 1.0F};
+    chips.border = huxerui::Border{lines.line_subtle, kLineWidth};
+    chips.selected_border = huxerui::Border{lines.line_focus, kLineWidth};
+    chips.disabled_border.width = kLineWidth;
+    if (chips.disabled_selected_border)
+        chips.disabled_selected_border->width = kLineWidth;
     chips.padding = huxerui::EdgeInsets::Symmetric(10.0F, 4.0F);
     chips.minimum_height = 24.0F;
     chips.corner_radii = huxerui::CornerRadii{spec.shapes.full};
@@ -293,7 +296,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
 
     huxerui::DividerStyle divider = huxerui::UseEnvironment<huxerui::DividerStyle>();
     divider.color = lines.line_subtle;
-    divider.thickness = 1.0F;
+    divider.thickness = kLineWidth;
     definition.Set(divider);
 
     huxerui::TextFieldStyle fields = huxerui::UseEnvironment<huxerui::TextFieldStyle>();
@@ -308,6 +311,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     fields.focused_label = spec.colors.primary;
     fields.caret = spec.colors.primary;
     fields.selection = withAlpha(spec.colors.primary, 0.24F);
+    fields.border_width = kLineWidth;
+    fields.validation_border_width = kLineWidth;
     for (huxerui::TextFieldVariantStyle* variant : {&fields.standard, &fields.filled,
                                                     &fields.outlined}) {
         variant->background = spec.colors.surface_container_highest;
@@ -366,7 +371,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     huxerui::SelectStyle selects = huxerui::UseEnvironment<huxerui::SelectStyle>();
     selects.background = spec.colors.surface_container_highest;
     selects.foreground = spec.colors.on_surface;
-    selects.border = huxerui::Border{lines.line_default, 1.0F};
+    selects.border = huxerui::Border{lines.line_default, kLineWidth};
     selects.indicator = spec.colors.on_surface_variant;
     selects.popup_background = spec.colors.surface_container;
     selects.active_item_background = withAlpha(spec.colors.on_surface, 0.06F);
@@ -401,6 +406,7 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     menus.foreground = spec.colors.on_surface;
     menus.icon_tint = spec.colors.on_surface_variant;
     menus.separator_color = lines.line_subtle;
+    menus.separator_thickness = kLineWidth;
     menus.shadow = huxerui::Shadow{huxerui::Color::Rgb(0, 0, 0, 0.16F), {}, 12.0F, 0.0F};
     menus.corner_radii = huxerui::CornerRadii{spec.shapes.medium};
     menus.item_indication = selectIndication;
@@ -1069,8 +1075,8 @@ void TrayWindowController::ShowWindow() {
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                       titleBarHorizontalPadding, 0.0F)),
                   huxerui::Spacing(gap)),
-        // 线条风：标题栏下缘 1px 通栏分隔线（Column CrossAlign Stretch 拉满宽）。
-        huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+        // 线条风：标题栏下缘通栏细线（Column CrossAlign Stretch 拉满宽）。
+        huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
                             huxerui::Background(shellLine)),
         // 主行：图标侧栏（直接落海面）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
@@ -1079,10 +1085,10 @@ void TrayWindowController::ShowWindow() {
         huxerui::Row {
             showSideShell ? huxerui::View{SideShell(navPage)}
                           : huxerui::View{huxerui::Row{}},
-            // 线条风：侧栏与内容区之间 1px 通栏竖线（主行 CrossAlign Stretch
+            // 线条风：侧栏与内容区之间通栏细竖线（主行 CrossAlign Stretch
             // 拉满高），代替原来的 4pt 间隙。
             showSideShell ? huxerui::View{huxerui::Row{}.With(
-                                huxerui::Frame{.width = 1.0F},
+                                huxerui::Frame{.width = kLineWidth},
                                 huxerui::Background(shellLine))}
                           : huxerui::View{huxerui::Row{}},
             // IndexedPages 的子页面有 Grow，但外层容器本身也必须作为主 Row 的
@@ -1094,10 +1100,10 @@ void TrayWindowController::ShowWindow() {
                   huxerui::Grow(1.0F)),
         // 仅项目工作区显示底栏：代理与项目 Cookie 都是项目范围的配置。Home 和
         // GlobalSettings 返回零尺寸占位，主行 Grow 自动填满释放的全部高度。
-        // 线条风：底栏上缘 1px 通栏分隔线。
+        // 线条风：底栏上缘通栏细线。
         showProjectStatusBar
             ? huxerui::View{huxerui::Column{
-                  huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+                  huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
                                       huxerui::Background(shellLine)),
                   GlobalStatusBar(statusTopPad),
               }
@@ -1272,20 +1278,20 @@ void TrayWindowController::ShowWindow() {
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                       titleBarHorizontalPadding, 0.0F)),
                   huxerui::Spacing(gap)),
-        // 线条风：标题栏下缘 1px 通栏分隔线（与主窗口同款骨架）。
-        huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+        // 线条风：标题栏下缘通栏细线（与主窗口同款骨架）。
+        huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
                             huxerui::Background(shellLine)),
         huxerui::Row {
             huxerui::View{SideShell(navPage)},
-            // 线条风：侧栏与内容区之间 1px 通栏竖线。
-            huxerui::Row{}.With(huxerui::Frame{.width = 1.0F},
+            // 线条风：侧栏与内容区之间通栏细竖线。
+            huxerui::Row{}.With(huxerui::Frame{.width = kLineWidth},
                                 huxerui::Background(shellLine)),
             std::move(page).With(huxerui::Grow(1.0F)),
         }
             .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Grow(1.0F)),
-        // 线条风：底栏上缘 1px 通栏分隔线。
-        huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+        // 线条风：底栏上缘通栏细线。
+        huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
                             huxerui::Background(shellLine)),
         huxerui::View{GlobalStatusBar(statusTopPad)},
     }

@@ -265,7 +265,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
     // 隐藏；高度小于行高，上下留空隙不连通。
     auto chipDivider = [&](bool visible) {
         return huxerui::View{
-            huxerui::Column{}.With(huxerui::Frame{.width = 1.0F, .height = 14.0F},
+            huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth, .height = 14.0F},
                                    huxerui::Background(islands.line_subtle),
                                    huxerui::Opacity(visible ? 1.0F : 0.0F))};
     };
@@ -472,7 +472,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
                              huxerui::Border(newTabHovered.Get()
                                                  ? islands.line_default
                                                  : huxerui::Color::Transparent(),
-                                             1.0F))
+                                             kLineWidth))
                        .On<huxerui::ViewEvents::Hover>(
                            [newTabHovered](const huxerui::HoverEvent& e) {
                                newTabHovered = e.type != huxerui::HoverEventType::Leave;
@@ -675,7 +675,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
         huxerui::Row {
             envTrigger,
             // 竖分隔线：父 Row 交叉轴 Stretch 拉满全高；用主题 subtle 档分开两个动作。
-            huxerui::Column{}.With(huxerui::Frame{.width = 1.0F},
+            huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth},
                                    huxerui::Background(islands.line_subtle)),
             envSettingsTrigger,
         }

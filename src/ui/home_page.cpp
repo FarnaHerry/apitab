@@ -458,7 +458,7 @@ namespace {
     if (compact) {
         return huxerui::Column {
                    std::move(orgIsland).With(huxerui::Frame{.max_height = 220.0F}),
-                   huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+                   huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
                                        huxerui::Background(dividerLine)),
                    projectIsland,
                }
@@ -467,7 +467,7 @@ namespace {
     }
     return huxerui::Row {
         std::move(orgIsland),
-        huxerui::Row{}.With(huxerui::Frame{.width = 1.0F},
+        huxerui::Row{}.With(huxerui::Frame{.width = kLineWidth},
                             huxerui::Background(dividerLine)),
         projectIsland,
     }

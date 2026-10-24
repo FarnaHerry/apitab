@@ -586,7 +586,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
         return huxerui::Column {
                    RequestListIsland(openDrafts, activeTab, listVersion, true, 260.0F),
                    // 线条风：上下两岛之间 1px 通栏分隔线。
-                   huxerui::Row{}.With(huxerui::Frame{.height = 1.0F},
+                   huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
                                        huxerui::Background(islandTheme.line_subtle)),
                    rightArea,
                }

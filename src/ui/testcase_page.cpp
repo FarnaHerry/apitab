@@ -553,7 +553,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                       huxerui::Spacing(theme.spacing.small),
                       // 线条风：用例卡片与分区同底色，主题 subtle 线框表达边界。
                       huxerui::Background(ResolveIslandTheme(theme).base),
-                      huxerui::Border(ResolveIslandTheme(theme).line_subtle, 1.0F),
+                      huxerui::Border(ResolveIslandTheme(theme).line_subtle, kLineWidth),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
                 .Key(c.uid);
         };

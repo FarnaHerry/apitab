@@ -380,7 +380,7 @@ constexpr int kLoadRecordLimit = 50;
         contentLayout = huxerui::Row {
             categoryNavigation,
             // 线条风分区：分类栏和记录列表之间由一条通栏 subtle 线分隔。
-            huxerui::Column{}.With(huxerui::Frame{.width = 1.0F},
+            huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth},
                                    huxerui::Background(islands.line_subtle)),
             std::move(selectedPanel),
         }
@@ -397,7 +397,7 @@ constexpr int kLoadRecordLimit = 50;
         .With(huxerui::Padding(compact ? theme.spacing.small : theme.spacing.large),
               huxerui::Spacing(compact ? theme.spacing.small : theme.spacing.medium),
               huxerui::Background(islands.base),
-              huxerui::Border(islands.line_subtle, 1.0F), huxerui::Grow(1.0F),
+              huxerui::Border(islands.line_subtle, kLineWidth), huxerui::Grow(1.0F),
               huxerui::Frame{.min_width = 320.0F, .min_height = 220.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
