@@ -403,10 +403,11 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
                        .With(huxerui::ScrollBar(), huxerui::Grow(1.0F));
     }
 
-    return huxerui::Column {
-        PageHeader("压测", k6ok ? "k6 引擎：就绪" : "k6 引擎：未找到（engines/ 或 PATH）"),
-        huxerui::Row {
-            // 左：用例树面板（请求 → 接口用例）。头部 = 标题 + 新建用例。
+    // 双面板仿首页（HomePage）：左 = 用例树面板（定宽），右 = 主区岛
+    // （PageHeader + 参数/脚本/输出，岛内滚动）。无整页外底板——面板直接
+    // 落海面，hairline 线框表达边界；PageHeader 像首页项目岛一样住在岛内。
+    return huxerui::Row {
+        // 左：用例树面板（请求 → 接口用例）。头部 = 标题 + 新建用例。
             huxerui::Column {
                 huxerui::Row {
                     huxerui::Text("接口用例", huxerui::TextRole::Title)
@@ -422,14 +423,17 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
                                             theme.colors.on_surface_variant))}
                     : huxerui::View{std::move(caseTree)},
             }
-                .With(huxerui::Padding(theme.spacing.small),
+                .With(huxerui::Padding(theme.spacing.medium),
                       huxerui::Spacing(theme.spacing.small),
                       huxerui::Background(islands.base),
                       huxerui::Border(islands.outline_hair, 1.0F),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                       huxerui::Frame{.width = 250.0F}),
-            // 右：主区（参数 + 脚本 + 输出），岛内滚动。
-            huxerui::ScrollView{huxerui::Column {
+            // 右：主区岛——PageHeader 住岛内（仿首页项目岛），内容岛内滚动。
+            huxerui::Column {
+                PageHeader("压测",
+                           k6ok ? "k6 引擎：就绪" : "k6 引擎：未找到（engines/ 或 PATH）"),
+                huxerui::ScrollView{huxerui::Column {
             // 方法+URL 合并控件（自带 Grow 占满整行）。
             MethodUrlBar(
                 std::vector<std::string>(kMethodNames.begin(), kMethodNames.end()),
@@ -564,19 +568,18 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
         }
                             .With(huxerui::Spacing(theme.spacing.medium),
                                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
-                .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
-        }
-            .With(huxerui::Spacing(theme.spacing.small),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                  huxerui::Grow(1.0F)),
+                    .With(huxerui::ScrollBar()),
+            }
+                .With(huxerui::Padding(compact ? theme.spacing.medium : theme.spacing.large),
+                      huxerui::Spacing(theme.spacing.medium),
+                      huxerui::Background(ResolveIslandTheme(theme).base),
+                      huxerui::Border(ResolveIslandTheme(theme).outline_hair, 1.0F),
+                      huxerui::Grow(1.0F),
+                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
     }
-        .With(huxerui::Padding(compact ? theme.spacing.medium : theme.spacing.large),
-              huxerui::Spacing(theme.spacing.medium),
-              huxerui::Background(ResolveIslandTheme(theme).base),
-              huxerui::Border(ResolveIslandTheme(theme).outline_hair, 1.0F),
-              huxerui::Grow(1.0F),
-              huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+        .With(huxerui::Spacing(theme.spacing.small),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+              huxerui::Grow(1.0F));
 }
 
 } // namespace apitab::ui
