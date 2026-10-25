@@ -288,10 +288,11 @@ huxerui::View SplitActionButton(
 
     huxerui::TextFieldStyle nameFieldStyle =
         huxerui::UseEnvironment<huxerui::TextFieldStyle>();
-    // 与左侧 SegmentedButton 的 32pt 高度对齐。标签保留作无障碍语义，隐藏其
-    // 浮动视觉后，Outlined 输入框不再额外占用标签高度。
+    // 名称框略收至 30pt，并减少上下留白，抵消 Outlined 轮廓带来的视觉高度；
+    // 标签保留作无障碍语义，隐藏其浮动视觉后不再额外占用高度。
     nameFieldStyle.show_label = false;
-    nameFieldStyle.outlined.minimum_height = 32.0F;
+    nameFieldStyle.outlined.minimum_height = 30.0F;
+    nameFieldStyle.padding = huxerui::EdgeInsets::Symmetric(10.0F, 6.0F);
 
     // 选择行：调试/文档/测试用例/Mock 切换 + 短名称修改框（原整宽名称行并入此行）。
     // 名称不参与 Grow，避免在宽屏无意义地吞掉整行空间；父级约束不足时仍可收缩。
