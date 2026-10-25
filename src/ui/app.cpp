@@ -65,7 +65,7 @@ enum PageIndex : std::size_t {
         huxerui::Grow(1.0F),
         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
         huxerui::Background(cardColor),
-        huxerui::Border(islands.line_subtle, kLineWidth),
+        huxerui::Border(islands.line_default, kLineWidth),
         huxerui::CornerRadius(theme.shapes.small),
         huxerui::ClipChildren());
     // 独立 Column 承载卡片表面，确保 IndexedPages 等页面根视图填满后绘制底色和边框。
