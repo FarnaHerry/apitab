@@ -1,19 +1,19 @@
-# 计划：GitHub 中性线条体系统一与页面区域重构
+# 计划：中性线条体系统一与页面区域重构
 
-状态：**实现及 Linux 双主题初次截图抽查、构建已完成（2026-10-24）；2026-10-25 完成全局线宽收尾并构建通过，收尾后截图、跨平台和缩放矩阵待实机补验**。
+状态：**实现及 Linux 双主题初次截图抽查、构建已完成（2026-10-24）；2026-10-25 完成全局线宽收尾并构建通过，深色主题进一步改为黑白灰；收尾后截图、跨平台和缩放矩阵待实机补验**。
 
 ## 目标
 
-apitab 采用 GitHub 风格的中性灰阶，以线条组织主内容；品牌青保留给焦点、主要操作和
+apitab 采用中性黑白灰阶，以线条组织主内容；品牌青保留给按钮、焦点和
 明确的交互状态。本计划把全项目边界线、分隔线和控件描边收束到同一主题色系，再按统一
 规则逐区整理页面。它延续 `docs/plans/island-structure-theme.md` 的线条风几何约定，
 只收束线条颜色与其使用方式，不恢复岛屿卡片层级。
 
-## 实施前基线与问题
+## 配色基线与问题
 
-- `src/ui/app.cpp` 中深色画布为 `#0d1117`、outline 为 `#3d444d`、次级前景为
-  `#9198a1`；浅色画布为 `#ffffff`、outline 为 `#d0d7de`、次级前景为 `#59636e`。
-  主体保持中性，青色 `primary` 用于品牌和焦点。
+- `src/ui/app.cpp` 中深色画布为 `#000000`、outline 为 `#666666`、次级前景为
+  `#b0b0b0`；浅色画布为 `#ffffff`、outline 为 `#d0d7de`、次级前景为 `#59636e`。
+  主体保持黑白灰，青色 `primary` 用于按钮和焦点等交互状态。
 - `src/ui/common.cpp::ResolveIslandTheme` 将页面 hairline 设为 `outline` 的 75%
   透明度；`IslandTheme::outline_soft` 则是全强度 outline。名称与强弱含义容易混淆。
 - 仍有页面自行从 `theme.colors.outline` 计算线条：请求页 `ResizeHandle` 使用 50% 透明度；
@@ -45,7 +45,7 @@ apitab 采用 GitHub 风格的中性灰阶，以线条组织主内容；品牌�
 `IslandTheme` 统一提供上述语义令牌，页面和控件不再读取含义不清的
 `outline_soft` / `outline_hair`，也不从次级文字色自行派生或叠加局部 alpha。
 按 8-bit sRGB 取整并以 WCAG 相对亮度公式计算，当前令牌约为：深色
-`line_subtle #565d66`（2.84:1）、`line_default #6f767f`（4.12:1）；浅色
+`line_subtle #7c7c7c`（5.03:1）、`line_default #929292`（6.75:1）；浅色
 `line_subtle #acb4bc`（2.10:1）、`line_default #89919b`（3.19:1）。纯装饰线
 允许低于 3:1，但不能在 100% 缩放下消失；主要边界达到 3:1。颜色由
 `ResolveIslandTheme` 集中从 `ThemeSpec` 计算，不逐页修饰。
@@ -167,7 +167,7 @@ separator、自绘 PopupMenu 和弹层边界。
 
 ## 非目标
 
-- 不改变 GitHub 中性骨架、品牌青、HTTP 方法色、危险色和状态底色的语义职责。
+- 不改变黑白灰骨架、品牌青、HTTP 方法色、危险色和状态底色的语义职责。
 - 不借线条收束顺手重做页面信息架构、控件尺寸、间距、动画或整个主题配色。
 - 不恢复面板自带四边 Border + 间隙的旧布局；几何仍遵守“相邻区域只画一条线”。
 - 不把代码编辑器语法高亮、HTML 内容、头像裁剪框等内容内绘制色并入结构线体系。
@@ -183,7 +183,7 @@ separator、自绘 PopupMenu 和弹层边界。
 ## 实施记录（2026-10-24）
 
 - `IslandTheme` 统一为 `line_subtle`、`line_default`、`line_focus`、`line_danger`、
-  `line_disabled`；`ResolveIslandTheme` 集中由 GitHub 中性主题色计算，页面不再各自
+  `line_disabled`；`ResolveIslandTheme` 集中由中性主题色计算，页面不再各自
   取 outline、混次级文字色或叠局部 alpha。
 - 应用主/子窗口骨架、标题标签、请求页分隔与组合栏、主页、历史、压测、项目/全局设置、
   测试用例、框架输入/选择器/菜单/对话框统一迁移到语义令牌。输入框常态与 hover 分档；

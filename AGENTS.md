@@ -160,7 +160,7 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   **相邻面板之间只画一条线**：
   - 顶级内容区（主页、项目工作区、全局设置，含项目子窗口）统一由
     `src/ui/app.cpp::pages::PageCard` 包一张主卡片：外侧留小边距，卡片使用专属中性色
-    （深色 `#30363d`、浅色 `#f6f8fa`）、小圆角和一圈描边（深色白色、浅色 `line_default`）。各页面根节点不得再画自己的
+    （深色 `#303030`、浅色 `#f6f8fa`）、小圆角和一圈描边（深色白色、浅色 `line_default`）。各页面根节点不得再画自己的
     上/下/左/右周边线或额外外框；页面内部面板仍无常态边框，分区交给单条分隔线。
   - 静态分隔 = 通栏 `kLineWidth` 线：空 `Row{}`/`Column{}` +
     `Frame{.width/.height = kLineWidth}` + `Background(line_subtle)`，靠外层
@@ -179,9 +179,10 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   - 色阶只保留在"状态/控件/浮层"语言里：列表行 hover/选中（`islands.raised`
     /`islands.active`）、输入框与组合栏底、浮层（Overlay/Danger）、头像与裁剪
     等媒体画布。分区底色不做色阶差。
-  - 色板骨架 = GitHub 中性值（深 `#0d1117`/`#151b23`/`#3d444d`/`#f0f6fc`，
-    浅 `#ffffff`/`#f6f8fa`/`#d0d7de`/`#1f2328`，见 MinimalDark/LightThemeSpec）；
-    **不用 GitHub 主题色**——primary/焦点环保持品牌青。
+  - 色板骨架使用普通黑白灰（深色画布 `#000000`、表面 `#121212`/`#202020`、结构线基色
+    `#666666`、正文 `#ffffff`，见 MinimalDarkThemeSpec）；浅色仍用
+    `#ffffff`/`#f6f8fa`/`#d0d7de`/`#1f2328`。品牌青只用于按钮、焦点环等交互状态，
+    危险色和方法色仍按各自语义使用。
   - 页面不重复展示全局状态栏已有的信息（如 k6 引擎就绪状态只在底部状态栏）。
 - **源码 main 937efb1 新能力（2026-09-02）**：新增受控可编辑 `ComboBox`
   （自由输入 + 应用提供候选，`OnChanged` 与 `OnSelected` 分离）、Snackbar，以及

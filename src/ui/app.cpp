@@ -56,7 +56,7 @@ enum PageIndex : std::size_t {
 [[huxerui::composable]] huxerui::View PageCard(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    constexpr huxerui::Color kDarkPageCardColor = huxerui::Color::Rgb(48, 54, 61);  // #30363d
+    constexpr huxerui::Color kDarkPageCardColor = huxerui::Color::Rgb(48, 48, 48);  // #303030
     constexpr huxerui::Color kLightPageCardColor = huxerui::Color::Rgb(246, 248, 250);  // #f6f8fa
     const bool isDarkTheme = theme.colors.background.red < 0.5F;
     const huxerui::Color cardColor = isDarkTheme ? kDarkPageCardColor : kLightPageCardColor;
@@ -104,7 +104,7 @@ namespace {
 // kTitleBarContentHeight / kProjectTabWidth / kSettingsTabDisplayKey 见 ui.h；
 // TopTabDisplayKey / ProjectTabDragPayload / TopTab / TopTabStrip / TitleBarLogo 见 title_bar.cpp。
 
-// apitab 极简主题：大面积区域只使用中性灰阶，品牌青留给焦点、细线和小面积状态。
+// apitab 极简主题：深色模式采用黑白灰阶，品牌青留给按钮、焦点等交互状态。
 huxerui::ThemeSpec MinimalDarkThemeSpec() {
     huxerui::ThemeSpec spec = huxerui::MaterialDarkThemeSpec();
     spec.typography = huxerui::TypographyScheme{
@@ -129,31 +129,30 @@ huxerui::ThemeSpec MinimalDarkThemeSpec() {
     spec.motion.fast = 0.16;
     spec.motion.normal = 0.20;
     spec.motion.slow = 0.30;
-    // 深色：GitHub dark 的中性骨架（canvas #0d1117 / subtle #151b23 / 边线
-    // #3d444d / 字 #f0f6fc / 次级 #9198a1），分区与画布同色由线划分（线条风）；
-    // 品牌青 #43D3DC 保留为主题色（不用 GitHub 蓝）。
-    spec.colors.primary = huxerui::Color::Rgb(67, 211, 220);          // #43D3DC（品牌主色）
-    spec.colors.on_primary = huxerui::Color::Rgb(6, 37, 42);
-    spec.colors.primary_container = huxerui::Color::Rgb(33, 40, 48);
-    spec.colors.on_primary_container = huxerui::Color::Rgb(240, 246, 252);
-    spec.colors.secondary = huxerui::Color::Rgb(145, 152, 161);
-    spec.colors.on_secondary = huxerui::Color::Rgb(13, 17, 23);
-    spec.colors.secondary_container = huxerui::Color::Rgb(48, 54, 61);
-    spec.colors.on_secondary_container = huxerui::Color::Rgb(240, 246, 252);
-    spec.colors.tertiary_container = huxerui::Color::Rgb(39, 45, 53);
-    spec.colors.on_tertiary_container = huxerui::Color::Rgb(240, 246, 252);
-    spec.colors.background = huxerui::Color::Rgb(13, 17, 23);         // #0d1117
-    spec.colors.surface = huxerui::Color::Rgb(13, 17, 23);
-    spec.colors.surface_container_low = huxerui::Color::Rgb(21, 27, 35);   // #151b23：行 hover / canvas.subtle
-    spec.colors.surface_container = huxerui::Color::Rgb(33, 40, 48);       // #212830：行选中 / 按钮底
-    spec.colors.surface_container_high = huxerui::Color::Rgb(39, 45, 53);  // hover 提亮档
-    spec.colors.surface_container_highest = huxerui::Color::Rgb(28, 33, 40); // 浮层底
-    spec.colors.on_surface = huxerui::Color::Rgb(240, 246, 252);      // #f0f6fc
-    spec.colors.on_surface_variant = huxerui::Color::Rgb(145, 152, 161); // #9198a1
-    spec.colors.outline = huxerui::Color::Rgb(61, 68, 77);            // #3d444d
-    spec.colors.inverse_surface = huxerui::Color::Rgb(240, 246, 252);
-    spec.colors.inverse_on_surface = huxerui::Color::Rgb(13, 17, 23);
-    spec.colors.scrim = huxerui::Color::Rgb(1, 4, 9, 0.6F);           // canvas.inset #010409
+    // 深色：画布纯黑、正文白色、次级文字与结构线用灰色；品牌青只用于按钮、焦点等
+    // 明确的交互状态。表面层级保持中性灰，避免大面积区域带蓝/青色偏。
+    spec.colors.primary = huxerui::Color::Rgb(67, 211, 220);  // #43D3DC（品牌按钮/焦点色）
+    spec.colors.on_primary = huxerui::Color::Black();
+    spec.colors.primary_container = huxerui::Color::Rgb(32, 32, 32);
+    spec.colors.on_primary_container = huxerui::Color::White();
+    spec.colors.secondary = huxerui::Color::Rgb(176, 176, 176);  // #b0b0b0
+    spec.colors.on_secondary = huxerui::Color::Black();
+    spec.colors.secondary_container = huxerui::Color::Rgb(48, 48, 48);  // #303030
+    spec.colors.on_secondary_container = huxerui::Color::White();
+    spec.colors.tertiary_container = huxerui::Color::Rgb(42, 42, 42);  // #2a2a2a
+    spec.colors.on_tertiary_container = huxerui::Color::White();
+    spec.colors.background = huxerui::Color::Black();
+    spec.colors.surface = huxerui::Color::Black();
+    spec.colors.surface_container_low = huxerui::Color::Rgb(18, 18, 18);  // #121212：低层表面
+    spec.colors.surface_container = huxerui::Color::Rgb(32, 32, 32);      // #202020：控件底
+    spec.colors.surface_container_high = huxerui::Color::Rgb(42, 42, 42); // #2a2a2a：悬停表面
+    spec.colors.surface_container_highest = huxerui::Color::Rgb(54, 54, 54); // #363636：浮层底
+    spec.colors.on_surface = huxerui::Color::White();
+    spec.colors.on_surface_variant = huxerui::Color::Rgb(176, 176, 176);  // #b0b0b0
+    spec.colors.outline = huxerui::Color::Rgb(102, 102, 102);  // #666666
+    spec.colors.inverse_surface = huxerui::Color::White();
+    spec.colors.inverse_on_surface = huxerui::Color::Black();
+    spec.colors.scrim = huxerui::Color::Rgb(0, 0, 0, 0.65F);
     spec.colors.error = huxerui::Color::Rgb(248, 81, 73);             // danger #f85149
     spec.interactions.focus_ring =
         huxerui::FocusRing{spec.colors.primary, kEmphasisLineWidth, 2.0F};
