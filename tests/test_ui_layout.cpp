@@ -154,6 +154,16 @@ void PageCardOutline() {
     }
 }
 
+void PageCardMaskGeometry() {
+    const auto mask = PageCardCornerMask({800.0F, 600.0F}, 10.0F);
+    Expect(mask.Contains({0.25F, 0.25F}, PathFillRule::EvenOdd), "corner mask covers the square top-left corner");
+    Expect(mask.Contains({799.75F, 599.75F}, PathFillRule::EvenOdd), "corner mask covers the square bottom-right corner");
+    Expect(!mask.Contains({400.0F, 0.25F}, PathFillRule::EvenOdd), "corner mask leaves the straight top edge visible");
+    Expect(!mask.Contains({400.0F, 300.0F}, PathFillRule::EvenOdd), "corner mask leaves content visible");
+    Expect(!PageCardCornerMask({0.0F, 0.0F}, 10.0F).Contains({0.0F, 0.0F}, PathFillRule::EvenOdd),
+           "zero-size card has no corner mask");
+}
+
 void DesktopBreakpoints() {
     root = [] {
         return Text(UseViewportClass() == ViewportClass::Compact ? "compact" : "regular");
@@ -278,6 +288,7 @@ int main() {
     UnboundedScroll();
     DesktopBreakpoints();
     PageCardOutline();
+    PageCardMaskGeometry();
     PageCardFooter();
     PageCardInteraction();
     OpenSettingsTheme();

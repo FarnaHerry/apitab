@@ -610,6 +610,17 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
             target_link_libraries(test_ui_layout PRIVATE HuxerUI::testing)
             add_test(NAME ui_layout COMMAND test_ui_layout)
         endif ()
+        if (APITAB_HUXERUI_FROM_SOURCE AND APITAB_HAS_WEBVIEW AND UNIX AND NOT APPLE)
+            # 真正挂载 GTK/WebKit 控件；无图形会话的 CI 跳过，不能用无窗口布局测试替代。
+            add_executable(test_preview_native tests/test_preview_native.cpp)
+            target_compile_features(test_preview_native PRIVATE cxx_std_23)
+            target_include_directories(test_preview_native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+            target_link_libraries(test_preview_native PRIVATE HuxerUI::huxerui HuxerUI::WebView)
+            add_test(NAME preview_native_dark COMMAND test_preview_native)
+            add_test(NAME preview_native_light COMMAND test_preview_native light)
+            set_tests_properties(preview_native_dark preview_native_light PROPERTIES
+                SKIP_RETURN_CODE 77 TIMEOUT 15 LABELS native ENVIRONMENT "INTEL_FORCE_PROBE=1")
+        endif ()
         # 只读编辑器复制链路复现（响应区 Ctrl+C/右键复制失效排查）：链框架静态库
         # 与 codeeditor，借用 HuxerUI 源码树内的测试支持头（TestPlatform/假剪贴板）。
         # 仅源码模式且 POSIX 可构建。

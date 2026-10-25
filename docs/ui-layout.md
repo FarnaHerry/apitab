@@ -31,16 +31,18 @@ MinimalThemed
 | 层级 | 当前契约 |
 |---|---|
 | 窗口画布 | 深色为 `#000000`；标题栏、项目侧栏直接使用画布 |
-| PageCard | 外边距 8dp，圆角取 shapes.large（当前 10dp），0.3dp 前景描边；Stack 统一裁剪，无额外内容内缩；底色深色 `#303030`、浅色 `#f6f8fa` |
+| PageCard | 外边距 8dp，圆角取 shapes.large（当前 10dp），0.3dp 前景描边；内容矩形裁剪、前景遮角，无额外内容内缩；底色深色 `#303030`、浅色 `#f6f8fa` |
 | 页面工作面 | `islands.base`：深色 `#121212`、浅色 `#ffffff`；普通分区无边框、直角，相邻区域只画一条 0.5dp 线 |
 
 页面工作面会覆盖其下方的卡片底色；卡片底色不等于所有内部分区的底色。普通
 `IslandSurface` 的 Base/Raised/Active 都使用同一工作面，列表行 hover/选中才单独使用
 `islands.raised/active`。浮层与危险面保留自己的底色和边界。
 
-外框由 `page_card.h::PageCardSurface` 统一实现：Stack 的第一个 child 是页面内容，
-最后一个 child 是没有背景及交互的纯描边层。按声明顺序绘制保证外框不会被工作面覆盖，
-内容和描边共享尺寸，Stack 统一进行 10dp 圆角裁剪。无需描边内缩或第二层内圆角裁剪。
+外框由 `page_card.h::PageCardSurface` 统一实现：Stack 的第一个 child 是矩形裁剪的内容层，
+中间 Canvas 按窗口画布色填充四个圆角外侧，最后是没有背景及交互的纯描边层。
+内容和描边共享尺寸，前景绘制保证外框不会被工作面覆盖。无需描边内缩。
+不能给 Stack 加圆角 ClipChildren：原生 WebView 不支持祖先路径裁剪，Linux 收到 HTML
+后打开 Preview 会直接抛异常。圆角遮角层不向子树传播路径裁剪。
 
 项目状态栏作为卡片 footer 与工作区一起裁剪，上方使用官方 Divider，局部 DividerStyle
 继承当前主题并将线色设为 `line_default`、粗细设为 `kLineWidth`。
@@ -121,11 +123,17 @@ KV 表与代码编辑器拥有自己的滚动，调用方不再追加同轴 Scro
 
 回归测试 `tests/test_ui_layout.cpp` 使用 HuxerUI 公开的无窗口测试库，覆盖分区缩小与
 恢复、请求尺寸两端限幅、父空间不足/零高度、无界滚动测量，以及 800/900dp 断点；
-也验证深浅主题下的卡片与 footer 尺寸，以及前景描边层下方的点击、文本输入和滚轮路由。
+也验证遮角路径、深浅主题下的卡片与 footer 尺寸，以及前景层下方的点击、文本输入和滚轮路由。
 源码通道启用应用测试时构建 `test_ui_layout`，CTest 名为 `ui_layout`；离线 SDK
 通道不要求随包提供该可选测试库。
 
-本次源码通道完成应用编译链接及 `ui_layout` 回归。强制使用已安装 SDK 的整体构建
+Linux 源码通道且 WebView 可用时，`tests/test_preview_native.cpp` 运行真正的 GTK/WebKit
+窗口，验证深浅主题下卡片内 HTML 加载、切走卸载及重新挂载。CTest 名为
+`preview_native_dark` / `preview_native_light`，无 DISPLAY/WAYLAND_DISPLAY 时跳过。
+它覆盖原生控件合成契约，不能由无窗口布局测试替代。
+
+本次源码通道完成应用编译链接、`ui_layout` 及深浅主题的原生 Preview 回归。
+强制使用已安装 SDK 的整体构建
 在现有 Lib-WebView 依赖处失败：缺少 `huxerui/linux/platform_registry.h`，尚未进入
 应用链接；新增 SplitPane 使用的公开布局 API 另行做 SDK 头文件编译检查。该依赖差异
 独立于本次布局修改，不能把头文件检查等同于整个 SDK 通道构建成功。
