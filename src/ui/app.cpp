@@ -1,9 +1,9 @@
-// app.cpp — 应用壳（岛屿架构 + 自定义标题栏 + 托盘）：
-//   标题栏（不做岛，直接落海面）：居中 Logo + 顶级标签条（TopTabStrip：主页钉在最左、
+// app.cpp — 应用壳（统一内容卡片 + 自定义标题栏 + 托盘）：
+//   标题栏直接使用窗口底色：Logo + 顶级标签条（TopTabStrip：主页钉在最左、
 //     项目标签横向滚动、设置单例标签固定追加在所有项目标签之后）+ 齿轮（全局设置
-//     单例标签）+ 框架窗口按钮；收窄为 24px 高，
+//     单例标签）+ 用户头像 + 框架窗口按钮；期望高度 24dp，系统按钮可提高下限。
 //     主题为黑白灰极简风，青色品牌色用于主操作、焦点提示和明确的交互状态。
-//   下方：左侧图标侧边栏（同样直接落海面）｜统一 PageCard 内容区（卡片负责大区域
+//   下方：左侧图标侧边栏（使用窗口底色）｜统一 PageCard 内容区（卡片负责大区域
 //   的底色与外框，页面内部结构用单条细线分隔）。根节点刷整窗底色（rootSpec.colors.background——
 //   AppRoot 在主题 provider 之上，UseTheme 只能拿到默认浅色 spec，须按 dark 自选）。
 //   顶级位置模型（island-structure-theme.md §13.1，P1-B0.1）：主页/项目/全局设置
@@ -478,22 +478,7 @@ huxerui::View MinimalThemed(bool dark, huxerui::View content) {
     return huxerui::MaterialTheme(spec, MinimalThemeStyles(content));
 }
 
-// TitleBarLogo / TopTab / TopTabStrip 已移至 title_bar.cpp（P1-C2 纯搬移），此处保留占位注释。
-
-
-// 单个顶级标签：激活态 = 最高层级容器底 + 主文字色；未激活 = 略深容器底 + 次级文字色。
-// 整块外层只负责激活与切换（点击会卸载内容子树，切换统一经 actions.activate 的
-// AppRoot 同步处理）；内层用两个兄弟节点分别承载「切换」与
-// 「关闭」，避免各自做一次整标签的背景重绘。主页标签（kind=Home）不可关闭、不挂
-// 拖拽，位置恒定最左；项目标签（kind=Project）可关闭、挂拖拽换位；设置单例标签
-// （kind=GlobalSettings）可关闭、不挂拖拽——拖拽 payload 只接受项目，设置不参与
-// 拖拽排序、不写入 open_projects（§13.4 B0.1）。拖拽的 strip 级状态（dragId/dragDx/
-// dragOrig）与几何（index/count/stride）由 TopTabStrip 传入：拖动时本标签变透明
-// 占位，视觉由条内覆盖层克隆接管。
-// TopTab 已移至 title_bar.cpp（P1-C2）
-
-// TopTabStrip 已移至 title_bar.cpp（P1-C2）
-
+// 标题栏标签的几何、交互与拖拽实现见 title_bar.cpp；本文件负责顶级状态与页面保活。
 
 // 左列：图标侧边栏（选中态用实心图标变体 + 药丸底色，悬停显示文字提示）。
 // 侧栏不做岛、直接落在海面（窗口背景）上；选中强调只有图标变体与药丸底色——
@@ -950,10 +935,9 @@ void TrayWindowController::ShowWindow() {
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
     // 窗口骨架同样读取主题线条令牌；比页面装饰分隔使用的 subtle 档更重。
     const huxerui::Color shellLine = ResolveIslandTheme(rootSpec).line_default;
-    // 响应式：Compact(<600) 收窄间距，Medium/Expanded 保持现状。
-    // 根 Column 子项间隙统一 extra_small(4pt)：标题栏↔主行贴紧一些。底部状态栏
-    // 仅属于项目工作区；主页和通用设置页没有它，主岛直接吃满标题栏以下的高度。
-    // 壳层与页面区之间的间隙同样收敛到 4pt（工具化密度，2026-10 从 8pt 收敛）。
+    // Compact（默认 <600dp）收窄侧栏与标题栏水平留白；桌面最小宽 800dp，正常缩窗
+    // 不会进入该分支。根 Column 不设 Spacing，页面外边距由 PageCard 的 8dp Padding 提供。
+    // gap 用于标题栏内部间距；状态栏仅在项目工作区显示，目前 statusTopPad 为 0。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const float gap = rootSpec.spacing.extra_small;
     const float titleBarHorizontalPadding =
@@ -1070,9 +1054,8 @@ void TrayWindowController::ShowWindow() {
     });
 
     huxerui::View content = huxerui::Column {
-        // 自定义标题栏（不做岛，直接落海面）：Logo + 顶级标签条 + 齿轮（框架在其
-        // 右侧渲染窗口按钮）。
-        // 全部内容统一 24pt 高（kTitleBarContentHeight = title_bar_height）；
+        // 自定义标题栏使用窗口底色：Logo + 顶级标签条 + 齿轮 + 头像，框架在右侧渲染窗口按钮。
+        // 标签和操作内容的基准高度为 24dp；头像为 28dp，系统按钮也可能提高最终标题栏高度。
         // WindowTitleBar 构造即带交叉轴居中，这里给中间标签条包装 Row 也补上
         // 居中，任何一侧偏高都不漂移。
         huxerui::WindowTitleBar {
@@ -1119,13 +1102,11 @@ void TrayWindowController::ShowWindow() {
             // 用户头像：固定圆形命中区；点击打开登录弹窗。
             topAvatar,
         }
-            // 标题栏不做岛（§2.2 停靠区域）：壳层导航直接落在窗口背景上，不再
-            // 用玻璃表面/描边自成一层。垂直零内边距：内容本身 24pt 高，与
-            // title_bar_height 对齐，避免标题栏下缘与内容岛之间多出一条空隙。
+            // 壳层导航直接使用窗口背景；垂直零内边距，页面与标题栏的留白由 PageCard 提供。
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                       titleBarHorizontalPadding, 0.0F)),
                   huxerui::Spacing(gap)),
-        // 主行：图标侧栏（直接落海面）+ 页面卡片；Grow 吃满标题栏之外的剩余高度。
+        // 主行：图标侧栏 + 页面卡片；Grow 取得标题栏和可选状态栏之外的剩余高度。
         // 仅 Project(id) 顶级标签显示侧栏；主页/设置整宽覆盖。
         // 占位必须用空 Row——Spacer 自带 Grow(1)，会分走一半宽度。
         huxerui::Row {

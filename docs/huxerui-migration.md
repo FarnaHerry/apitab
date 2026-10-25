@@ -27,6 +27,13 @@
 | 外部线程回调 | 用 `TaskScope::Post` 投递到 UI 线程 |
 | 主题 | 在 `MaterialTheme` 内读取现有 typed style，再只覆写品牌字段 |
 
+## 当前布局
+
+当前采用统一外层 `PageCard` 和内部单线分区。`IslandSurface` 等命名仍保留，普通
+分区已是同工作面底色、直角、无独立边框；窗口画布、卡片底色和页面工作面是不同层级。
+页面层级、尺寸、滚动所有权，以及最小窗口与 Compact 分支的约束问题见
+[`ui-layout.md`](ui-layout.md)。
+
 ## 编写约定
 
 1. **组合阶段保持纯。** 不要在 composable 组合时赋值 State。初值先计算再传给

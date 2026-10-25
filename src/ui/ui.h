@@ -22,7 +22,8 @@
 
 namespace apitab::ui {
 
-// 结构与控件边界的统一线宽。HuxerUI 使用逻辑尺寸，最终物理像素宽度随窗口缩放系数映射。
+// 内部分隔与普通控件边界的统一线宽；PageCard 外轮廓单独使用 1dp。
+// HuxerUI 使用逻辑尺寸，最终物理像素宽度随窗口缩放系数映射。
 inline constexpr float kLineWidth = 0.5F;
 // 焦点环与活动指示线保留强调档，和结构线分开表达交互状态。
 inline constexpr float kEmphasisLineWidth = 2.0F;
@@ -90,8 +91,8 @@ inline constexpr float kContentStartPadding = 8.0F;
 inline constexpr float kScrollbarThickness = 8.0F;
 } // namespace editor_metrics
 
-// 岛屿结构的语义层级。页面通过语义层级选择表面，不直接依赖 Material 的
-// surface_container_* 命名；颜色仍由当前 ThemeSpec 派生，深浅主题共用组件。
+// 表面语义层级（保留 Island 命名）。普通分区的 Base/Raised/Active 都使用 islands.base；
+// 浮层和危险面单独着色。列表行直接使用 islands.raised/active 表达 hover/选中状态。
 enum class IslandLevel {
     Base,
     Raised,
@@ -115,7 +116,7 @@ struct IslandTheme {
     // icon_button_compact / icon_button_regular：图标按钮正方形命中区两档 28/32pt；
     // control_height：普通控件（按钮/输入行）统一高度 32pt。
     // 线条风（2026-10）：island_radius/nested_radius 归零——分区直角，结构由
-    // 主题语义线框与骨架分隔线承担；控件圆角随主题 shapes 收敛（4/6pt）；
+    // 父布局的单条分隔线承担；控件圆角跟随主题 shapes.small/medium；
     // 对话框等浮层保留更大外轮廓（shapes.extra_large）。
     // **页面禁止再散落圆角/图标按钮尺寸魔法数字**——同类列表、组合栏、按钮的
     // 几何只从这里取值（经 ResolveIslandTheme），调整尺寸只改这一处。
@@ -428,8 +429,8 @@ enum class InputSurfaceTone {
 // 按 §12.4 只交付可复用原语、不虚构新 UI 入口、不接到任何页面）。
 //
 // 契约：
-// - 单行（multiline=false）= full capsule 大胶囊；多行 = 固定 large_control_radius
-//   (8pt) 大圆角，四角半径固定、四边随内容增长。这是单行↔多行切换时唯一的
+// - 单行（multiline=false）= full capsule 大胶囊；多行 = 固定
+//   large_control_radius 圆角，四角半径固定、四边随内容增长。这是单行↔多行切换时唯一的
 //   几何差异。
 // - body/trailing 的水平内边距、间距、尾部动作的右对齐锚点在两态下完全一致，
 //   切换不产生横向跳动；trailing（尾部动作区）在两态均垂直居中，锚点稳定。
@@ -447,8 +448,8 @@ huxerui::View AdaptiveInputSurface(huxerui::View body, huxerui::View trailing,
                                    InputSurfaceTone tone = InputSurfaceTone::Normal,
                                    float minBodyHeight = 32.0F,
                                    float maxBodyHeight = 160.0F);
-// 最小岛屿结构原语：Surface 负责语义表面、圆角、边界和内边距；Section 在其上
-// 提供标题/说明/内容的稳定排版。复杂页面模板待真实迁移验证后再抽取。
+// 通用分区表面：Surface 负责底色、内边距和最小尺寸，普通分区直角且无边框；
+// Overlay/Danger 才自带描边。Section 添加标题/说明/内容，外围页面卡片由 PageCard 提供。
 huxerui::View IslandSurface(huxerui::View content, IslandLevel level = IslandLevel::Base);
 huxerui::View IslandSection(std::string title, std::string description,
                             huxerui::View content);
@@ -473,7 +474,7 @@ void ShowDangerConfirm(huxerui::DialogHandle dialog, std::string title, std::str
 enum class PopupMenuDanger {
     kNone,     // 常规项
     kHoverRed, // 危险项：常态普通色，hover 时文字变 error 红
-    kAlwaysRed // 危险项：常驻 error 红（如方法下拉的 DELETE）
+    kAlwaysRed // 危险操作：常驻 error 红；HTTP 方法使用 MethodColor，与危险色分开
 };
 struct PopupMenuItem {
     std::string label;
@@ -541,7 +542,7 @@ std::shared_ptr<huxerui::codeeditor::EditorDecorationProvider> SweetLineProvider
 // 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（无尾下箭头弹菜单），
 // 之后是当前环境 baseUrl 显示区（灰色只读、可截断；为空则不渲染；URL 输入自带
 // URI scheme 时弱化显示表示不拼接），kLineWidth 分隔线，右侧 URL 输入，整体共用一个
-// 8pt 大圆角描边外框（large_control_radius 组合栏，不做 full capsule，见
+// large_control_radius 圆角描边外框（组合栏不做 full capsule，见
 // §5.2）。自带 Grow(1)。
 huxerui::View MethodUrlBar(std::vector<std::string> methods, std::size_t methodIndex,
                            std::function<void(std::size_t)> onMethodChanged,

@@ -2,7 +2,7 @@
 // 内部以拖拽分隔线组织区域；HTTP 可拆编辑区/响应区，WS/TCP 与 gRPC 使用整页内容。
 // 发送走 store 持有的 curl 引擎（api::ApiEngine 抽象：send 纯入队，UI 协程
 // PollWhile 轮询 takeResponse 取回结果，回 UI 线程写 State 并落历史）；
-// 保存落到当前项目集合并刷新左岛列表。
+// 保存落到当前项目集合并刷新请求树。
 // P1-C1（2026-09-02）：已按功能域拆为 request_list / request_editor /
 // request_body_editor / request_response / request_tab_strip /
 // environment_widgets / request_doc；本文件仅保留薄编排 RequestPage 与
@@ -73,8 +73,7 @@ namespace apitab::ui {
         huxerui::Text("新建请求", huxerui::TextRole::Title),
         huxerui::Text("选择要创建的请求类型", huxerui::TextRole::Body)
             .With(huxerui::Foreground(theme.colors.on_surface_variant)),
-        // Flow 在宽屏保持两列，在 Compact 窄屏自动折为单列，不要求调用方
-        // 预先计算列数或视口宽度。
+        // Flow 按实际可用宽度换行；每张卡宽 220dp，不预设两列或按视口等级计算列数。
         huxerui::Flow {
             NewRequestTypeCard("HTTP 请求", "REST、JSON、表单与文件请求", 0, onSelected),
             NewRequestTypeCard("WebSocket", "长连接与实时双向消息调试", 1, onSelected),
@@ -174,9 +173,8 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
         .On<huxerui::DragEvents::Canceled>([dragging](const huxerui::DragEvent&) { dragging = false; });
 }
 
-// 右侧一级区域的统一表面：与左侧请求树同一套令牌——线条风
-// 分区（海面同色底 + 主题 subtle 线框 + 直角，见 ResolveIslandTheme）。区域靠
-// Grow 自动拉伸占满右侧区块，内容在岛内滚动。
+// 右侧分区与请求树统一使用 islands.base 工作面底色，无独立边框、无圆角。
+// 分隔线由父布局的 ResizeHandle 绘制；高度与 Grow 由调用方设置，内容独立滚动。
 huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSpec& theme,
                                    huxerui::Frame minimum = {.min_width = 320.0F,
                                                              .min_height = 140.0F}) {
@@ -184,8 +182,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     return std::move(content).With(huxerui::Background(islands.base),
                                    // 线条风：分区直角无边框——请求页各岛的边界由
                                    // 骨架线与拖条分隔线表达，避免相邻边框叠成双线。
-                                   // 各调用方可按内容指定最低可用工作区；拖条与 Grow
-                                   // 只能在该下限之上分配，避免内容被挤没。
+                                   // min_* 表达期望的工作区下限，仍服从父约束；它们不能保证
+                                   // 拖拽后的相邻分区一定留足空间，尺寸预算见 docs/ui-layout.md。
                                    minimum);
 }
 
@@ -436,7 +434,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     // 环境版本：环境选择/CRUD/弹窗保存后 bump，标签条与环境弹窗按它重读 store。
     auto envVersion = huxerui::UseState(0);
     // 编辑器子页：0=调试 1=文档 2=测试用例 3=Mock（仅 HTTP 草稿用；非调试页时
-    // 响应下岛让位，编辑器占满右岛）。
+    // 响应区隐藏，编辑器取得整个右侧区域）。
     auto editorPage = huxerui::UseState<std::size_t>(0);
     auto inFlight = huxerui::UseState(false);
     auto responseBody = huxerui::UseState(std::string{"（尚未发送请求）"});
@@ -462,7 +460,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
         },
         windowIdentity.ordinal);
 
-    // 响应式：Compact（<600pt）改上下堆叠，Medium/Expanded 保持左右双岛。
+    // Compact（默认 <600dp）改上下堆叠，其他等级保持左右分栏。
+    // 桌面主/子窗口最小宽均为 800dp，正常缩窗不会进入该分支。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
 
     const std::vector<RequestDraft> snapshot = openDrafts.Get();
@@ -473,14 +472,14 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     const std::int64_t contentKey = static_cast<std::int64_t>(current) * 4 + currentKind;
 
     // 右侧按活跃草稿类型分派：
-    // - HTTP：拆上下两岛——上岛 = 标签条 + 编辑器（Grow 1，吃剩余高度），下岛 =
-    //   响应区（固定高，顶缘叠隐形拖条可拖 140–640）；编辑器固定部分
+    // - HTTP 调试页：上 = 标签条 + 编辑器（Grow 1，取得剩余高度），下 =
+    //   响应区（高度 State 可拖 140–640dp），中间独立 6dp 拖条；编辑器固定部分
     //   （名称/操作栏/分区切换/Body 类型行）不滚动，分区内容与响应各自内滚。
-    // - WS/TCP：直接嵌入整页组件（内部自带 ScrollView/事件泵，勿再套 ScrollView，
-    //   避免同轴嵌套滚动）；固定 kUid=1 引擎会话，同类型标签共享同一条连接。
+    // - WS/TCP：直接嵌入会话组件，顶部操作区固定、事件流独立滚动，不再外套 ScrollView；
+    //   会话生命周期由各组件自己的组合状态和事件泵持有。
     // - gRPC（kind=3）：引擎未实现——整页占位（仅标签条 + 提示文案，无操作栏、
     //   无分区、不可保存/发送；gRPC 草稿不落库）。
-    // - 无打开草稿：单岛空状态。
+    // - 无打开草稿或新建标签：请求类型选择器。
     huxerui::View rightArea = huxerui::Column{};
     if (snapshot.empty() || newTabOpen.Get()) {
         auto createDraft = [openDrafts, activeTab, newTabOpen](int kind) {
@@ -539,10 +538,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                       huxerui::Grow(1.0F)),
             theme);
     } else {
-        // 非调试子页（文档/测试用例/Mock）：编辑器占满右岛，响应下岛让位。
-        // 调试页：编辑器 Grow 1 吃掉响应岛之外的剩余高度；响应岛固定高
-        // （State 可调）。拖条作为两岛之间 6pt 间隙本身，使其细条正好落在
-        // 两张卡片视觉间隔的中心，而不是叠压在响应岛顶缘。
+        // 非调试子页隐藏响应区；调试页由编辑器 Grow 分配响应区之外的剩余高度。
+        // 两个无边框分区之间插入 6dp 拖拽热区，中间仅绘制 kLineWidth 单线。
         const bool debugging = editorPage.Get() == 0;
         std::vector<huxerui::View> islands;
         // HTTP 编辑器岛（含 URL 栏）比普通响应/会话岛需要更高的最低工作区，
@@ -577,8 +574,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                 theme));
         }
         rightArea = huxerui::Column(std::move(islands))
-                        // ResizeHandle 已承担调试页两岛间的 6pt 间隙；其余模式没有
-                        // 第二岛，保留该 spacing 不影响布局。
+                        // 分区间距由 ResizeHandle 独占，Column 不再追加 Spacing。
                         .With(huxerui::Spacing(0.0F),
                               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                               huxerui::Grow(1.0F));
@@ -586,7 +582,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
 
     huxerui::View workspace;
     if (compact) {
-        // Compact：上 = 请求列表（限高 220、宽度撑满），下 = 编辑区（撑满剩余）。
+        // Compact：请求列表移到顶部（限高 220dp），编辑区取得剩余高度。
         workspace = huxerui::Column {
                         RequestListIsland(openDrafts, activeTab, listVersion, true, 260.0F),
                         // 上下内容间只保留一条通栏细线。
@@ -597,7 +593,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                         .With(huxerui::Grow(1.0F),
                               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     } else {
-        // 拖条本身就是请求树与编辑区之间的分隔线，宽度保持单线。
+        // 拖条占宽 6dp，只有中央 kLineWidth 可见；不再额外绘制竖分隔线。
         workspace = huxerui::Row {
                        RequestListIsland(openDrafts, activeTab, listVersion, false,
                                          leftIslandWidth.Get()),

@@ -1,4 +1,4 @@
-// request_response.cpp — 请求工作区右侧下岛：响应区（Body/Headers/Cookies/Preview）。
+// request_response.cpp — HTTP 调试页右侧下方响应区（Body/Headers/Cookies/可选 Preview）。
 // 自 request_page.cpp 拆出（P1-C1，功能域 = 响应展示）；Preview 档为 HTML 响应
 // 预览（Lib-WebView，Linux = WebKitGTK 6.0，APITAB_HAS_WEBVIEW 门控）。
 #include <huxerui/huxerui.h>
@@ -203,7 +203,7 @@ void AppendResponsePreviewTab(std::vector<huxerui::StringVariant>&) {}
 #endif
 } // namespace
 
-// 响应区（右侧下岛）：独立重组作用域 —— responseTab/responseBody/responseHeaders/
+// 响应区：独立重组作用域 —— responseTab/responseBody/responseHeaders/
 // responseCookies/responsePreview 的变化只重组此区域，不扩散到整个编辑器（KV 表
 // 不受影响）。标题固定；Body 完成态由编辑器处理滚动，传输中（inFlight）走流式
 // 实时视图，Headers/Cookies 使用 VirtualList，并由 StateList 直接驱动可视区；

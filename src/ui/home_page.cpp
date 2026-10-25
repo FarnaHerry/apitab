@@ -1,6 +1,7 @@
-// home_page.cpp — 主页面（顶级 Home 标签内容，全宽无侧栏）：两栏岛屿布局。
-//   左岛（固定宽）：组织列表（选中高亮），标题行加号按钮弹窗新建组织；
-//   右岛（Grow）：当前组织的项目卡片（Flow 自动换行），标题行加号按钮弹窗新建项目。
+// home_page.cpp — 主页（顶级 Home 标签内容，无项目导航侧栏）：组织与项目两栏。
+//   左栏（固定宽 240dp）：组织 VirtualList，标题行加号按钮弹窗新建组织；
+//   右栏（Grow）：项目 VirtualGrid 自适应列数，标题行加号按钮弹窗新建项目。
+//   两栏同工作面底色、无独立外框，中间单线分隔；外围卡片由 PageCard 提供。
 // 打开项目 = selectProjectInOrg（领域状态）+ onOpenProject 回调（AppRoot 注入：
 // 新增/激活顶级项目标签 + tabs/activeTopTab/lastProjectTab 写回 + open_projects
 // 按需持久化，见 app.cpp）；未打开前，依赖项目的页面（请求集合等）一律不可用。
@@ -91,7 +92,7 @@ namespace {
         .With(popup.Anchor(), huxerui::Opacity(visible ? 1.0F : 0.0F));
 }
 
-// 项目卡片：固定尺寸，Flow 内自动换行；点击打开 = 领域选择 + onOpenProject
+// 项目卡片：固定 200×96dp，在 VirtualGrid 中按可用宽度自适应列数；点击打开 = 领域选择 + onOpenProject
 //（AppRoot：顶级项目标签新增/激活）。已打开的项目用主色名称标记（is_open 用
 // activeProject 领域打开态判定，原 ID/「点击打开」提示已按设计要求移除）。
 // 右上角 ⋮ 悬停显形，与卡片内任意位置右键共用同一份菜单（打开 / 重命名 / 删除）；
@@ -323,8 +324,7 @@ namespace {
         if (org.id == currentOrg) orgName = org.name;
     }
 
-    // ---- 左岛：组织列表 + 新建组织（标题行加号按钮弹窗创建）----
-    // 列表内部滚动（外岛固定尺寸，参照请求页左岛）。
+    // 组织栏：标题固定，列表独立滚动；常规宽度 240dp。
     huxerui::View orgIsland =
         huxerui::Column {
             huxerui::Row {
@@ -385,7 +385,7 @@ namespace {
                   huxerui::Frame{.min_width = 200.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
-    // ---- 右岛：当前组织的项目卡片 + 新建项目 ----
+    // 项目栏：标题固定，项目网格独立滚动。
     huxerui::View projectIsland =
         huxerui::Column {
             huxerui::Row {
@@ -451,9 +451,9 @@ namespace {
                   huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
-    // Compact 把定宽组织岛移到顶部并限高，项目岛取得剩余高度；Medium/Expanded
-    // 维持左右双岛。不用外层 ScrollView（其内容宽度无界会让 Row 收缩漂移）。
-    // 线条风：两岛无边框，岛间只留一条 kLineWidth 分隔线（请求页同款单线）。
+    // Compact 把组织栏移到顶部并追加高度上限；原有 240dp 宽度与 240dp 最小高度
+    // 声明仍保留，合并结果需核验，不能声称已完成满宽窄屏布局。桌面最小宽 800dp，通常不进入 Compact。
+    // 两栏各自滚动，不套整页 ScrollView；父布局只绘制一条 kLineWidth 分隔线。
     const huxerui::Color dividerLine = ResolveIslandTheme(theme).line_subtle;
     if (compact) {
         return huxerui::Column {

@@ -155,18 +155,18 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   「版本检索规则」检索新版能力（多窗口/跨窗口拖放等，见
   `docs/plans/project-tab-tear-off-window.md`）；不更新则无需检索。
 - **线条风布局与分隔线（2026-10 起强制，弃岛屿风）**：分区面板（原"岛"）
-  无常态边框、与海面同底色（`islands.base`）、直角——`IslandSurface` 与各
+  无常态边框、统一工作面底色（`islands.base`，深色与窗口画布分层）、直角——`IslandSurface` 与各
   页面本地面板统一；面板边界由 `kLineWidth = 0.5F` 逻辑尺寸的分隔线表达，
   **相邻面板之间只画一条线**：
   - 顶级内容区（主页、项目工作区、全局设置，含项目子窗口）统一由
     `src/ui/app.cpp::pages::PageCard` 包一张主卡片：外侧留小边距，卡片使用专属中性色
-    （深色 `#303030`、浅色 `#f6f8fa`）、小圆角和一圈描边（深色白色、浅色 `line_default`）。各页面根节点不得再画自己的
+    （深色 `#303030`、浅色 `#f6f8fa`）、小圆角和一圈 1dp 描边（深色白色、浅色 `line_default`）。各页面根节点不得再画自己的
     上/下/左/右周边线或额外外框；页面内部面板仍无常态边框，分区交给单条分隔线。
   - 静态分隔 = 通栏 `kLineWidth` 线：空 `Row{}`/`Column{}` +
     `Frame{.width/.height = kLineWidth}` + `Background(line_subtle)`，靠外层
     `CrossAlign(Stretch)` 拉满。HuxerUI 使用逻辑尺寸，物理像素宽度随窗口缩放映射；
-  - 可调宽高分隔 = `ResizeHandle`（request_page.cpp）：它**本身就是那条线**——
-    平时 `kLineWidth`，悬停/拖动只切换为 `line_focus`，不改变粗细；
+  - 可调宽高分隔 = `ResizeHandle`（request_page.cpp）：它**本身就是分隔**——
+    占 6dp 命中热区，中央可见线为 `kLineWidth`，悬停/拖动只切换为 `line_focus`，不改变粗细；
   - **禁止**「面板自带四边 `Border` + 相邻间隙」的组合：两面板相邻处会叠成
     双竖线（请求页/首页/压测页先后实证）。`Border` 不支持单边，去重只能靠
     面板弃边框、线交给布局层。

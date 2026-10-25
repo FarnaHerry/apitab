@@ -1,5 +1,6 @@
 // loadtest_page.cpp — k6 压测：参数输入 + 启动/停止 + 实时输出流 + 汇总。
 // 压测记录的归档查看在历史记录页左栏「压测记录」分类。
+// 根布局保持左用例树 250dp + 右配置区；Compact 调整内边距，参数 Flow 按可用宽度换行。
 #include <huxerui/huxerui.h>
 #include <huxerui/codeeditor.h>
 
@@ -431,7 +432,7 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
             // 线条风：左右两岛之间只留一条 kLineWidth 分隔线（岛无边框）。
             huxerui::Row{}.With(huxerui::Frame{.width = kLineWidth},
                                 huxerui::Background(islands.line_subtle)),
-            // 右：主区岛——内容岛内滚动。页面标题与 k6 引擎状态不再重复展示
+            // 右配置区整体滚动，输出区另有定高虚拟列表。页面标题与 k6 引擎状态不再重复展示
             //（k6 就绪与否由底部全局状态栏表达）。
             huxerui::Column {
                 huxerui::ScrollView{huxerui::Column {
