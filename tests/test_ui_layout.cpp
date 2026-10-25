@@ -3,6 +3,7 @@
 #include "ui/app.h"
 #include "ui/split_pane.h"
 #include "ui/page_card.h"
+#include "ui/settings_theme.h"
 
 #include <cmath>
 #include <cstdio>
@@ -227,6 +228,48 @@ void PageCardInteraction() {
     const auto consumed = ui.Find(UiSelector::Key("scroll")).ScrollBy({0.0F, 100.0F});
     Expect(Near(consumed.y, 100.0F), "foreground outline preserves wheel scrolling");
 }
+
+void OpenSettingsTheme() {
+    for (const bool dark : {false, true}) {
+        auto theme = dark ? MaterialDarkThemeSpec() : MaterialLightThemeSpec();
+        root = [theme] {
+            auto open = UseState(false);
+            return MaterialTheme(theme, Scope([open]() -> View {
+                if (!open.Get())
+                    return View{Button("Open settings").OnClick([open] { open = true; })};
+                return Scope([open] {
+                    const auto& current = UseTheme();
+                    auto transition = UseSceneTransition();
+                    auto text = UseState(TextEditingValue{"initial"});
+                    return SettingsPageTheme(
+                        Column {
+                          Text("Settings mounted"),
+                          TextField(text).Variant(TextFieldVariant::Outlined)
+                              .OnChanged([text](const TextEditingValue& value) { text = value; }).Key("settings-input"),
+                          Button("Close settings").OnClick([open] { open = false; }),
+                        }.With(Grow(1.0F), Background(current.colors.surface),
+                               CrossAlign(CrossAxisAlignment::Stretch), transition.Anchor()),
+                        current, UseEnvironment<TextFieldStyle>(), UseEnvironment<SelectStyle>(),
+                        UseEnvironment<SegmentedButtonStyle>());
+                });
+            }));
+        };
+        const Application app{LayoutTestRoot};
+        UiTest ui(app, {.viewport = {1180.0F, 760.0F}});
+        ui.Pump();
+        ui.Find(UiSelector::Text("Open settings")).Tap();
+        Expect(ui.Find(UiSelector::Text("Settings mounted")).Exists(), "settings theme mounts after clicking open");
+        auto input = ui.Find(UiSelector::Key("settings-input"));
+        input.Tap();
+        input.ReplaceText("settings remain usable");
+        Expect(input.One().value == "settings remain usable", "settings input remains functional inside local theme");
+        ui.Find(UiSelector::Text("Close settings")).Tap();
+        ui.SetWindowMetrics({.viewport = {800.0F, 600.0F}});
+        ui.Pump();
+        ui.Find(UiSelector::Text("Open settings")).Tap();
+        Expect(ui.Find(UiSelector::Text("Settings mounted")).Exists(), "settings theme reopens at narrow viewport");
+    }
+}
 } // namespace
 
 int main() {
@@ -237,6 +280,7 @@ int main() {
     PageCardOutline();
     PageCardFooter();
     PageCardInteraction();
+    OpenSettingsTheme();
     if (failures == 0) std::puts("UI layout checks passed");
     return failures == 0 ? 0 : 1;
 }

@@ -126,6 +126,10 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   `platform/<platform>/main.cpp`，根 composable 在 `src/ui/app.cpp`。
 - 主题从 MaterialTheme/MaterialDarkTheme 等内置主题定制；受控值以应用状态为
   权威；动态兄弟用稳定 Key。
+- **Theme 是环境节点，不能附加 View 行为**：不要写 `Theme(...).With(Grow(...))`；
+  Grow、Frame、Background、事件和过渡锚点应放在内部内容容器上。此类错误编译能通过，
+  挂载时会抛 `HuxerUI Environment node cannot declare view behavior`；修改主题边界后
+  必须覆盖实际挂载与交互回归（设置页见 `tests/test_ui_layout.cpp::OpenSettingsTheme`）。
 - 框架资源：resources.bin 拷到 `<exe>.resources/huxerui/`（POST_BUILD 完成）。
 - **WebView（响应 HTML 预览）**：`third_party/lib-webview`（FarnaHerry/Lib-WebView
   fork）经 `huxerui_use_library` 接入；`InstallWebView` 注册在

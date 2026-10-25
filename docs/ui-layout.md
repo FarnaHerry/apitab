@@ -66,6 +66,10 @@ MinimalThemed
 样式：输入框、下拉触发器和分类选择器统一使用 `surface_container`；选中项与下拉弹层
 使用 `surface_container_highest`，正文及次级文字继续取 `on_surface/on_surface_variant`。
 分类 hover 使用 `surface_container`，头像编辑徽标也随主题取色，深浅主题不再混用固定灰白色。
+局部样式由 `settings_theme.h::SettingsPageTheme` 封装。Theme 是纯环境节点，不能附加
+Grow、Frame、背景或过渡锚点；这些修饰必须放在内部页面容器上，否则挂载时会抛出
+`HuxerUI Environment node cannot declare view behavior`。回归测试通过点击打开设置主题，
+验证深浅模式的挂载、输入、关闭及窄窗重开。
 
 HTTP 调试页右侧按以下层级布局：
 

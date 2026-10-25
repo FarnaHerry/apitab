@@ -32,6 +32,7 @@
 
 #include "ui.h"
 #include "task_bridge.h"
+#include "settings_theme.h"
 
 import apitab.config;
 import apitab.preferences;
@@ -621,27 +622,16 @@ constexpr AboutDependency kAboutDependencies[] = {
                          huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
     }
 
-    // 局部继承当前完整组件样式，只统一设置页的表面角色，不重建 Material 默认值。
-    huxerui::ThemeDefinition settingsStyles;
-    huxerui::TextFieldStyle fields = huxerui::UseEnvironment<huxerui::TextFieldStyle>();
-    fields.outlined.background = theme.colors.surface_container;
-    settingsStyles.Set(fields);
-    huxerui::SelectStyle selects = huxerui::UseEnvironment<huxerui::SelectStyle>();
-    selects.background = theme.colors.surface_container;
-    selects.popup_background = theme.colors.surface_container_highest;
-    settingsStyles.Set(selects);
-    huxerui::SegmentedButtonStyle segments = huxerui::UseEnvironment<huxerui::SegmentedButtonStyle>();
-    segments.background = theme.colors.surface_container;
-    segments.selected_background = theme.colors.surface_container_highest;
-    settingsStyles.Set(segments);
-    return huxerui::Theme {
-      settingsStyles,
+    return SettingsPageTheme(
       std::move(page).With(
           huxerui::Background(islands.base),
           huxerui::Grow(1.0F),
           // 过渡锚点：圆形揭示以整个统一工作面为画布。
           transition.Anchor()),
-    }.With(huxerui::Grow(1.0F));
+      theme,
+      huxerui::UseEnvironment<huxerui::TextFieldStyle>(),
+      huxerui::UseEnvironment<huxerui::SelectStyle>(),
+      huxerui::UseEnvironment<huxerui::SegmentedButtonStyle>());
 }
 
 } // namespace apitab::ui
