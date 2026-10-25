@@ -14,11 +14,12 @@ Compact，900dp 起常规分栏，1200dp 起 Expanded。
 MinimalThemed
 └─ 根 Column（CrossAlign Stretch）
    ├─ WindowTitleBar：Logo / 主页 / 项目与设置标签 / 操作区 / 系统窗口按钮
-   ├─ 主 Row（Grow + CrossAlign Stretch）
-   │  ├─ SideShell：仅项目工作区显示
-   │  └─ IndexedPages：主页 / 各项目工作区 / 已打开的全局设置
-   │     └─ 每个顶级页面各自包一层 PageCard：外边距、外轮廓与裁剪
-   └─ 0.5dp 通栏线 + 22dp 状态栏：仅项目工作区显示
+   └─ 主 Row（Grow + CrossAlign Stretch）
+      ├─ SideShell：仅项目工作区显示
+      └─ IndexedPages：主页 / 各项目工作区 / 已打开的全局设置
+         └─ 每个顶级页面各自包一层 PageCard：外边距、外轮廓与裁剪
+            ├─ 页面内容（Grow）
+            └─ 0.5dp 内部分隔线 + 28dp 状态栏：仅项目卡片显示
 ```
 
 子窗口直接显示单个项目的 `PageCard`，不再套顶级 `IndexedPages`。项目工作区内部的
@@ -30,7 +31,7 @@ MinimalThemed
 | 层级 | 当前契约 |
 |---|---|
 | 窗口画布 | 深色为 `#000000`；标题栏、项目侧栏直接使用画布 |
-| PageCard | 外边距 8dp，小圆角和 1dp 外框；为描边留出 1dp 内缩，内容按同心内圆角裁剪；底色深色 `#303030`、浅色 `#f6f8fa` |
+| PageCard | 外边距 8dp，圆角取 shapes.large（当前 10dp），1dp 外框；为描边留出 1dp 内缩，内容按 9dp 同心内圆角裁剪；底色深色 `#303030`、浅色 `#f6f8fa` |
 | 页面工作面 | `islands.base`：深色 `#121212`、浅色 `#ffffff`；普通分区无边框、直角，相邻区域只画一条 0.5dp 线 |
 
 页面工作面会覆盖其下方的卡片底色；卡片底色不等于所有内部分区的底色。普通
@@ -40,6 +41,10 @@ MinimalThemed
 外框由 `page_card.h::PageCardSurface` 统一实现。`Border` 只绘制、不自动给内容留白，
 因此卡片必须为描边显式内缩，并对内容使用半径减去线宽的内圆角裁剪；否则铺满卡片的
 不透明页面会遮住外框。不要仅靠增加线宽或提高亮度解决遮挡。
+
+项目状态栏作为卡片 footer 与工作区一起裁剪，上方只有一条 `line_default` 分隔线。
+它与工作面同底色、高 28dp，左右留白 12dp、上下 2dp；卡片保留底部 8dp 外边距，
+状态栏不再跨过导航侧栏或贴着窗口底边。主窗口与项目子窗口使用同一布局，主页与全局设置不显示状态栏。
 
 标题栏期望高度为 24dp，不是所有子项及最终标题栏都强制为 24dp：主窗口头像为 28dp，
 系统窗口按钮也可能提高高度下限。根 Column 不设置分区间距，页面外边距由 PageCard 提供。

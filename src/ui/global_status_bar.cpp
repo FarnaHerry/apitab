@@ -1,4 +1,4 @@
-// global_status_bar.cpp — 底部全局状态条（P1-C2 自 app.cpp 纯搬移）：
+// global_status_bar.cpp — 项目大卡片内的底部状态条：
 //   TruncateSummary / CookieRow / CookieRowsFromStore / StatusActionText /
 //   RequestProxyDialogContent / GlobalCookieDialogContent / GlobalStatusBar。
 //   右缘两个文字热区（应用代理 / 项目 Cookie）点击开弹窗；弹窗层捕获调用处环境
@@ -272,7 +272,7 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
 // 弹窗必须从这里 Show 才带正确主题（同 CloseGuard 的根因与做法）。
 } // namespace
 
-[[huxerui::composable]] huxerui::View GlobalStatusBar(float statusTopPad) {
+[[huxerui::composable]] huxerui::View GlobalStatusBar() {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto dialog = huxerui::UseDialog();
     // 重组触发器：代理/Cookie 弹窗落库后 bump，本作用域重读 sessionPreference，
@@ -340,13 +340,10 @@ huxerui::View StatusActionImage(const huxerui::ImageResource& icon, std::string 
                          }));
     return huxerui::Row(std::move(items))
         .With(huxerui::Spacing(compact ? theme.spacing.small : theme.spacing.medium),
-              // 左右留白与侧栏/页面边距对齐（spacing.medium）；顶部补偿 padding 补回
-              // 根 Column 收窄的间隙：主行↔状态条保持 gap 不变。
-              huxerui::Padding(huxerui::EdgeInsets{.top = statusTopPad,
-                                                   .right = theme.spacing.medium,
-                                                   .bottom = 0.0F,
-                                                   .left = theme.spacing.medium}),
-              huxerui::Frame{.height = 22.0F},
+              // 与页面工作面同底色，卡片负责分隔线及底部圆角裁剪。
+              huxerui::Background(ResolveIslandTheme(theme).base),
+              huxerui::Padding(huxerui::EdgeInsets::Symmetric(theme.spacing.medium, 2.0F)),
+              huxerui::Frame{.height = 28.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center));
 }
 

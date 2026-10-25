@@ -54,9 +54,17 @@ enum PageIndex : std::size_t {
     kProjectSettings = 3,
 };
 
-[[huxerui::composable]] huxerui::View PageCard(huxerui::View content) {
+[[huxerui::composable]] huxerui::View PageCard(huxerui::View content, bool withProjectStatus = false) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
+    if (withProjectStatus) {
+        huxerui::View footer = huxerui::Column {
+          huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
+                              huxerui::Background(islands.line_default)),
+          GlobalStatusBar(),
+        }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+        return PageCardSurface(content, theme, islands.line_default, footer);
+    }
     return PageCardSurface(content, theme, islands.line_default);
 }
 
@@ -914,11 +922,9 @@ void TrayWindowController::ShowWindow() {
     // 配色（整窗背景、标题栏底、间距）必须直接按 dark 选 spec；子组件在 provider
     // 之下，它们的 UseTheme() 是正常的。
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
-    // 窗口骨架同样读取主题线条令牌；比页面装饰分隔使用的 subtle 档更重。
-    const huxerui::Color shellLine = ResolveIslandTheme(rootSpec).line_default;
     // Compact（<900dp）收窄侧栏与标题栏水平留白，覆盖 800dp 最小桌面窗口。
     // 根 Column 不设 Spacing，页面外边距由 PageCard 的 8dp Padding 提供。
-    // gap 用于标题栏内部间距；状态栏仅在项目工作区显示，目前 statusTopPad 为 0。
+    // gap 仅用于标题栏内部间距；项目状态栏由各项目 PageCard 在内部承载。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const float gap = rootSpec.spacing.extra_small;
     const float titleBarHorizontalPadding =
@@ -926,7 +932,6 @@ void TrayWindowController::ShowWindow() {
     const float sideShellWidth =
         compact ? kCompactSideShellWidth : kRegularSideShellWidth;
     const float titleBarLogoWidth = sideShellWidth - 2.0F * titleBarHorizontalPadding;
-    const float statusTopPad = gap - rootSpec.spacing.extra_small;
 
     // 托盘：把当前窗口交给应用级控制器——托盘激活处理器（InstallSystemTray
     // 注册）经它激活主窗口。句柄在根挂载时写入、卸载时清除。
@@ -991,7 +996,7 @@ void TrayWindowController::ShowWindow() {
     for (std::int64_t id : tabs.Get()) {
         const std::size_t idx = indexed.size();
         projIdx[id] = idx;
-        indexed.push_back(pages::PageCard(pages::ProjectPages(navPage, activeProject))
+        indexed.push_back(pages::PageCard(pages::ProjectPages(navPage, activeProject), true)
                               .Key(id)
                               .With(huxerui::Grow(1.0F)));
     }
@@ -1012,7 +1017,6 @@ void TrayWindowController::ShowWindow() {
     } else if (activeTab.kind == TopTabKind::GlobalSettings) {
         selected = indexed.size() > 0 ? indexed.size() - 1 : 0;
     }
-    const bool showProjectStatusBar = showSideShell;
     if (selected >= indexed.size()) selected = 0;
     huxerui::View page = huxerui::IndexedPages(std::move(indexed), selected);
     // IndexedPages keep-alive（P1-B0.5）：切主题只是根重组、IndexedPages 保持所有页面挂载
@@ -1087,7 +1091,7 @@ void TrayWindowController::ShowWindow() {
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                       titleBarHorizontalPadding, 0.0F)),
                   huxerui::Spacing(gap)),
-        // 主行：图标侧栏 + 页面卡片；Grow 取得标题栏和可选状态栏之外的剩余高度。
+        // 主行：图标侧栏 + 页面卡片（项目状态栏位于卡片内）；Grow 取得标题栏之外的剩余高度。
         // 仅 Project(id) 顶级标签显示侧栏；主页/设置整宽覆盖。
         // 占位必须用空 Row——Spacer 自带 Grow(1)，会分走一半宽度。
         huxerui::Row {
@@ -1100,21 +1104,10 @@ void TrayWindowController::ShowWindow() {
         }
             .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Grow(1.0F)),
-        // 仅项目工作区显示底栏：代理与项目 Cookie 都是项目范围的配置。Home 和
-        // GlobalSettings 返回零尺寸占位，主行 Grow 自动填满释放的全部高度。
-        // 线条风：底栏上缘通栏细线。
-        showProjectStatusBar
-            ? huxerui::View{huxerui::Column{
-                  huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
-                                      huxerui::Background(shellLine)),
-                  GlobalStatusBar(statusTopPad),
-              }
-                  .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
-            : huxerui::View{huxerui::Row{}},
     }
                                .With(
-                                     // 线条风：根列分区紧贴（间隙归零），卡片边界与状态栏
-                                     // 上缘线表达结构；窗口整体背景：主题背景色刷满根节点。
+                                     // 根列分区紧贴，卡片统一承载页面、状态栏和内部结构线。
+                                     // 窗口整体背景由主题背景色刷满。
                                      huxerui::Background(rootSpec.colors.background),
                                      // 交叉轴必须 Stretch：否则主行（侧栏+页面区）按内容
                                      // 收缩成内容宽，页面里所有 Grow 失去上界、岛屿无法
@@ -1238,7 +1231,6 @@ void TrayWindowController::ShowWindow() {
     const bool dark =
         themeModeValue == 1 || (themeModeValue == 0 && cfg::systemPrefersDark());
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
-    const huxerui::Color shellLine = ResolveIslandTheme(rootSpec).line_default;
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const float gap = rootSpec.spacing.extra_small;
     const float titleBarHorizontalPadding =
@@ -1246,10 +1238,9 @@ void TrayWindowController::ShowWindow() {
     const float sideShellWidth =
         compact ? kCompactSideShellWidth : kRegularSideShellWidth;
     const float titleBarLogoWidth = sideShellWidth - 2.0F * titleBarHorizontalPadding;
-    const float statusTopPad = gap - rootSpec.spacing.extra_small;
 
     // 内容区：子窗口只有项目工作区（无主页/设置页），navPage 表达内部页。
-    huxerui::View page = pages::PageCard(pages::ProjectPages(navPage, activeProject))
+    huxerui::View page = pages::PageCard(pages::ProjectPages(navPage, activeProject), true)
                              .Key(projectId)
                              .With(huxerui::Grow(1.0F));
 
@@ -1285,10 +1276,6 @@ void TrayWindowController::ShowWindow() {
         }
             .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Grow(1.0F)),
-        // 线条风：底栏上缘通栏细线。
-        huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
-                            huxerui::Background(shellLine)),
-        huxerui::View{GlobalStatusBar(statusTopPad)},
     }
                                .With(huxerui::Background(rootSpec.colors.background),
                                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));

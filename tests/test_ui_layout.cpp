@@ -163,6 +163,34 @@ void DesktopBreakpoints() {
     ui.Pump();
     Expect(ui.Find(UiSelector::Text("regular")).Exists(), "900dp restores regular layout");
 }
+
+void PageCardFooter() {
+    for (const bool dark : {false, true}) {
+        auto theme = dark ? MaterialDarkThemeSpec() : MaterialLightThemeSpec();
+        theme.spacing.small = 8.0F;
+        theme.shapes.large = 10.0F;
+        root = [theme] {
+            return PageCardSurface(
+                Column{}.With(Grow(1.0F)).Key("workspace"), theme, Color::Black(),
+                Column {
+                  Row{}.With(Frame{.height = 0.5F}),
+                  Row{}.With(Frame{.height = 28.0F}).Key("status"),
+                }.With(CrossAlign(CrossAxisAlignment::Stretch)));
+        };
+        const Application app{LayoutTestRoot};
+        UiTest ui(app, {.viewport = {800.0F, 600.0F}});
+        ui.Pump();
+        const auto workspace = ui.Find(UiSelector::Key("workspace")).One();
+        const auto status = ui.Find(UiSelector::Key("status")).One();
+        Expect(Near(status.bounds.x, 9.0F) && Near(status.size.width, 782.0F),
+               "status bar shares the card content width and leaves side outlines uncovered");
+        Expect(Near(status.bounds.y + status.size.height, 591.0F),
+               "status bar sits above the card bottom outline and outer margin");
+        Expect(Near(status.bounds.y - workspace.bounds.y - workspace.size.height, 0.5F),
+               "one internal separator divides workspace from status bar");
+        Expect(Near(status.size.height, 28.0F), "status bar keeps its compact height");
+    }
+}
 } // namespace
 
 int main() {
@@ -171,6 +199,7 @@ int main() {
     UnboundedScroll();
     DesktopBreakpoints();
     PageCardOutline();
+    PageCardFooter();
     if (failures == 0) std::puts("UI layout checks passed");
     return failures == 0 ? 0 : 1;
 }
