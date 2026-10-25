@@ -120,9 +120,9 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     return 2;
 }
 
-// 岛屿分割拖条：平时完全隐形（海面贯通，只留 8pt 热区与 resize 光标），
-// 悬停或拖动时同宽切换为主题焦点色（VS Code 式）；拖动期间即使指针
-// 移出热区也保持高亮，Ended/Canceled 才熄灭。
+// 可调分隔：6pt 是命中热区，工作面底色填满热区以免露出 PageCard 底色；
+// 中间仅绘制 kLineWidth 细线，悬停/拖动时只切换线色、不改变粗细。
+// 拖动期间即使指针移出热区也保持高亮，Ended/Canceled 才熄灭。
 [[huxerui::composable]] huxerui::View ResizeHandle(huxerui::Axis axis, huxerui::State<float> value,
                                                    huxerui::State<float> origin, float minimum,
                                                    float maximum, bool reverse = false) {
@@ -138,16 +138,19 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
         zone.height = 6.0F;
     else
         zone.width = 6.0F;
-    // Stack 才是 6pt 拖拽热区；Divider 固定为 kLineWidth，不随 hover 改粗。
-    // Stack 沿分割线方向 Stretch、短轴 Center，故线严格落在热区中心。
-    // 线条风：拖条平时使用主题 subtle 档（区域间只此一条线），悬停/拖动时
-    // 同宽切换为主题焦点线。
     const IslandTheme lines = ResolveIslandTheme(theme);
+    const huxerui::Color lineColor = lit ? lines.line_focus : lines.line_subtle;
+    huxerui::View line = horizontal
+                             ? huxerui::View{huxerui::Row{}
+                                                 .With(huxerui::Frame{.height = kLineWidth},
+                                                       huxerui::Background(lineColor))}
+                             : huxerui::View{huxerui::Column{}
+                                                 .With(huxerui::Frame{.width = kLineWidth},
+                                                       huxerui::Background(lineColor))};
     return huxerui::Stack {
-               huxerui::Divider(axis).With(
-                   huxerui::Background(lit ? lines.line_focus : lines.line_subtle)),
+               line,
            }
-        .With(zone,
+        .With(zone, huxerui::Background(lines.base),
               horizontal ? huxerui::Align(huxerui::HorizontalAlignment::Stretch,
                                           huxerui::VerticalAlignment::Center)
                          : huxerui::Align(huxerui::HorizontalAlignment::Center,
