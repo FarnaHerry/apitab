@@ -627,6 +627,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     return IslandSurface(std::move(framedWorkspace), IslandLevel::Base)
         .With(huxerui::Border(huxerui::Color::Transparent(), kLineWidth),
               huxerui::Padding(0.0F),
+              huxerui::CornerRadius(theme.shapes.small),
+              huxerui::ClipChildren(),
               huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
