@@ -1,5 +1,5 @@
-// request_page.cpp — 请求工作区：左岛 = 当前项目的请求列表；右侧 HTTP 拆上下两岛
-// （上 = 标签条 + 编辑器，下 = 响应区；WS/TCP 自包含整页仍单岛；gRPC 单岛占位）。
+// request_page.cpp — 请求工作区：请求树与右侧编辑/响应内容统一收进一个主卡片，
+// 内部以拖拽分隔线组织区域；HTTP 可拆编辑区/响应区，WS/TCP 与 gRPC 使用整页内容。
 // 发送走 store 持有的 curl 引擎（api::ApiEngine 抽象：send 纯入队，UI 协程
 // PollWhile 轮询 takeResponse 取回结果，回 UI 线程写 State 并落历史）；
 // 保存落到当前项目集合并刷新左岛列表。
@@ -581,28 +581,35 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                               huxerui::Grow(1.0F));
     }
 
+    huxerui::View workspace;
     if (compact) {
         // Compact：上 = 请求列表（限高 220、宽度撑满），下 = 编辑区（撑满剩余）。
-        return huxerui::Column {
-                   RequestListIsland(openDrafts, activeTab, listVersion, true, 260.0F),
-                   // 线条风：上下两岛之间 kLineWidth 通栏分隔线。
-                   huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
-                                       huxerui::Background(islandTheme.line_subtle)),
-                   rightArea,
-               }
-            .With(huxerui::Grow(1.0F),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+        workspace = huxerui::Column {
+                        RequestListIsland(openDrafts, activeTab, listVersion, true, 260.0F),
+                        // 上下内容间只保留一条通栏细线。
+                        huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
+                                            huxerui::Background(islandTheme.line_subtle)),
+                        rightArea,
+                    }
+                        .With(huxerui::Grow(1.0F),
+                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    } else {
+        // 拖条本身就是请求树与编辑区之间的分隔线，宽度保持单线。
+        workspace = huxerui::Row {
+                       RequestListIsland(openDrafts, activeTab, listVersion, false,
+                                         leftIslandWidth.Get()),
+                       ResizeHandle(huxerui::Axis::Vertical, leftIslandWidth, leftIslandOrigin,
+                                    180.0F, 420.0F),
+                       rightArea,
+                   }
+                       .With(huxerui::Spacing(0.0F),
+                             huxerui::Grow(1.0F),
+                             huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
-    // 拖条占据两岛之间的标准 8pt 间隙，因此指示条与热区都以卡片间隔为中心；
-    // 左/右岛的实际尺寸和总占用宽度与原先「spacing + 叠加拖条」方案一致。
-    return huxerui::Row {
-               RequestListIsland(openDrafts, activeTab, listVersion, false,
-                                 leftIslandWidth.Get()),
-               ResizeHandle(huxerui::Axis::Vertical, leftIslandWidth, leftIslandOrigin,
-                            180.0F, 420.0F),
-               rightArea,
-           }
-        .With(huxerui::Spacing(0.0F),
+    // 整个请求页只包一张主卡片；内部结构继续由 0.5pt 分隔线表达。显式设置外框，
+    // 让页面外轮廓不依赖 IslandSurface 的全局样式实现细节。
+    return IslandSurface(std::move(workspace), IslandLevel::Base)
+        .With(huxerui::Border(islandTheme.line_subtle, kLineWidth),
               huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
