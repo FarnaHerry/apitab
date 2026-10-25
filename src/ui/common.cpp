@@ -115,14 +115,13 @@ static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::The
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View surface = content;
-    surface = std::move(surface).With(huxerui::Background(IslandColor(islands, theme, level)),
-                                      huxerui::CornerRadius(islands.island_radius));
     const huxerui::Color line = level == IslandLevel::Danger
                                     ? islands.line_danger
                                     : level == IslandLevel::Overlay ? islands.line_default
                                                                     : islands.line_subtle;
-    // 普通分区与海面同底色、无边框；分区线只由父布局绘制一次。浮层和危险面
-    // 需要独立边界时保留语义描边。
+    surface = std::move(surface).With(huxerui::Background(IslandColor(islands, theme, level)),
+                                      huxerui::CornerRadius(islands.island_radius));
+    // 页面普通内容区由父布局的单条分隔线划分；只有浮层与危险面需要自身边界。
     if (level == IslandLevel::Overlay || level == IslandLevel::Danger)
         surface = std::move(surface).With(huxerui::Border(line, kLineWidth));
     return std::move(surface).With(huxerui::Padding(islands.island_padding),
