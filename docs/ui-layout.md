@@ -61,6 +61,12 @@ MinimalThemed
 | 全局设置 | 左分类栏，右设置内容 | 左栏固定，右侧 ScrollView；分类栏宽按 192dp 基准扣除外侧缩进 |
 | 项目设置 | 元信息、公共请求头、保存按钮单列排列 | 公共请求头表 VirtualList，不再外套整页 ScrollView |
 
+全局设置的根工作面显式使用 `islands.base`，覆盖分类栏、表单、关于页和四周留白，
+避免透明区域露出 PageCard 的底色。页面局部继承现有 TextField/Select/SegmentedButton
+样式：输入框、下拉触发器和分类选择器统一使用 `surface_container`；选中项与下拉弹层
+使用 `surface_container_highest`，正文及次级文字继续取 `on_surface/on_surface_variant`。
+分类 hover 使用 `surface_container`，头像编辑徽标也随主题取色，深浅主题不再混用固定灰白色。
+
 HTTP 调试页右侧按以下层级布局：
 
 ```text

@@ -101,8 +101,8 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
 
 // 分类行：整行可点、统一选中/hover/focus 表面（参考 home_page OrgRow 的手工
 // 悬停配方：显式压掉 OnClick 自动追加的默认 Indication，由手工底色承担整行
-// 反馈，避免双层叠加）。取色经 ResolveIslandTheme：选中 = islands.active 一档、
-// hover = islands.raised、常态透明；圆角取嵌套档 islands.nested_radius。
+// 反馈，避免双层叠加）。选中用 surface_container_highest，hover 用 surface_container，
+// 常态透明；圆角取嵌套档 islands.nested_radius。
 //
 // 键盘能力（已查证 SDK 源码）：Row 挂 OnClick 只成为"可激活"节点
 // （runtime.cpp IsActivatable = 有 activation 或 ViewEvents::Click 绑定），
@@ -128,8 +128,8 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
         .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(12.0F, 9.0F)),
               huxerui::CornerRadius(islands.nested_radius),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
-              selected ? huxerui::Background(islands.active)
-                       : hovered.Get() ? huxerui::Background(islands.raised)
+              selected ? huxerui::Background(theme.colors.surface_container_highest)
+                       : hovered.Get() ? huxerui::Background(theme.colors.surface_container)
                                        : huxerui::Background(huxerui::Color::Transparent()),
               huxerui::Indication{}, // 有意压制默认 Indication（见上），整行反馈 = 手工底色
               huxerui::Focusable(true),
@@ -157,7 +157,7 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
             SettingsCategoryRow(kCategoryNames[i], current == i, i, category).Key(i));
     }
     const IslandTheme islands = ResolveIslandTheme(theme);
-    // 外层工作区负责统一边框与内边距。这里扣除它左侧的细线和内边距，
+    // 外层工作区负责统一底色与内边距。这里扣除它左侧的细线和内边距，
     // 让分类栏仍占原来的 192pt 视觉宽度；栏内再留出水平间距，避免高亮底贴线。
     const float outerLeadingInset = islands.island_padding + kLineWidth;
     return huxerui::Column(std::move(rows))
@@ -393,12 +393,14 @@ constexpr AboutDependency kAboutDependencies[] = {
     auto avatarHovered = huxerui::UseState(false);
     auto avatarFocused = huxerui::UseState(false);
     // 徽标独立叠在右下角，不随头像圆形裁剪，也不遮暗整张图片。
-    huxerui::View avatarHoverLayer = huxerui::Canvas([](huxerui::PaintContext& paint,
-                                                        huxerui::Size size) {
+    const huxerui::Color avatarBadgeBackground = theme.colors.surface_container_highest;
+    const huxerui::Color avatarBadgeForeground = theme.colors.on_surface;
+    huxerui::View avatarHoverLayer = huxerui::Canvas(
+        [avatarBadgeBackground, avatarBadgeForeground](huxerui::PaintContext& paint, huxerui::Size size) {
         const float scale = size.width / 64.0F;
         paint.PushTransform({scale, 0.0F, 0.0F, scale});
-        paint.DrawCircle({51.0F, 51.0F}, 12.0F, huxerui::Color::Rgb(37, 39, 40));
-        const huxerui::Color icon = huxerui::Color::Rgb(255, 255, 255, 0.96F);
+        paint.DrawCircle({51.0F, 51.0F}, 12.0F, avatarBadgeBackground);
+        const huxerui::Color icon = avatarBadgeForeground;
         huxerui::Path pencil;
         pencil.MoveTo({44.5F, 53.5F}).LineTo({53.5F, 44.5F})
             .QuadraticTo({54.5F, 43.5F}, {55.5F, 44.5F})
@@ -412,8 +414,10 @@ constexpr AboutDependency kAboutDependencies[] = {
     }).With(huxerui::Frame{.width = kProfileAvatarSize, .height = kProfileAvatarSize},
             huxerui::Opacity(canPick && (avatarHovered.Get() || avatarFocused.Get()) ? 1.0F : 0.0F));
     huxerui::Indication avatarIndication;
+    huxerui::Color avatarPress = theme.colors.on_surface;
+    avatarPress.alpha = 0.08F;
     avatarIndication.press = huxerui::IndicationLayer{
-        .fill = huxerui::Color::Rgb(0, 0, 0, 0.08F), .corner_radii = huxerui::CornerRadii{kProfileAvatarSize * 0.5F}};
+        .fill = avatarPress, .corner_radii = huxerui::CornerRadii{kProfileAvatarSize * 0.5F}};
     huxerui::View avatarView = huxerui::Stack {
       ProfileAvatar(avatarImage.Get(), kProfileAvatarSize, theme, (canPick && avatarHovered.Get()) || avatarDropHovered.Get()),
       avatarHoverLayer,
@@ -576,14 +580,11 @@ constexpr AboutDependency kAboutDependencies[] = {
         break;
     }
 
-    // 页面根：标准 = 单工作区（左分类栏 + 单条竖线 + 右内容）；Compact = 单内容岛 + 岛内
-    // 顶部分类选择器。section 只在当前分支消费一次（两分支各自组岛）。
+    // 页面根统一铺工作面底色；常规左分类栏 + 右内容，Compact 使用顶部分类选择器。
     huxerui::View page;
     if (huxerui::UseViewportClass() == huxerui::ViewportClass::Compact) {
-        // Compact：左栏折叠为内容岛内的顶部分类选择器（官方 SegmentedButton，
-        // 横向三分段条，不引入 Drawer）。放在岛内而非海面上——控件不漂浮在
-        // 海面（岛屿设计语言）；选择器在滚动内容上方、不随之滚走。与标准
-        // 形态共用同一个分类 State，键盘 Left/Right/Home/End 由组件自带。
+        // 分类选择器固定在滚动内容上方，与常规布局共用分类 State。
+        // 键盘 Left/Right/Home/End 由官方 SegmentedButton 提供。
         page = huxerui::Column {
                    huxerui::SegmentedButton(
                        std::vector<huxerui::StringVariant>{
@@ -620,10 +621,27 @@ constexpr AboutDependency kAboutDependencies[] = {
                          huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
     }
 
-    return std::move(page).With(
-        huxerui::Grow(1.0F),
-        // 过渡锚点：圆形揭示以本页面区域为画布（键盘激活时的原点兜底）。
-        transition.Anchor());
+    // 局部继承当前完整组件样式，只统一设置页的表面角色，不重建 Material 默认值。
+    huxerui::ThemeDefinition settingsStyles;
+    huxerui::TextFieldStyle fields = huxerui::UseEnvironment<huxerui::TextFieldStyle>();
+    fields.outlined.background = theme.colors.surface_container;
+    settingsStyles.Set(fields);
+    huxerui::SelectStyle selects = huxerui::UseEnvironment<huxerui::SelectStyle>();
+    selects.background = theme.colors.surface_container;
+    selects.popup_background = theme.colors.surface_container_highest;
+    settingsStyles.Set(selects);
+    huxerui::SegmentedButtonStyle segments = huxerui::UseEnvironment<huxerui::SegmentedButtonStyle>();
+    segments.background = theme.colors.surface_container;
+    segments.selected_background = theme.colors.surface_container_highest;
+    settingsStyles.Set(segments);
+    return huxerui::Theme {
+      settingsStyles,
+      std::move(page).With(
+          huxerui::Background(islands.base),
+          huxerui::Grow(1.0F),
+          // 过渡锚点：圆形揭示以整个统一工作面为画布。
+          transition.Anchor()),
+    }.With(huxerui::Grow(1.0F));
 }
 
 } // namespace apitab::ui
