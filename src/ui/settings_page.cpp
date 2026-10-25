@@ -157,12 +157,13 @@ huxerui::View WithAvatarDropHandlers(huxerui::View avatar,
             SettingsCategoryRow(kCategoryNames[i], current == i, i, category).Key(i));
     }
     const IslandTheme islands = ResolveIslandTheme(theme);
-    // 外层工作区负责统一边框与内边距。这里扣除它左侧的 1px 边框和内边距，
-    // 让分类栏仍占原来的 192pt 视觉宽度，并避免与中间分隔线留缝。
-    const float outerLeadingInset = islands.island_padding + 1.0F;
+    // 外层工作区负责统一边框与内边距。这里扣除它左侧的细线和内边距，
+    // 让分类栏仍占原来的 192pt 视觉宽度；栏内再留出水平间距，避免高亮底贴线。
+    const float outerLeadingInset = islands.island_padding + kLineWidth;
     return huxerui::Column(std::move(rows))
         .With(huxerui::Spacing(theme.spacing.extra_small),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+              huxerui::Padding(huxerui::EdgeInsets::Symmetric(theme.spacing.small, 0.0F)),
               huxerui::Frame{.width = kCategoryRailWidth - outerLeadingInset,
                              .min_width = 176.0F - outerLeadingInset,
                              .min_height = 220.0F});
@@ -595,6 +596,8 @@ constexpr AboutDependency kAboutDependencies[] = {
                              }
                                  .With(huxerui::Spacing(theme.spacing.medium),
                                        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                                       huxerui::Padding(
+                                           huxerui::EdgeInsets::Symmetric(theme.spacing.small, 0.0F)),
                                        huxerui::Grow(1.0F)),
                              IslandLevel::Base)
                  .With(huxerui::Grow(1.0F),
@@ -607,7 +610,8 @@ constexpr AboutDependency kAboutDependencies[] = {
             huxerui::ScrollView{section}
                 .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
         }
-            .With(huxerui::Spacing(theme.spacing.medium),
+            .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(theme.spacing.small, 0.0F)),
+                  huxerui::Spacing(theme.spacing.medium),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                   huxerui::Grow(1.0F),
                   huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
