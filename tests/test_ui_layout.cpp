@@ -143,10 +143,10 @@ void PageCardOutline() {
         UiTest ui(app, {.viewport = {800.0F, 600.0F}});
         ui.Pump();
         const auto content = ui.Find(UiSelector::Key("painted-page")).One();
-        Expect(Near(content.bounds.x, 9.0F) && Near(content.bounds.y, 9.0F),
+        Expect(Near(content.bounds.x, 8.5F) && Near(content.bounds.y, 8.5F),
                "opaque page leaves top and left card outline uncovered");
-        Expect(Near(content.bounds.x + content.size.width, 791.0F) &&
-                   Near(content.bounds.y + content.size.height, 591.0F),
+        Expect(Near(content.bounds.x + content.size.width, 791.5F) &&
+                   Near(content.bounds.y + content.size.height, 591.5F),
                "opaque page leaves right and bottom card outline uncovered");
     }
 }
@@ -182,9 +182,9 @@ void PageCardFooter() {
         ui.Pump();
         const auto workspace = ui.Find(UiSelector::Key("workspace")).One();
         const auto status = ui.Find(UiSelector::Key("status")).One();
-        Expect(Near(status.bounds.x, 9.0F) && Near(status.size.width, 782.0F),
+        Expect(Near(status.bounds.x, 8.5F) && Near(status.size.width, 783.0F),
                "status bar shares the card content width and leaves side outlines uncovered");
-        Expect(Near(status.bounds.y + status.size.height, 591.0F),
+        Expect(Near(status.bounds.y + status.size.height, 591.5F),
                "status bar sits above the card bottom outline and outer margin");
         Expect(Near(status.bounds.y - workspace.bounds.y - workspace.size.height, 0.5F),
                "one internal separator divides workspace from status bar");

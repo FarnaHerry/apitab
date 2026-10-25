@@ -14,7 +14,7 @@ inline huxerui::View PageCardSurface(huxerui::View content, const huxerui::Theme
                                     std::optional<huxerui::View> footer = std::nullopt) {
     constexpr huxerui::Color kDarkPageCardColor = huxerui::Color::Rgb(48, 48, 48);  // #303030
     constexpr huxerui::Color kLightPageCardColor = huxerui::Color::Rgb(246, 248, 250);  // #f6f8fa
-    constexpr float kPageCardBorderWidth = 1.0F;
+    constexpr float kPageCardBorderWidth = 0.5F;
     const float cardRadius = theme.shapes.large;
     const bool isDarkTheme = theme.colors.background.red < 0.5F;
     const huxerui::Color cardColor = isDarkTheme ? kDarkPageCardColor : kLightPageCardColor;
@@ -44,7 +44,7 @@ inline huxerui::View PageCardSurface(huxerui::View content, const huxerui::Theme
         huxerui::Background(cardColor),
         huxerui::CornerRadius(cardRadius),
         huxerui::ClipChildren(),
-        // 外轮廓比内部 0.5dp 分隔线略重，避免缩放后难以辨认。
+        // 外轮廓收细至 0.5dp，内容内缩与圆角裁剪同步跟随线宽。
         huxerui::Border(cardBorderColor, kPageCardBorderWidth));
     // 卡片与侧栏及窗口边缘留出小间距，内部页面继续用细线表达分区。
     return huxerui::Column {

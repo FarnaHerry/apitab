@@ -160,7 +160,7 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   **相邻面板之间只画一条线**：
   - 顶级内容区（主页、项目工作区、全局设置，含项目子窗口）统一由
     `src/ui/app.cpp::pages::PageCard` 包一张主卡片：外侧留小边距，卡片使用专属中性色
-    （深色 `#303030`、浅色 `#f6f8fa`）、`shapes.large` 圆角（当前 10dp）和一圈 1dp 描边
+    （深色 `#303030`、浅色 `#f6f8fa`）、`shapes.large` 圆角（当前 10dp）和一圈 0.5dp 描边
     （深色白色、浅色 `line_default`）。各页面根节点不得再画自己的
     上/下/左/右周边线或额外外框；页面内部面板仍无常态边框，分区交给单条分隔线。
     卡片实现位于 `src/ui/page_card.h::PageCardSurface`：`Border` 不自动内缩内容，必须

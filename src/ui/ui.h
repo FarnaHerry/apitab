@@ -22,7 +22,7 @@
 
 namespace apitab::ui {
 
-// 内部分隔与普通控件边界的统一线宽；PageCard 外轮廓单独使用 1dp。
+// 内部分隔、普通控件边界与 PageCard 外轮廓均使用 0.5dp 细线。
 // HuxerUI 使用逻辑尺寸，最终物理像素宽度随窗口缩放系数映射。
 inline constexpr float kLineWidth = 0.5F;
 // 焦点环与活动指示线保留强调档，和结构线分开表达交互状态。
