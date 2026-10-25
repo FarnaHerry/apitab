@@ -58,13 +58,13 @@ enum PageIndex : std::size_t {
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View cardContent = content;
     huxerui::View card = std::move(cardContent).With(
-        huxerui::Background(islands.base),
+        huxerui::Background(islands.raised),
         huxerui::Border(islands.line_subtle, kLineWidth),
         huxerui::CornerRadius(theme.shapes.small),
         huxerui::ClipChildren(),
         huxerui::Grow(1.0F),
         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    // 页面与应用骨架线之间留一圈外边距，所有顶级内容共用同一张卡片外框。
+    // 卡片用浅一档的中性底色与窗口画布区分；页面与骨架线之间留边距。
     return huxerui::Column{std::move(card)}
         .With(huxerui::Padding(theme.spacing.small),
               huxerui::Grow(1.0F),

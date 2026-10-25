@@ -160,7 +160,7 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   **相邻面板之间只画一条线**：
   - 顶级内容区（主页、项目工作区、全局设置，含项目子窗口）统一由
     `src/ui/app.cpp::pages::PageCard` 包一张主卡片：外侧留小边距，卡片使用
-    `islands.base`、小圆角和一圈 `line_subtle` 细线。各页面根节点不得再画自己的
+    `islands.raised` 中性底色、小圆角和一圈 `line_subtle` 细线。各页面根节点不得再画自己的
     上/下/左/右周边线或额外外框；页面内部面板仍无常态边框，分区交给单条分隔线。
   - 静态分隔 = 通栏 `kLineWidth` 线：空 `Row{}`/`Column{}` +
     `Frame{.width/.height = kLineWidth}` + `Background(line_subtle)`，靠外层
