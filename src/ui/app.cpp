@@ -26,6 +26,7 @@
 
 #include "ui.h"
 #include "app.h"
+#include "page_card.h"
 #include "control_server.h"
 #include "lightweight.h"
 #include "window_manager.h"
@@ -56,27 +57,7 @@ enum PageIndex : std::size_t {
 [[huxerui::composable]] huxerui::View PageCard(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    constexpr huxerui::Color kDarkPageCardColor = huxerui::Color::Rgb(48, 48, 48);  // #303030
-    constexpr huxerui::Color kLightPageCardColor = huxerui::Color::Rgb(246, 248, 250);  // #f6f8fa
-    constexpr float kPageCardBorderWidth = 1.0F;
-    const bool isDarkTheme = theme.colors.background.red < 0.5F;
-    const huxerui::Color cardColor = isDarkTheme ? kDarkPageCardColor : kLightPageCardColor;
-    const huxerui::Color cardBorderColor =
-        isDarkTheme ? huxerui::Color::White() : islands.line_default;
-    huxerui::View card = huxerui::Column{content}.With(
-        huxerui::Grow(1.0F),
-        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-        huxerui::Background(cardColor),
-        huxerui::CornerRadius(theme.shapes.small),
-        huxerui::ClipChildren(),
-        // 外轮廓比内部 0.5dp 分隔线略重，避免缩放后难以辨认。
-        huxerui::Border(cardBorderColor, kPageCardBorderWidth));
-    // 独立 Column 承载卡片表面，确保 IndexedPages 等页面根视图填满后绘制底色和边框。
-    // 卡片与侧栏及窗口边缘留出小间距，内部页面继续用细线表达分区。
-    return huxerui::Column{std::move(card)}
-        .With(huxerui::Padding(theme.spacing.small),
-              huxerui::Grow(1.0F),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    return PageCardSurface(content, theme, islands.line_default);
 }
 
 [[huxerui::composable]] huxerui::View ProjectPages(

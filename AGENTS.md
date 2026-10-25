@@ -162,6 +162,8 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
     `src/ui/app.cpp::pages::PageCard` 包一张主卡片：外侧留小边距，卡片使用专属中性色
     （深色 `#303030`、浅色 `#f6f8fa`）、小圆角和一圈 1dp 描边（深色白色、浅色 `line_default`）。各页面根节点不得再画自己的
     上/下/左/右周边线或额外外框；页面内部面板仍无常态边框，分区交给单条分隔线。
+    卡片实现位于 `src/ui/page_card.h::PageCardSurface`：`Border` 不自动内缩内容，必须
+    预留一圈等于线宽的 Padding，并以“外圆角 − 线宽”的内圆角裁剪页面，防止工作面遮住外框。
   - 静态分隔 = 通栏 `kLineWidth` 线：空 `Row{}`/`Column{}` +
     `Frame{.width/.height = kLineWidth}` + `Background(line_subtle)`，靠外层
     `CrossAlign(Stretch)` 拉满。HuxerUI 使用逻辑尺寸，物理像素宽度随窗口缩放映射；

@@ -2,10 +2,12 @@
 
 #include "ui/app.h"
 #include "ui/split_pane.h"
+#include "ui/page_card.h"
 
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <initializer_list>
 #include <optional>
 #include <string>
 
@@ -127,6 +129,28 @@ void UnboundedScroll() {
     Expect(Near(response.bounds.y, 306.0F), "unbounded scroll places response after natural editor and handle");
 }
 
+void PageCardOutline() {
+    for (const bool dark : {false, true}) {
+        auto theme = dark ? MaterialDarkThemeSpec() : MaterialLightThemeSpec();
+        theme.spacing.small = 8.0F;
+        theme.shapes.small = 6.0F;
+        root = [theme] {
+            return PageCardSurface(
+                Column{}.With(Grow(1.0F), Background(Color::Rgb(18, 18, 18))).Key("painted-page"),
+                theme, Color::Black());
+        };
+        const Application app{LayoutTestRoot};
+        UiTest ui(app, {.viewport = {800.0F, 600.0F}});
+        ui.Pump();
+        const auto content = ui.Find(UiSelector::Key("painted-page")).One();
+        Expect(Near(content.bounds.x, 9.0F) && Near(content.bounds.y, 9.0F),
+               "opaque page leaves top and left card outline uncovered");
+        Expect(Near(content.bounds.x + content.size.width, 791.0F) &&
+                   Near(content.bounds.y + content.size.height, 591.0F),
+               "opaque page leaves right and bottom card outline uncovered");
+    }
+}
+
 void DesktopBreakpoints() {
     root = [] {
         return Text(UseViewportClass() == ViewportClass::Compact ? "compact" : "regular");
@@ -146,6 +170,7 @@ int main() {
     VerticalResize();
     UnboundedScroll();
     DesktopBreakpoints();
+    PageCardOutline();
     if (failures == 0) std::puts("UI layout checks passed");
     return failures == 0 ? 0 : 1;
 }
