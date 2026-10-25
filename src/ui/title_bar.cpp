@@ -370,9 +370,9 @@ struct ProjectTabDragPayload {
     const auto stripWindowManager = huxerui::UseService<WindowManager>();
     const bool childWindow = !stripIdentity.key.empty();
     auto mergePending = huxerui::UseState<std::int64_t>(0);
-    // 步进 = 标签宽 + 分隔竖线(1pt) + 两侧间距（竖线作为 Row 子节点占布局，
+    // 步进 = 标签宽 + 分隔竖线(kLineWidth) + 两侧间距（竖线作为 Row 子节点占布局，
     // 用 Opacity 显隐避免悬停时回流抖动）。
-    const float tabStride = kProjectTabWidth + 1.0F + 2.0F * theme.spacing.small;
+    const float tabStride = kProjectTabWidth + kLineWidth + 2.0F * theme.spacing.small;
     // 标签间分隔竖线：相邻标签激活/悬停/被拖时隐藏，始终占布局不回流；
     // 高度小于行高，上下留空隙不连通。
     auto tabDivider = [&](bool visible) {
@@ -535,7 +535,7 @@ struct ProjectTabDragPayload {
     // 大块空白仍会是 ScrollView/Client 命中，右侧也没有真正的拖动区。
     // 32 = 主页；其余按固定标签宽 + 分隔/间距的保守步进计算。
     const float naturalStripWidth =
-        32.0F + 2.0F * theme.spacing.small + 1.0F +
+        32.0F + 2.0F * theme.spacing.small + kLineWidth +
         static_cast<float>(entries.size()) * tabStride;
 
     return huxerui::Row {

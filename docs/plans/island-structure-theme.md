@@ -5,8 +5,8 @@
 公共声明整理进行中；下一批 P1-B1「菜单统一与项目上下文条」待启动；P2 待继续**。
 
 后续的 GitHub 中性线条色阶统一与页面区域迁移，单独记录于
-[`theme-line-color-convergence.md`](theme-line-color-convergence.md)；该计划收束颜色语义，
-沿用本文已有的相邻区域单线几何约定。
+[`theme-line-color-convergence.md`](theme-line-color-convergence.md)；该计划收束颜色语义、
+普通线宽与页面分区边界，沿用本文已有的相邻区域单线几何约定。
 
 已完成（2026-09-01）：
 

@@ -155,18 +155,21 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   「版本检索规则」检索新版能力（多窗口/跨窗口拖放等，见
   `docs/plans/project-tab-tear-off-window.md`）；不更新则无需检索。
 - **线条风布局与分隔线（2026-10 起强制，弃岛屿风）**：分区面板（原"岛"）
-  **无边框**、与海面同底色（`islands.base`）、直角——`IslandSurface` 与各
-  页面本地面板统一；面板边界由 1px 分隔线表达，**相邻面板之间只画一条线**：
-  - 静态分隔 = 通栏 1px 线：空 `Row{}`/`Column{}` + `Frame{.width/.height = 1.0F}`
-    + `Background(hairline)`，靠外层 `CrossAlign(Stretch)` 拉满；
+  无常态边框、与海面同底色（`islands.base`）、直角——`IslandSurface` 与各
+  页面本地面板统一；面板边界由 `kLineWidth = 0.5F` 逻辑尺寸的分隔线表达，
+  **相邻面板之间只画一条线**：
+  - 静态分隔 = 通栏 `kLineWidth` 线：空 `Row{}`/`Column{}` +
+    `Frame{.width/.height = kLineWidth}` + `Background(line_subtle)`，靠外层
+    `CrossAlign(Stretch)` 拉满。HuxerUI 使用逻辑尺寸，物理像素宽度随窗口缩放映射；
   - 可调宽高分隔 = `ResizeHandle`（request_page.cpp）：它**本身就是那条线**——
-    平时 1px hairline，悬停/拖动亮主题色（VS Code sash 式）；
+    平时 `kLineWidth`，悬停/拖动只切换为 `line_focus`，不改变粗细；
   - **禁止**「面板自带四边 `Border` + 相邻间隙」的组合：两面板相邻处会叠成
     双竖线（请求页/首页/压测页先后实证）。`Border` 不支持单边，去重只能靠
     面板弃边框、线交给布局层。
-  - 线强度分级：窗口骨架三条通栏线（标题栏下缘/侧栏右缘/状态栏上缘，主/子
-    窗口同款）用全强度 `outline`；页面级分隔用 hairline（outline 半透明档，
-    `ResolveIslandTheme().outline_hair`）。
+  - 线色分级：窗口骨架三条通栏线（标题栏下缘/侧栏右缘/状态栏上缘，主/子
+    窗口同款）用 `line_default`；页面级分隔用 `line_subtle`。焦点环与活动下划线
+    属于交互状态，使用 `kEmphasisLineWidth = 2.0F`；普通描边在所有状态下保持
+    `kLineWidth`，只切换语义颜色，不因聚焦而变粗。
   - 色阶只保留在"状态/控件/浮层"语言里：列表行 hover/选中（`islands.raised`
     /`islands.active`）、输入框与组合栏底、浮层（Overlay/Danger）、头像与裁剪
     等媒体画布。分区底色不做色阶差。

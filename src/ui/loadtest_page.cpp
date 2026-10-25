@@ -428,7 +428,7 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
                       huxerui::Background(islands.base),
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                       huxerui::Frame{.width = 250.0F}),
-            // 线条风：左右两岛之间只留一条 1px 分隔线（岛无边框）。
+            // 线条风：左右两岛之间只留一条 kLineWidth 分隔线（岛无边框）。
             huxerui::Row{}.With(huxerui::Frame{.width = kLineWidth},
                                 huxerui::Background(islands.line_subtle)),
             // 右：主区岛——内容岛内滚动。页面标题与 k6 引擎状态不再重复展示

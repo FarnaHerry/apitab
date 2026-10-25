@@ -256,11 +256,11 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
     // 固定在可滚区右侧。由 TabTrailingProbe 按度量回写。
     auto trailingPinned = huxerui::UseState(false);
     // 固定 chip 宽度：拖拽换位/边缘钳制需要已知步进，同 Chrome 固定宽标签。
-    // 步进 = chip 宽 + 分隔竖线(1pt) + 两侧间距（竖线作为 Row 子节点占布局，
+    // 步进 = chip 宽 + 分隔竖线(kLineWidth) + 两侧间距（竖线作为 Row 子节点占布局，
     // 用 Opacity 显隐避免悬停时回流抖动）。
     // 标签宽度：从 160 收到 140，同宽窗口能多放下的标签数（名称限宽同步收窄）。
     constexpr float kChipDragWidth = 140.0F;
-    const float chipStride = kChipDragWidth + 1.0F + 2.0F * theme.spacing.small;
+    const float chipStride = kChipDragWidth + kLineWidth + 2.0F * theme.spacing.small;
     // 标签间分隔竖线：始终占布局（Opacity 显隐），相邻标签激活/悬停/被拖时
     // 隐藏；高度小于行高，上下留空隙不连通。
     auto chipDivider = [&](bool visible) {
@@ -683,7 +683,7 @@ void CloseDraftByUid(huxerui::State<std::vector<RequestDraft>> drafts,
                   huxerui::Background(theme.colors.surface_container_highest),
                   huxerui::Border(envPickerFocused.Get() ? islands.line_focus
                                                          : islands.line_default,
-                                  1.0F),
+                                  kLineWidth),
                   huxerui::CornerRadius(islands.control_radius), huxerui::ClipChildren(),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
     }

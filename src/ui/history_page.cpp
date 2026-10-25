@@ -74,7 +74,7 @@ constexpr int kLoadRecordLimit = 50;
 // 故整列表决定不放动作区；各行尾部信息右对齐规则一致（URL 区 Grow 撑开把
 // 尾部信息推到行右缘），行间不跳动。URL 过长时在主内容区内自然换行/截断
 // （Grow 给出有界宽度 + ClipChildren 兜底），不会把尾部信息挤出可视区。
-// 行样式：与通用表格一致——**不做卡片**（无底色、无圆角），行与行之间用 1pt
+// 行样式：与通用表格一致——**不做卡片**（无底色、无圆角），行与行之间用 kLineWidth
 // 分隔线切分，行内容左右与页头对齐（列表本身已在岛内，再套一层卡片会重复分层）。
 [[huxerui::composable]] huxerui::View HistoryRow(const db::HistoryEntry& entry) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -397,7 +397,7 @@ constexpr int kLoadRecordLimit = 50;
         .With(huxerui::Padding(compact ? theme.spacing.small : theme.spacing.large),
               huxerui::Spacing(compact ? theme.spacing.small : theme.spacing.medium),
               huxerui::Background(islands.base),
-              huxerui::Border(islands.line_subtle, kLineWidth), huxerui::Grow(1.0F),
+              huxerui::Grow(1.0F),
               huxerui::Frame{.min_width = 320.0F, .min_height = 220.0F},
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }

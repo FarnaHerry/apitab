@@ -316,7 +316,7 @@ huxerui::View SplitActionButton(
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
 
-    // 分区切换条固定在滚动区外；上下各一条 1pt 分隔线把它与名称行/内容区分开。
+    // 分区切换条固定在滚动区外；上下各一条 kLineWidth 分隔线把它与名称行/内容区分开。
     // 选中态是标签式的底部下划线（FlatSelectStyle::Underline）。
     huxerui::View sectionTabs = huxerui::Column {
         huxerui::Divider(),

@@ -22,8 +22,10 @@
 
 namespace apitab::ui {
 
-// 统一静态线宽。HuxerUI 使用逻辑尺寸，最终物理像素宽度随窗口缩放系数映射。
+// 结构与控件边界的统一线宽。HuxerUI 使用逻辑尺寸，最终物理像素宽度随窗口缩放系数映射。
 inline constexpr float kLineWidth = 0.5F;
+// 焦点环与活动指示线保留强调档，和结构线分开表达交互状态。
+inline constexpr float kEmphasisLineWidth = 2.0F;
 
 // SlideCell / StartSlide：标签实时换位（拖过即交换）时邻居的让位滑动，
 // FLIP 简化版——数据重排后布局立即落到新槽位，给被挤动的标签加一个等于
@@ -388,7 +390,7 @@ huxerui::View TrailingActionGroup(std::vector<huxerui::View> actions);
 // 本组件不引入新菜单数据模型。enabled=false 时点击空转、外观降透明。
 huxerui::View OverflowButton(std::function<void()> onOpenMenu, bool enabled = true);
 // 扁平选择行的选中外观：
-// - Underline：选中项 = 主色文字 + 底部 2pt 下划线（未选中同高透明占位，无布局
+// - Underline：选中项 = 主色文字 + 底部 kEmphasisLineWidth 下划线（未选中同高透明占位，无布局
 //   跳动）——用于分区切换条这类"标签"语义。
 // - Framed：选中项 = 主色文字 + 整项 kLineWidth 主色圆角描边（未选中透明描边，几何不变）
 //   ——用于分区内部的二级选项，选中的是一个"按钮"而不是标签。
@@ -464,7 +466,7 @@ void ShowDangerConfirm(huxerui::DialogHandle dialog, std::string title, std::str
 // 自绘弹出菜单（UsePopup 承载）。作者口径：通用 MenuItem 不支持 per-item 配色/
 // hover 定制，需要就自己用 UsePopup 做菜单内容——本组件即该配方。条目语义对齐
 // MenuItem：label + 点击回调 + 可选选中态 + 危险模式 + children（级联子菜单）+
-// separator_before（本行上方画 1pt 分隔线，用于分组条目）；
+// separator_before（本行上方画 kLineWidth 分隔线，用于分组条目）；
 // 外观对齐环境 MenuStyle，
 // 条目悬停/按压复用 item_indication。**选中项不用对钩，填充比 hover 深一档的
 // 底色**（取 item_indication.press 填充色）。点击先 Dismiss 再回调（同系统菜单）。

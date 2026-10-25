@@ -131,7 +131,8 @@ huxerui::ThemeSpec MinimalDarkThemeSpec() {
     spec.colors.inverse_on_surface = huxerui::Color::Rgb(13, 17, 23);
     spec.colors.scrim = huxerui::Color::Rgb(1, 4, 9, 0.6F);           // canvas.inset #010409
     spec.colors.error = huxerui::Color::Rgb(248, 81, 73);             // danger #f85149
-    spec.interactions.focus_ring = huxerui::FocusRing{spec.colors.primary, 2.0F, 2.0F};
+    spec.interactions.focus_ring =
+        huxerui::FocusRing{spec.colors.primary, kEmphasisLineWidth, 2.0F};
     return spec;
 }
 
@@ -185,7 +186,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     spec.colors.inverse_on_surface = huxerui::Color::White();
     spec.colors.scrim = huxerui::Color::Rgb(31, 35, 40, 0.45F);
     spec.colors.error = huxerui::Color::Rgb(207, 34, 46);             // danger #cf222e
-    spec.interactions.focus_ring = huxerui::FocusRing{spec.colors.primary, 2.0F, 2.0F};
+    spec.interactions.focus_ring =
+        huxerui::FocusRing{spec.colors.primary, kEmphasisLineWidth, 2.0F};
     return spec;
 }
 
@@ -266,8 +268,8 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
                                           spec.colors.on_surface_variant};
     tabs.selected_label = spec.colors.on_surface;
     tabs.indicator = lines.line_focus;
-    tabs.indicator_height = 2.0F;
-    tabs.indicator_corner_radius = 1.0F;
+    tabs.indicator_height = kEmphasisLineWidth;
+    tabs.indicator_corner_radius = kEmphasisLineWidth * 0.5F;
     tabs.divider_color = huxerui::Color::Transparent();
     tabs.divider_height = 0.0F;
     tabs.item_padding = huxerui::EdgeInsets::Symmetric(12.0F, 6.0F);
@@ -312,7 +314,9 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     fields.caret = spec.colors.primary;
     fields.selection = withAlpha(spec.colors.primary, 0.24F);
     fields.border_width = kLineWidth;
+    fields.focused_border_width = kLineWidth;
     fields.validation_border_width = kLineWidth;
+    fields.focused_validation_border_width = kLineWidth;
     for (huxerui::TextFieldVariantStyle* variant : {&fields.standard, &fields.filled,
                                                     &fields.outlined}) {
         variant->background = spec.colors.surface_container_highest;
@@ -329,6 +333,23 @@ huxerui::ThemeSpec MinimalLightThemeSpec() {
     fields.outlined.background = spec.colors.surface;
     fields.padding = huxerui::EdgeInsets::Symmetric(10.0F, 7.0F);
     definition.Set(fields);
+
+    huxerui::CheckboxStyle checkboxes = huxerui::UseEnvironment<huxerui::CheckboxStyle>();
+    checkboxes.unchecked_border = huxerui::Border{lines.line_default, kLineWidth};
+    checkboxes.disabled_unchecked_border = huxerui::Border{lines.line_disabled, kLineWidth};
+    definition.Set(checkboxes);
+
+    huxerui::RadioButtonStyle radios = huxerui::UseEnvironment<huxerui::RadioButtonStyle>();
+    radios.unselected_color = lines.line_default;
+    radios.disabled_unselected_color = lines.line_disabled;
+    radios.border_width = kLineWidth;
+    definition.Set(radios);
+
+    huxerui::SwitchStyle switches = huxerui::UseEnvironment<huxerui::SwitchStyle>();
+    switches.unchecked_track_border = lines.line_default;
+    switches.disabled_unchecked_track_border = lines.line_disabled;
+    switches.track_border_width = kLineWidth;
+    definition.Set(switches);
 
     // 内置确认框（DialogHandle::Show(title, message, ...) 形态）跟随主题：DialogStyle
     // 是 Environment 值（presentation.h 有 Default()/==），经 ThemeDefinition::Set

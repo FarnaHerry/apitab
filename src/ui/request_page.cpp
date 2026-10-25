@@ -49,7 +49,7 @@ namespace apitab::ui {
               huxerui::CornerRadius(islands.large_control_radius),
               huxerui::Border(hovered.Get() ? islands.line_default
                                             : huxerui::Color::Transparent(),
-                              1.0F),
+                              kLineWidth),
               huxerui::ClipChildren(), huxerui::Padding(theme.spacing.medium),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center),
               huxerui::MainAlign(huxerui::MainAxisAlignment::Center),
@@ -121,7 +121,7 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
 }
 
 // 岛屿分割拖条：平时完全隐形（海面贯通，只留 8pt 热区与 resize 光标），
-// 悬停或拖动时亮起一条 2pt 主题色细条（VS Code 式）；拖动期间即使指针
+// 悬停或拖动时同宽切换为主题焦点色（VS Code 式）；拖动期间即使指针
 // 移出热区也保持高亮，Ended/Canceled 才熄灭。
 [[huxerui::composable]] huxerui::View ResizeHandle(huxerui::Axis axis, huxerui::State<float> value,
                                                    huxerui::State<float> origin, float minimum,
@@ -138,7 +138,7 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
         zone.height = 6.0F;
     else
         zone.width = 6.0F;
-    // Stack 才是 6pt 拖拽热区；Divider 只保留主题默认的 1pt 固有粗细。
+    // Stack 才是 6pt 拖拽热区；Divider 固定为 kLineWidth，不随 hover 改粗。
     // Stack 沿分割线方向 Stretch、短轴 Center，故线严格落在热区中心。
     // 线条风：拖条平时使用主题 subtle 档（区域间只此一条线），悬停/拖动时
     // 同宽切换为主题焦点线。
@@ -585,7 +585,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
         // Compact：上 = 请求列表（限高 220、宽度撑满），下 = 编辑区（撑满剩余）。
         return huxerui::Column {
                    RequestListIsland(openDrafts, activeTab, listVersion, true, 260.0F),
-                   // 线条风：上下两岛之间 1px 通栏分隔线。
+                   // 线条风：上下两岛之间 kLineWidth 通栏分隔线。
                    huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
                                        huxerui::Background(islandTheme.line_subtle)),
                    rightArea,

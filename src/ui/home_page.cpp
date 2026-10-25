@@ -225,7 +225,7 @@ namespace {
                                             : theme.colors.surface_container),
               huxerui::Border(hovered.Get() ? islands.line_default
                                             : huxerui::Color::Transparent(),
-                              1.0F),
+                              kLineWidth),
               huxerui::CornerRadius(theme.shapes.small),
               // 键盘/语义（P1-B0.4，§13.6 键盘要求）：卡片可聚焦 + Button 语义，
               // 键盘 Tab 后 Enter/Space 打开项目（模式同 settings_page 左分类行）。
@@ -453,7 +453,7 @@ namespace {
 
     // Compact 把定宽组织岛移到顶部并限高，项目岛取得剩余高度；Medium/Expanded
     // 维持左右双岛。不用外层 ScrollView（其内容宽度无界会让 Row 收缩漂移）。
-    // 线条风：两岛无边框，岛间只留一条 1px 分隔线（请求页同款单线）。
+    // 线条风：两岛无边框，岛间只留一条 kLineWidth 分隔线（请求页同款单线）。
     const huxerui::Color dividerLine = ResolveIslandTheme(theme).line_subtle;
     if (compact) {
         return huxerui::Column {

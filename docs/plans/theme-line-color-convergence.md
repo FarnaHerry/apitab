@@ -1,6 +1,6 @@
 # 计划：GitHub 中性线条体系统一与页面区域重构
 
-状态：**实现、Linux 双主题截图抽查与构建已完成（2026-10-24）；跨平台和缩放矩阵待实机补验**。
+状态：**实现及 Linux 双主题初次截图抽查、构建已完成（2026-10-24）；2026-10-25 完成全局线宽收尾并构建通过，收尾后截图、跨平台和缩放矩阵待实机补验**。
 
 ## 目标
 
@@ -28,13 +28,16 @@ apitab 采用 GitHub 风格的中性灰阶，以线条组织主内容；品牌�
 
 ## 统一视觉规则
 
-所有静态线条从当前深/浅主题的中性 outline 派生，不在页面或组件里混用次级文字色、品牌
+结构与普通控件描边统一为 `kLineWidth = 0.5F` HuxerUI 逻辑尺寸；最终物理像素宽度随
+窗口缩放映射。焦点环与活动指示线使用 `kEmphasisLineWidth = 2.0F`，只表达交互状态。
+头像裁剪框等媒体画布内容按自身对比度需要绘制，不作为面板结构线。所有静态线条从当前
+深/浅主题的中性 outline 派生，不在页面或组件里混用次级文字色、品牌
 色或独立灰值。只保留少量按职责区分的语义档位：
 
 | 角色 | 用途 | 规则 |
 |---|---|---|
 | `line_subtle` | 内容区之间的装饰分隔、表格行分隔、普通输入框边界 | `outline → on_surface_variant` 插值 30%；不承担交互状态表达 |
-| `line_default` | 窗口骨架、面板/选择器外框、悬停输入框边界 | 同一插值 60%；关键边界深浅主题均达到 3:1 |
+| `line_default` | 窗口骨架、输入/选择器等控件外框、悬停输入框边界 | 同一插值 60%；关键边界深浅主题均达到 3:1 |
 | `line_focus` | 键盘焦点、活动输入、明确的当前选择 | 主题 `primary` 青色；只表达状态，不作为常态结构线 |
 | `line_danger` | 删除等危险状态的显式反馈 | 主题 `error`；不能用于 HTTP 方法色或一般分隔 |
 | `line_disabled` | 禁用控件边界 | 保持 `line_subtle` 色相并使用 0.45 alpha |
@@ -48,9 +51,9 @@ apitab 采用 GitHub 风格的中性灰阶，以线条组织主内容；品牌�
 `ResolveIslandTheme` 集中从 `ThemeSpec` 计算，不逐页修饰。
 
 交互态约定：普通输入框默认边界用 `line_subtle`，hover 用 `line_default`，focus 使用
-`line_focus` / 焦点环；disabled 使用 `line_disabled`。窗口骨架、面板和选择器外框用
-`line_default`，静态内容分隔用 `line_subtle`。页面不自行从 `on_surface_variant` 混合
-出边框颜色。
+`line_focus` / 焦点环；disabled 使用 `line_disabled`。窗口骨架和控件外框用
+`line_default`，静态内容分隔用 `line_subtle`；普通页面分区不画外框，浮层/危险面保留
+对应语义线。页面不自行从 `on_surface_variant` 混合出边框颜色。
 
 ## 区域清单与改造顺序
 
@@ -151,7 +154,7 @@ separator、自绘 PopupMenu 和弹层边界。
 ### P3：全量清理与视觉回归
 
 1. 用仓库搜索核对 `theme.colors.outline`、`outline_hair`、`outline_soft`、局部 alpha、
-   `Border`、`Divider` 和 1px `Background`；每处留有明确的语义归属。
+   `Border`、`Divider` 和使用 `kLineWidth` 的背景分隔线；每处留有明确的语义归属。
 2. 删除过期的“outline 半透明档”等注释；更新 `docs/plans/island-structure-theme.md`
    的线条风交叉引用，不重写其历史实施记录。
 3. 在深色/浅色、100%/125%/150% 缩放、主/子窗口、Compact/标准视口下截屏对比；重点
@@ -189,6 +192,11 @@ separator、自绘 PopupMenu 和弹层边界。
 - Linux 当前窗口截图检查：深色主页与浅色请求入口均为 2360×1520；可见主骨架和页面分区线
   清晰，抽查区域未见叠加双线。Linux 的其他页面/焦点交互、125%/150% 缩放、子窗口以及
   Windows/macOS 尚未截图验证。
+- 全局结构线与普通控件边框统一为 `kLineWidth`（0.5 HuxerUI 逻辑尺寸）；输入框聚焦、
+  校验、复选框/单选框/开关不再继承框架的 2.0 宽边框。焦点环和活动下划线共用
+  `kEmphasisLineWidth`（2.0），保留状态可见度；标签布局步进按实际 `kLineWidth` 计算。
+- 页面分区取消常态外框，边界只由布局层的单条分隔线表达；测试用例记录以横向分隔线
+  分组，避免“卡片描边 + 间隙”形成重复轮廓。
 - `cmake --build build --target apitab --parallel $(nproc)`：通过（Linux GCC 16.2.1，源码版
   HuxerUI，WebView 可用）；`git diff --check` 通过。构建输出包含 HuxerUI coroutine
   lambda 的 `-Wsubobject-linkage` 警告，无编译或链接错误。

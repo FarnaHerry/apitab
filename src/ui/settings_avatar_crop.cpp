@@ -345,10 +345,11 @@ struct AvatarCropOutput {
                                                                             huxerui::Size) {
         const huxerui::Color outline = huxerui::Color::Rgb(255, 255, 255, 0.95F);
         paint.DrawBorder({cropLeft, cropTop, cropSide, cropSide}, outline,
-                         huxerui::StrokeStyle{.width = 1.0F});
+                         huxerui::StrokeStyle{.width = kLineWidth});
         paint.DrawArc({cropLeft + cropSide / 2.0F, cropTop + cropSide / 2.0F}, cropSide / 2.0F,
                        0.0F,
-                       6.2831853F, outline, huxerui::StrokeStyle{.width = 2.0F});
+                       6.2831853F, outline,
+                       huxerui::StrokeStyle{.width = kEmphasisLineWidth});
     });
     huxerui::View stage = huxerui::Stack {
         AvatarCropImage(source, kStageSize, imageScale, imageRotation, imageOffsetX, imageOffsetY),

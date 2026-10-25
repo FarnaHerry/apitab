@@ -380,6 +380,7 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
         // VirtualList；每个卡片只在进入视口及缓存区时创建控件子树。
         const auto buildCase = [=](std::size_t ci) -> huxerui::View {
             const TestCaseDraft c = caseItems.At(ci);
+            const IslandTheme islands = ResolveIslandTheme(theme);
             const bool evaluated = ci < res.Size() && !res[ci].checks.empty();
 
             // 行头：启用 + 用例名 + PASS/FAIL 汇总徽标 + 删除。
@@ -548,13 +549,18 @@ std::vector<CaseResult> EvaluateCases(const std::vector<TestCaseDraft>& cases,
                 }
             }
 
-            return huxerui::Column(std::move(card))
-                .With(huxerui::Padding(theme.spacing.medium),
-                      huxerui::Spacing(theme.spacing.small),
-                      // 线条风：用例卡片与分区同底色，主题 subtle 线框表达边界。
-                      huxerui::Background(ResolveIslandTheme(theme).base),
-                      huxerui::Border(ResolveIslandTheme(theme).line_subtle, kLineWidth),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
+            huxerui::View cardContent =
+                huxerui::Column(std::move(card))
+                    .With(huxerui::Padding(theme.spacing.medium),
+                          huxerui::Spacing(theme.spacing.small),
+                          // 用例内容与分区同底色，不给每条记录套描边卡片。
+                          huxerui::Background(islands.base),
+                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+            huxerui::View separator = huxerui::Row{}
+                .With(huxerui::Frame{.height = ci == 0 ? 0.0F : kLineWidth},
+                      huxerui::Background(islands.line_subtle));
+            return huxerui::Column{separator, std::move(cardContent)}
+                .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))
                 .Key(c.uid);
         };
         pageChildren.push_back(
