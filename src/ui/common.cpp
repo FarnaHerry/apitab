@@ -42,9 +42,12 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         mixLine(theme.colors.outline, theme.colors.on_surface_variant, 0.30F);
     const huxerui::Color lineDefault =
         mixLine(theme.colors.outline, theme.colors.on_surface_variant, 0.60F);
+    const bool darkCanvas = theme.colors.background.red < 0.5F;
+    const huxerui::Color pageSurface =
+        darkCanvas ? theme.colors.surface_container_low : theme.colors.surface;
     // 线条风（2026-10 从岛屿风整体重构）：内部结构由细线定义——普通 IslandSurface
-    // 的 Base/Raised/Active 统一使用海面 surface、无圆角（island_radius 与
-    // nested_radius 归零），普通分区不描边，内部结构由父布局单条细线划分；
+    // 的 Base/Raised/Active 统一使用页面工作面；深色工作面与纯黑窗口画布分层。无圆角
+    // （island_radius 与 nested_radius 归零），普通分区不描边，内部结构由父布局单条细线划分；
     // 窗口骨架仅状态栏上缘由 app.cpp 通栏绘制，侧栏与内容卡片之间留白。控件层保留克制
     // 圆角（4/6pt，IDE 风格），浮层（overlay）保留对比底色保证弹层可读性。
     // 历史值：岛屿风 page_gap/圆角 16/12 → 工具化密度 8/6 → 线条风 0/0。
@@ -65,9 +68,9 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .control_height = 32.0F,                   // 普通控件统一高度
         .rail_width = 48.0F,
         .ocean = theme.colors.background,
-        // 分区底（IslandColor 的 Base/Raised/Active 都走它）：与海面同色，结构由
-        // 父布局的单条分隔线表达。
-        .base = theme.colors.surface,
+        // 页面工作面（区别于窗口画布）：深色取 surface_container_low，浅色保留 surface。
+        // 分区间仍由父布局的单条分隔线表达。
+        .base = pageSurface,
         // 行状态底色（列表行 hover/选中，见 environment/loadtest/history/
         // settings 各页的手工行底）：保留色阶——选中比 hover 深一档、都比
         // 海面深，这是"状态"语言，不参与分区统一。
@@ -96,8 +99,8 @@ float ConcentricRadius(float outer_radius, float inset) {
 static huxerui::Color IslandColor(const IslandTheme& islands, const huxerui::ThemeSpec& theme,
                                   IslandLevel level) {
     switch (level) {
-    // 线条风：Base/Raised/Active 三档分区统一与海面同色（islands.base），
-    // 结构由线框承担；Overlay 保留对比底色保证浮层可读性。
+    // 线条风：Base/Raised/Active 三档分区统一使用 islands.base，结构由线框承担；
+    // Overlay 保留对比底色保证浮层可读性。
     case IslandLevel::Base: return islands.base;
     case IslandLevel::Raised: return islands.base;
     case IslandLevel::Active: return islands.base;
