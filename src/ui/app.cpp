@@ -1096,9 +1096,6 @@ void TrayWindowController::ShowWindow() {
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                       titleBarHorizontalPadding, 0.0F)),
                   huxerui::Spacing(gap)),
-        // 线条风：标题栏下缘通栏细线（Column CrossAlign Stretch 拉满宽）。
-        huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
-                            huxerui::Background(shellLine)),
         // 主行：图标侧栏（直接落海面）+ 内容区；Grow 吃满标题栏之外的剩余高度。
         // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
         // 仅 Project(id) 顶级标签显示侧栏；主页/设置整宽覆盖。
@@ -1133,7 +1130,7 @@ void TrayWindowController::ShowWindow() {
     }
                                .With(
                                      // 线条风：根列分区紧贴（间隙归零），结构由
-                                     // 上面三条骨架线承担；窗口整体背景：主题背景
+                                     // 侧栏与状态栏两条骨架线承担；窗口整体背景：主题背景
                                      // 色刷满根节点。
                                      huxerui::Background(rootSpec.colors.background),
                                      // 交叉轴必须 Stretch：否则主行（侧栏+页面区）按内容
@@ -1299,9 +1296,6 @@ void TrayWindowController::ShowWindow() {
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                       titleBarHorizontalPadding, 0.0F)),
                   huxerui::Spacing(gap)),
-        // 线条风：标题栏下缘通栏细线（与主窗口同款骨架）。
-        huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
-                            huxerui::Background(shellLine)),
         huxerui::Row {
             huxerui::View{SideShell(navPage)},
             // 线条风：侧栏与内容区之间通栏细竖线。

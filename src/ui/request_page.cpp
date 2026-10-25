@@ -606,10 +606,27 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                              huxerui::Grow(1.0F),
                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
-    // 整个请求页只包一张主卡片；内部结构继续由 0.5pt 分隔线表达。显式设置外框，
-    // 让页面外轮廓不依赖 IslandSurface 的全局样式实现细节。
-    return IslandSurface(std::move(workspace), IslandLevel::Base)
-        .With(huxerui::Border(islandTheme.line_subtle, kLineWidth),
+    // 整个请求页只包一张主卡片。卡片上沿打开，与标题栏区域直接衔接；左/右/下
+    // 三边保留细线，内部结构继续由分隔线和拖条表达。
+    huxerui::View framedWorkspace = huxerui::Column {
+        huxerui::Row {
+            huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth},
+                                   huxerui::Background(islandTheme.line_subtle)),
+            std::move(workspace),
+            huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth},
+                                   huxerui::Background(islandTheme.line_subtle)),
+        }
+            .With(huxerui::Spacing(0.0F),
+                  huxerui::Grow(1.0F),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+        huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
+                            huxerui::Background(islandTheme.line_subtle)),
+    }
+        .With(huxerui::Spacing(0.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    return IslandSurface(std::move(framedWorkspace), IslandLevel::Base)
+        .With(huxerui::Border(huxerui::Color::Transparent(), kLineWidth),
+              huxerui::Padding(0.0F),
               huxerui::Grow(1.0F),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 }
