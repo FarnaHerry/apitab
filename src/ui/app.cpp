@@ -58,14 +58,15 @@ enum PageIndex : std::size_t {
     const IslandTheme islands = ResolveIslandTheme(theme);
     constexpr huxerui::Color kDarkPageCardColor = huxerui::Color::Rgb(48, 54, 61);  // #30363d
     constexpr huxerui::Color kLightPageCardColor = huxerui::Color::Rgb(246, 248, 250);  // #f6f8fa
-    const huxerui::Color cardColor = theme.colors.background.red < 0.5F
-                                         ? kDarkPageCardColor
-                                         : kLightPageCardColor;
+    const bool isDarkTheme = theme.colors.background.red < 0.5F;
+    const huxerui::Color cardColor = isDarkTheme ? kDarkPageCardColor : kLightPageCardColor;
+    const huxerui::Color cardBorderColor =
+        isDarkTheme ? huxerui::Color::White() : islands.line_default;
     huxerui::View card = huxerui::Column{content}.With(
         huxerui::Grow(1.0F),
         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
         huxerui::Background(cardColor),
-        huxerui::Border(islands.line_default, kLineWidth),
+        huxerui::Border(cardBorderColor, kLineWidth),
         huxerui::CornerRadius(theme.shapes.small),
         huxerui::ClipChildren());
     // 独立 Column 承载卡片表面，确保 IndexedPages 等页面根视图填满后绘制底色和边框。
