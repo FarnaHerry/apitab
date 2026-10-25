@@ -935,8 +935,8 @@ void TrayWindowController::ShowWindow() {
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
     // 窗口骨架同样读取主题线条令牌；比页面装饰分隔使用的 subtle 档更重。
     const huxerui::Color shellLine = ResolveIslandTheme(rootSpec).line_default;
-    // Compact（默认 <600dp）收窄侧栏与标题栏水平留白；桌面最小宽 800dp，正常缩窗
-    // 不会进入该分支。根 Column 不设 Spacing，页面外边距由 PageCard 的 8dp Padding 提供。
+    // Compact（<900dp）收窄侧栏与标题栏水平留白，覆盖 800dp 最小桌面窗口。
+    // 根 Column 不设 Spacing，页面外边距由 PageCard 的 8dp Padding 提供。
     // gap 用于标题栏内部间距；状态栏仅在项目工作区显示，目前 statusTopPad 为 0。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const float gap = rootSpec.spacing.extra_small;

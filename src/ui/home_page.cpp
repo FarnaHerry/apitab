@@ -381,8 +381,8 @@ namespace {
             .With(huxerui::Padding(theme.spacing.medium),
                   huxerui::Spacing(theme.spacing.small),
                   huxerui::Background(ResolveIslandTheme(theme).base),
-                  huxerui::Frame{.width = 240.0F},
-                  huxerui::Frame{.min_width = 200.0F, .min_height = 240.0F},
+                  compact ? huxerui::Frame{.height = 160.0F}
+                          : huxerui::Frame{.width = 240.0F, .min_width = 200.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
     // 项目栏：标题固定，项目网格独立滚动。
@@ -451,13 +451,12 @@ namespace {
                   huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F},
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
 
-    // Compact 把组织栏移到顶部并追加高度上限；原有 240dp 宽度与 240dp 最小高度
-    // 声明仍保留，合并结果需核验，不能声称已完成满宽窄屏布局。桌面最小宽 800dp，通常不进入 Compact。
+    // Compact 把组织栏移到顶部，撑满宽度且固定高 160dp；不继承常规栏的定宽/最小高度。
     // 两栏各自滚动，不套整页 ScrollView；父布局只绘制一条 kLineWidth 分隔线。
     const huxerui::Color dividerLine = ResolveIslandTheme(theme).line_subtle;
     if (compact) {
         return huxerui::Column {
-                   std::move(orgIsland).With(huxerui::Frame{.max_height = 220.0F}),
+                   orgIsland,
                    huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
                                        huxerui::Background(dividerLine)),
                    projectIsland,

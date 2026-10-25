@@ -31,6 +31,8 @@ const huxerui::Application application{
             // 内容与按钮都按 WindowTitleBar 默认的交叉轴居中共享中心线。
             .title_bar_height = 24.0F,
         },
+        // 800dp 最小桌面窗口使用 Compact；900dp 起常规分栏，1200dp 起 Expanded。
+        .viewport_breakpoints = apitab::ui::kAppViewportBreakpoints,
         // 托盘激活处理器是应用级一次性注册（见 ui/app.h 的 InstallSystemTray），
         // 必须在安装钩子里注册，不能放进会重组的 AppRoot。
         // 控制面（`apitab --cli` 的服务端）同样在安装期起，活到应用关闭。

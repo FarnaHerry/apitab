@@ -7,6 +7,11 @@
 
 namespace apitab::ui {
 
+inline constexpr huxerui::ViewportBreakpoints kAppViewportBreakpoints{
+    .medium_width = 900.0F,
+    .expanded_width = 1200.0F,
+};
+
 // 托盘窗口控制器：应用级共享状态，托盘激活处理器（应用生命周期注册一次）经它
 // 定位目标窗口。WindowHandle 由根组合在挂载时写入、卸载时清除。
 // 读写都在应用线程（组合与托盘回调同线程），不需要加锁。

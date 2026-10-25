@@ -63,6 +63,12 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # 不影响 curl 等 C++17 子项目。
     set(CMAKE_CXX_MODULE_STD OFF)
 
+    # 在添加 HuxerUI 子项目之前确定测试开关，使其可按需提供公开 testing 库。
+    option(APITAB_BUILD_TESTS "Build apitab test executables" ON)
+    if (HUXERUI_PACKAGE)
+        set(APITAB_BUILD_TESTS OFF)
+    endif ()
+
     # 默认 Release（单配置生成器）；调试请显式 -DCMAKE_BUILD_TYPE=Debug
     # （huxerui CLI 会按 --profile 显式传入，不受此默认影响）
     if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -139,6 +145,9 @@ if (APITAB_HUXERUI_SOURCE_DIR)
     # 上游顶层作为子项目时 tests/examples/CLI 默认 OFF；static 切片必须关掉——
     # _huxerui_select_framework_target 偏好 static，留着会让 app 链到静态库。
     set(HUXERUI_BUILD_STATIC OFF)
+    if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
+        set(HUXERUI_BUILD_TESTING_LIBRARY ${APITAB_BUILD_TESTS})
+    endif ()
     # 上游预置宿主工具可能落后于源码（4a56daf 更新了 svg/path 编码却只发了
     # mac/windows/android 的预置 hrc，linux 仍是旧的 → 新运行时解旧资源包直接
     # 抛 "unknown path operation"）。本地若有用当前源码编出的工具
@@ -592,14 +601,15 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # ---- 测试 ---------------------------------------------------------------
     # 独立于 CTest 的 BUILD_TESTING 变量：curl 等子项目会把它改成 OFF，不能让它
     # 决定 apitab 自己的测试。
-    option(APITAB_BUILD_TESTS "Build apitab test executables" ON)
-    # 发布打包只需要应用和安装器目标；测试目标会增加无关的构建时间，且在
-    # Windows/MSVC 的 std 模块测试链接中可能受工具链兼容性影响。
-    if (HUXERUI_PACKAGE)
-        set(APITAB_BUILD_TESTS OFF)
-    endif ()
     if (APITAB_BUILD_TESTS)
         enable_testing()
+        if (APITAB_HUXERUI_FROM_SOURCE)
+            add_executable(test_ui_layout tests/test_ui_layout.cpp)
+            target_compile_features(test_ui_layout PRIVATE cxx_std_23)
+            target_include_directories(test_ui_layout PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+            target_link_libraries(test_ui_layout PRIVATE HuxerUI::testing)
+            add_test(NAME ui_layout COMMAND test_ui_layout)
+        endif ()
         # 只读编辑器复制链路复现（响应区 Ctrl+C/右键复制失效排查）：链框架静态库
         # 与 codeeditor，借用 HuxerUI 源码树内的测试支持头（TestPlatform/假剪贴板）。
         # 仅源码模式且 POSIX 可构建。

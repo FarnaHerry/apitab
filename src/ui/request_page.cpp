@@ -20,6 +20,7 @@
 #include "api_import.h"
 #include "app_resources.h"
 #include "window_manager.h"
+#include "split_pane.h"
 
 import apitab.api_engine;
 import apitab.db;
@@ -123,8 +124,9 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
 // 中间仅绘制 kLineWidth 细线，悬停/拖动时只切换线色、不改变粗细。
 // 拖动期间即使指针移出热区也保持高亮，Ended/Canceled 才熄灭。
 [[huxerui::composable]] huxerui::View ResizeHandle(huxerui::Axis axis, huxerui::State<float> value,
-                                                   huxerui::State<float> origin, float minimum,
-                                                   float maximum, bool reverse = false) {
+                                                   huxerui::State<float> origin,
+                                                   std::shared_ptr<SplitPaneMetrics> metrics,
+                                                   bool reverse = false) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     auto hovered = huxerui::UseState(false);
     auto dragging = huxerui::UseState(false);
@@ -134,9 +136,9 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     const bool lit = hovered.Get() || dragging.Get();
     huxerui::Frame zone;
     if (horizontal)
-        zone.height = 6.0F;
+        zone.height = SplitPane::kHandleExtent;
     else
-        zone.width = 6.0F;
+        zone.width = SplitPane::kHandleExtent;
     const IslandTheme lines = ResolveIslandTheme(theme);
     const huxerui::Color lineColor = lit ? lines.line_focus : lines.line_subtle;
     huxerui::View line = horizontal
@@ -160,14 +162,14 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
         .On<huxerui::ViewEvents::Hover>([hovered](const huxerui::HoverEvent& event) {
             hovered = event.type != huxerui::HoverEventType::Leave;
         })
-        .On<huxerui::DragEvents::Started>([origin, value, dragging](const huxerui::DragEvent&) {
-            origin = value.Get();
+        .On<huxerui::DragEvents::Started>([origin, metrics, dragging](const huxerui::DragEvent&) {
+            origin = metrics->extent;
             dragging = true;
         })
-        .On<huxerui::DragEvents::Changed>([origin, value, minimum, maximum, reverse, horizontal](const huxerui::DragEvent& event) {
+        .On<huxerui::DragEvents::Changed>([origin, value, metrics, reverse, horizontal](const huxerui::DragEvent& event) {
             const float delta = horizontal ? event.translation.y : event.translation.x;
             const float signedDelta = reverse ? -delta : delta;
-            value = std::clamp(origin.Get() + signedDelta, minimum, maximum);
+            value = std::clamp(origin.Get() + signedDelta, metrics->minimum, metrics->maximum);
         })
         .On<huxerui::DragEvents::Ended>([dragging](const huxerui::DragEvent&) { dragging = false; })
         .On<huxerui::DragEvents::Canceled>([dragging](const huxerui::DragEvent&) { dragging = false; });
@@ -182,8 +184,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     return std::move(content).With(huxerui::Background(islands.base),
                                    // 线条风：分区直角无边框——请求页各岛的边界由
                                    // 骨架线与拖条分隔线表达，避免相邻边框叠成双线。
-                                   // min_* 表达期望的工作区下限，仍服从父约束；它们不能保证
-                                   // 拖拽后的相邻分区一定留足空间，尺寸预算见 docs/ui-layout.md。
+                                   // SplitPane 先为对侧保留空间，再以有界约束测量本区域。
                                    minimum);
 }
 
@@ -447,6 +448,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     auto leftIslandOrigin = huxerui::UseState(260.0F);
     auto responseIslandHeight = huxerui::UseState(260.0F);
     auto responseIslandOrigin = huxerui::UseState(260.0F);
+    const auto leftMetrics = huxerui::UseState(std::make_shared<SplitPaneMetrics>());
+    const auto responseMetrics = huxerui::UseState(std::make_shared<SplitPaneMetrics>());
 
     // 多窗口快照采集：拆出/拖回的发起窗口侧经 WindowManager 采集本页草稿
     //（nav_page 由根组合另行提供）。挂载注册、卸载注销；本窗口退役时清理
@@ -460,8 +463,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
         },
         windowIdentity.ordinal);
 
-    // Compact（默认 <600dp）改上下堆叠，其他等级保持左右分栏。
-    // 桌面主/子窗口最小宽均为 800dp，正常缩窗不会进入该分支。
+    // 窄桌面仍保留左右工作区，收窄请求树；避免上下堆叠挤占 HTTP 编辑/响应区高度。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
 
     const std::vector<RequestDraft> snapshot = openDrafts.Get();
@@ -560,7 +562,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
             theme, huxerui::Frame{.min_width = 480.0F, .min_height = 300.0F}));
         if (debugging) {
             islands.push_back(ResizeHandle(huxerui::Axis::Horizontal, responseIslandHeight,
-                                           responseIslandOrigin, 140.0F, 640.0F, true));
+                                           responseIslandOrigin, responseMetrics.Get(), true));
             islands.push_back(RequestIslandSurface(
                 huxerui::Column {
                     ResponseArea(responseBody, responseHeaders, responseCookies,
@@ -569,42 +571,33 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                 }
                     .With(huxerui::Spacing(theme.spacing.small),
                           huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                          huxerui::Padding(islandTheme.island_padding),
-                          huxerui::Frame{.height = responseIslandHeight.Get()}),
+                          huxerui::Padding(islandTheme.island_padding)),
                 theme));
         }
-        rightArea = huxerui::Column(std::move(islands))
-                        // 分区间距由 ResizeHandle 独占，Column 不再追加 Spacing。
-                        .With(huxerui::Spacing(0.0F),
-                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                              huxerui::Grow(1.0F));
+        rightArea = debugging
+            ? huxerui::View{SplitPane(std::move(islands))
+                  .LayoutValue<SplitPaneOptions>(SplitPaneOptions{
+                      .axis = huxerui::Axis::Vertical,
+                      .extent = responseIslandHeight.Get(),
+                      .minimum = 140.0F,
+                      .maximum = 640.0F,
+                      .reserve = 300.0F,
+                      .trailing = true,
+                      .metrics = responseMetrics.Get(),
+                  }).With(huxerui::Grow(1.0F))}
+            : islands.front();
     }
 
-    huxerui::View workspace;
-    if (compact) {
-        // Compact：请求列表移到顶部（限高 220dp），编辑区取得剩余高度。
-        workspace = huxerui::Column {
-                        RequestListIsland(openDrafts, activeTab, listVersion, true, 260.0F),
-                        // 上下内容间只保留一条通栏细线。
-                        huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
-                                            huxerui::Background(islandTheme.line_subtle)),
-                        rightArea,
-                    }
-                        .With(huxerui::Grow(1.0F),
-                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    } else {
-        // 拖条占宽 6dp，只有中央 kLineWidth 可见；不再额外绘制竖分隔线。
-        workspace = huxerui::Row {
-                       RequestListIsland(openDrafts, activeTab, listVersion, false,
-                                         leftIslandWidth.Get()),
-                       ResizeHandle(huxerui::Axis::Vertical, leftIslandWidth, leftIslandOrigin,
-                                    180.0F, 420.0F),
-                       rightArea,
-                   }
-                       .With(huxerui::Spacing(0.0F),
-                             huxerui::Grow(1.0F),
-                             huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    }
+    // 在父约束内为编辑区保留 480dp，拖动与缩窗都不能把请求树扩到编辑区之上。
+    huxerui::View workspace = SplitPane {
+      RequestListIsland(openDrafts, activeTab, listVersion, false, leftIslandWidth.Get()),
+      ResizeHandle(huxerui::Axis::Vertical, leftIslandWidth, leftIslandOrigin, leftMetrics.Get()),
+      rightArea,
+    }.LayoutValue<SplitPaneOptions>(SplitPaneOptions{
+        .extent = leftIslandWidth.Get(),
+        .maximum = compact ? 220.0F : 420.0F,
+        .metrics = leftMetrics.Get(),
+    }).With(huxerui::Grow(1.0F));
     // 请求页本身只绘制内部工作区分隔线；四边外框由应用路由层的 PageCard 统一提供。
     return std::move(workspace);
 }

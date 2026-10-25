@@ -1,6 +1,6 @@
 // loadtest_page.cpp — k6 压测：参数输入 + 启动/停止 + 实时输出流 + 汇总。
 // 压测记录的归档查看在历史记录页左栏「压测记录」分类。
-// 根布局保持左用例树 250dp + 右配置区；Compact 调整内边距，参数 Flow 按可用宽度换行。
+// 常规布局为左用例树 250dp + 右配置区；Compact 把用例树移到顶部，参数 Flow 按可用宽度换行。
 #include <huxerui/huxerui.h>
 #include <huxerui/codeeditor.h>
 
@@ -371,8 +371,7 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
             .OnChanged([state](const huxerui::TextEditingValue& value) { state = value; });
     };
 
-    // 岛屿分区模型：岛内左右双栏 —— 左 = 接口用例树（请求 → 用例，层级深入
-    // 一层），右 = 主区（参数 + 脚本 + 输出）；内容在右栏内部滚动。
+    // 用例树（请求 → 用例）与配置区各自滚动；常规左右分栏，Compact 上下排列。
     const IslandTheme islands = ResolveIslandTheme(theme);
     huxerui::View caseTree;
     {
@@ -404,182 +403,183 @@ std::string StatusCountsText(const std::vector<std::pair<int, std::int64_t>>& co
                        .With(huxerui::ScrollBar(), huxerui::Grow(1.0F));
     }
 
-    // 双面板仿首页（HomePage）：左 = 用例树面板（定宽），右 = 主区岛
-    // （PageHeader + 参数/脚本/输出，岛内滚动）。无整页外底板——面板直接
-    // 落海面，主题 subtle 线框表达边界；PageHeader 像首页项目岛一样住在岛内。
-    return huxerui::Row {
-        // 左：用例树面板（请求 → 接口用例）。头部 = 标题 + 新建用例。
-            huxerui::Column {
-                huxerui::Row {
-                    huxerui::Text("接口用例", huxerui::TextRole::Title)
-                        .With(huxerui::Grow(1.0F)),
-                    AppIconButton(app::images::add, "为选中请求新建用例", createCase,
-                                  AppIconButtonShape::RoundedSquare, 28.0F),
-                }
-                    .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
-                httpRequests.empty()
-                    ? huxerui::View{huxerui::Text("当前项目还没有 HTTP 请求——先在请求页创建",
-                                                  huxerui::TextRole::Body)
-                                        .With(huxerui::Foreground(
-                                            theme.colors.on_surface_variant))}
-                    : huxerui::View{std::move(caseTree)},
-            }
-                .With(huxerui::Padding(theme.spacing.medium),
-                      huxerui::Spacing(theme.spacing.small),
-                      huxerui::Background(islands.base),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                      huxerui::Frame{.width = 250.0F}),
-            // 线条风：左右两岛之间只留一条 kLineWidth 分隔线（岛无边框）。
-            huxerui::Row{}.With(huxerui::Frame{.width = kLineWidth},
-                                huxerui::Background(islands.line_subtle)),
-            // 右配置区整体滚动，输出区另有定高虚拟列表。页面标题与 k6 引擎状态不再重复展示
-            //（k6 就绪与否由底部全局状态栏表达）。
-            huxerui::Column {
-                huxerui::ScrollView{huxerui::Column {
-            // 方法+URL 合并控件（自带 Grow 占满整行）。
-            MethodUrlBar(
-                std::vector<std::string>(kMethodNames.begin(), kMethodNames.end()),
-                methodIndex.Get(),
-                [methodIndex](std::size_t index) { methodIndex = index; },
-                url.Get(),
-                [url](const huxerui::TextEditingValue& value) { url = value; },
-                envBaseUrl,
-                "https://api.example.com/v1/resource"),
-            // 压测模式 + 条件参数：Flow 自适应换行（compact 与宽视口同一布局）。
-            huxerui::SegmentedButton(std::vector<huxerui::StringVariant>(
-                                         kLoadModeNames.begin(), kLoadModeNames.end()),
-                                     modeIndex)
-                .OnChanged([modeIndex](std::size_t index) { modeIndex = index; }),
-            huxerui::Flow {
-                modeIndex.Get() == 1
-                    ? huxerui::View{huxerui::Flow{textField(rampUp, "爬升"),
-                                                  textField(peakVus, "峰值 VUs"),
-                                                  textField(steady, "稳态"),
-                                                  textField(rampDown, "回落")}}
-                : modeIndex.Get() == 2
-                    ? huxerui::View{huxerui::Flow{textField(vus, "VUs"),
-                                                  textField(iterations, "迭代次数")}}
-                    : huxerui::View{huxerui::Flow{textField(vus, "VUs"),
-                                                  DurationField(duration)}},
-                textField(p95Limit, "P95 上限 ms"),
-                textField(failLimit, "失败率上限 %"),
-                huxerui::Checkbox("跳过 TLS 校验", skipTls)
-                    .OnChanged([skipTls](bool value) { skipTls = value; }),
-                huxerui::Checkbox("关闭连接复用", noReuse)
-                    .OnChanged([noReuse](bool value) { noReuse = value; }),
-            }
-                .With(huxerui::Spacing(theme.spacing.small)),
-            huxerui::Flow {
-                huxerui::Text("脚本", huxerui::TextRole::Title),
-                huxerui::Button("从参数重新生成")
-                    .OnClick([=] {
-                        if (scriptController.LoadDocument("k6-script", makeTemplate()))
-                            toast.Show("已按当前参数重新生成脚本");
-                    }),
-            }
-                .With(huxerui::Spacing(theme.spacing.medium)),
-            huxerui::codeeditor::CodeEditor(scriptOptions, scriptController)
-                .With(huxerui::Frame{.height = 240.0F}),
-            huxerui::Flow {
-                PrimaryButton(huxerui::Button(running.Get() ? "压测进行中…" : "开始压测")
-                    .OnClick([=] {
-                        if (running.Get()) return;
-                        // 用例驱动：选中请求/用例时以其实际数据为基底（headers/
-                        // body 随行，URL/方法仍取输入框当前值可改）；无选中（项目
-                        // 无请求）退回手输模式。
-                        api::RequestSpec spec;
-                        if (const db::SavedRequest* req =
-                                g_requests.find(selectedRequestId.Get())) {
-                            if (selectedCaseId.Get() != 0) {
-                                bool found = false;
-                                for (const db::AutomationTest& c : loadCases) {
-                                    if (c.id == selectedCaseId.Get()) {
-                                        spec = specFromAutomation(c);
-                                        found = true;
-                                        break;
-                                    }
+    // 标题固定、用例树独立滚动；Compact 顶部栏只限制高度，不继承常规定宽。
+    huxerui::View cases = huxerui::Column {
+      huxerui::Row {
+          huxerui::Text("接口用例", huxerui::TextRole::Title)
+              .With(huxerui::Grow(1.0F)),
+          AppIconButton(app::images::add, "为选中请求新建用例", createCase,
+                        AppIconButtonShape::RoundedSquare, 28.0F),
+      }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)),
+      httpRequests.empty()
+          ? huxerui::View{huxerui::Text("当前项目还没有 HTTP 请求——先在请求页创建",
+                                        huxerui::TextRole::Body)
+                              .With(huxerui::Foreground(
+                                  theme.colors.on_surface_variant))}
+          : huxerui::View{std::move(caseTree)},
+    }.With(
+        huxerui::Padding(theme.spacing.medium),
+        huxerui::Spacing(theme.spacing.small),
+        huxerui::Background(islands.base),
+        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+        compact ? huxerui::Frame{.height = 160.0F} : huxerui::Frame{.width = 250.0F});
+
+    // 配置区直接由一个有界 ScrollView 承载；输出列表保留自己的定高滚动。
+    huxerui::View configuration = huxerui::ScrollView {
+      huxerui::Column {
+        // 方法+URL 合并控件（自带 Grow 占满整行）。
+        MethodUrlBar(
+            std::vector<std::string>(kMethodNames.begin(), kMethodNames.end()),
+            methodIndex.Get(),
+            [methodIndex](std::size_t index) { methodIndex = index; },
+            url.Get(),
+            [url](const huxerui::TextEditingValue& value) { url = value; },
+            envBaseUrl,
+            "https://api.example.com/v1/resource"),
+        // 压测模式 + 条件参数：Flow 自适应换行（compact 与宽视口同一布局）。
+        huxerui::SegmentedButton(std::vector<huxerui::StringVariant>(
+                                     kLoadModeNames.begin(), kLoadModeNames.end()),
+                                 modeIndex)
+            .OnChanged([modeIndex](std::size_t index) { modeIndex = index; }),
+        huxerui::Flow {
+            modeIndex.Get() == 1
+                ? huxerui::View{huxerui::Flow{textField(rampUp, "爬升"),
+                                              textField(peakVus, "峰值 VUs"),
+                                              textField(steady, "稳态"),
+                                              textField(rampDown, "回落")}}
+            : modeIndex.Get() == 2
+                ? huxerui::View{huxerui::Flow{textField(vus, "VUs"),
+                                              textField(iterations, "迭代次数")}}
+                : huxerui::View{huxerui::Flow{textField(vus, "VUs"),
+                                              DurationField(duration)}},
+            textField(p95Limit, "P95 上限 ms"),
+            textField(failLimit, "失败率上限 %"),
+            huxerui::Checkbox("跳过 TLS 校验", skipTls)
+                .OnChanged([skipTls](bool value) { skipTls = value; }),
+            huxerui::Checkbox("关闭连接复用", noReuse)
+                .OnChanged([noReuse](bool value) { noReuse = value; }),
+        }
+            .With(huxerui::Spacing(theme.spacing.small)),
+        huxerui::Flow {
+            huxerui::Text("脚本", huxerui::TextRole::Title),
+            huxerui::Button("从参数重新生成")
+                .OnClick([=] {
+                    if (scriptController.LoadDocument("k6-script", makeTemplate()))
+                        toast.Show("已按当前参数重新生成脚本");
+                }),
+        }
+            .With(huxerui::Spacing(theme.spacing.medium)),
+        huxerui::codeeditor::CodeEditor(scriptOptions, scriptController)
+            .With(huxerui::Frame{.height = 240.0F}),
+        huxerui::Flow {
+            PrimaryButton(huxerui::Button(running.Get() ? "压测进行中…" : "开始压测")
+                .OnClick([=] {
+                    if (running.Get()) return;
+                    // 用例驱动：选中请求/用例时以其实际数据为基底（headers/
+                    // body 随行，URL/方法仍取输入框当前值可改）；无选中（项目
+                    // 无请求）退回手输模式。
+                    api::RequestSpec spec;
+                    if (const db::SavedRequest* req =
+                            g_requests.find(selectedRequestId.Get())) {
+                        if (selectedCaseId.Get() != 0) {
+                            bool found = false;
+                            for (const db::AutomationTest& c : loadCases) {
+                                if (c.id == selectedCaseId.Get()) {
+                                    spec = specFromAutomation(c);
+                                    found = true;
+                                    break;
                                 }
-                                if (!found)
-                                    spec = specFromAutomation(
-                                        g_loadtest.automationFromRequest(*req, 0, ""));
-                            } else {
+                            }
+                            if (!found)
                                 spec = specFromAutomation(
                                     g_loadtest.automationFromRequest(*req, 0, ""));
-                            }
+                        } else {
+                            spec = specFromAutomation(
+                                g_loadtest.automationFromRequest(*req, 0, ""));
                         }
-                        spec.method = std::string{kMethodNames.at(methodIndex.Get())};
-                        spec.url = url.Get().text;
-                        if (spec.url.empty()) {
-                            toast.Show("URL 不能为空");
-                            return;
-                        }
-                        // 基础 URL 拼接：输入无 URI scheme 时拼当前环境 baseUrl
-                        //（groupId=0：压测页无分组概念；带 scheme 的完整 URL 原样）。
-                        spec.url = g_requests.composeUrl(spec.url, 0, g_requests.currentEnvId());
-                        // 全局代理对 k6 同样生效（引擎 spawn 时注入子进程环境）。
-                        spec.proxy = g_requests.globalProxy();
-                        // 参数组装与脚本模板同一份解析（AssembleOptions）。
-                        api::LoadOptions opts = assemble();
-                        // 编辑器全文作为自定义脚本（编辑器未挂载取到空串时引擎自动
-                        // 生成兜底）。
-                        opts.script = scriptController.Text();
-                        output.Clear();
-                        summary = api::LoadSummary{};
-                        running = true;
-                        g_loadtest.start(spec, opts, 0, "loadtest");
-                        tasks.Launch([=]() -> huxerui::Task<void> {
-                            // k6 子进程由引擎监视线程拆行入队；UI 协程按 200ms
-                            // 节拍取回输出并写 State（见 task_bridge.h 线程契约）。
-                            api::LoadSummary s;
-                            std::string persistError;
-                            co_await PollWhile(std::chrono::duration<double>{0.2}, [&] {
-                                for (std::string& line : g_loadtest.drainOutput()) {
-                                    output.PushBack(std::move(line));
-                                    while (output.Size() > kOutputCap) output.Erase(0);
-                                }
-                                auto polled = g_loadtest.pollSummary(s);
-                                if (!polled) {
-                                    persistError = polled.error().message;
-                                    return false;
-                                }
-                                return g_loadtest.running() || !*polled;
-                            });
-                            if (!persistError.empty()) {
-                                s = api::LoadSummary{};
-                                s.error = "压测结果落库失败: " + persistError;
+                    }
+                    spec.method = std::string{kMethodNames.at(methodIndex.Get())};
+                    spec.url = url.Get().text;
+                    if (spec.url.empty()) {
+                        toast.Show("URL 不能为空");
+                        return;
+                    }
+                    // 基础 URL 拼接：输入无 URI scheme 时拼当前环境 baseUrl
+                    //（groupId=0：压测页无分组概念；带 scheme 的完整 URL 原样）。
+                    spec.url = g_requests.composeUrl(spec.url, 0, g_requests.currentEnvId());
+                    // 全局代理对 k6 同样生效（引擎 spawn 时注入子进程环境）。
+                    spec.proxy = g_requests.globalProxy();
+                    // 参数组装与脚本模板同一份解析（AssembleOptions）。
+                    api::LoadOptions opts = assemble();
+                    // 编辑器全文作为自定义脚本（编辑器未挂载取到空串时引擎自动
+                    // 生成兜底）。
+                    opts.script = scriptController.Text();
+                    output.Clear();
+                    summary = api::LoadSummary{};
+                    running = true;
+                    g_loadtest.start(spec, opts, 0, "loadtest");
+                    tasks.Launch([=]() -> huxerui::Task<void> {
+                        // k6 子进程由引擎监视线程拆行入队；UI 协程按 200ms
+                        // 节拍取回输出并写 State（见 task_bridge.h 线程契约）。
+                        api::LoadSummary s;
+                        std::string persistError;
+                        co_await PollWhile(std::chrono::duration<double>{0.2}, [&] {
+                            for (std::string& line : g_loadtest.drainOutput()) {
+                                output.PushBack(std::move(line));
+                                while (output.Size() > kOutputCap) output.Erase(0);
                             }
-                            // 无论成败都把结构化汇总交给 SummaryArea 展示
-                            //（ok=false + error 文案；ok=true 按字段分行）。
-                            summary = s;
-                            running = false;
+                            auto polled = g_loadtest.pollSummary(s);
+                            if (!polled) {
+                                persistError = polled.error().message;
+                                return false;
+                            }
+                            return g_loadtest.running() || !*polled;
                         });
-                    })),
-                huxerui::Button("停止")
-                    .OnClick([=] {
-                        g_loadtest.stop();
-                        toast.Show("已发送停止信号");
-                    }),
-            }
-                .With(huxerui::Spacing(theme.spacing.medium)),
-            SummaryArea(summary, theme),
-            huxerui::Text("输出", huxerui::TextRole::Title),
-            // 输出区自带固定高度虚拟滚动。
-            OutputArea(output, theme),
-            // 压测记录的归档查看已迁往历史记录页左栏「压测记录」分类（含阈值
-            // 判定染色），本页不再重复列出。
+                        if (!persistError.empty()) {
+                            s = api::LoadSummary{};
+                            s.error = "压测结果落库失败: " + persistError;
+                        }
+                        // 无论成败都把结构化汇总交给 SummaryArea 展示
+                        //（ok=false + error 文案；ok=true 按字段分行）。
+                        summary = s;
+                        running = false;
+                    });
+                })),
+            huxerui::Button("停止")
+                .OnClick([=] {
+                    g_loadtest.stop();
+                    toast.Show("已发送停止信号");
+                }),
         }
-                            .With(huxerui::Spacing(theme.spacing.medium),
-                                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch))}
-                    .With(huxerui::ScrollBar()),
-            }
-                .With(huxerui::Padding(compact ? theme.spacing.medium : theme.spacing.large),
-                      huxerui::Spacing(theme.spacing.medium),
-                      huxerui::Background(ResolveIslandTheme(theme).base),
-                      huxerui::Grow(1.0F),
-                      huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+            .With(huxerui::Spacing(theme.spacing.medium)),
+        SummaryArea(summary, theme),
+        huxerui::Text("输出", huxerui::TextRole::Title),
+        // 输出区自带固定高度虚拟滚动。
+        OutputArea(output, theme),
+        // 压测记录的归档查看已迁往历史记录页左栏「压测记录」分类（含阈值
+        // 判定染色），本页不再重复列出。
+      }.With(huxerui::Spacing(theme.spacing.medium),
+             huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
+    }.With(
+        huxerui::ScrollBar(),
+        huxerui::Padding(compact ? theme.spacing.medium : theme.spacing.large),
+        huxerui::Background(islands.base),
+        huxerui::Grow(1.0F));
+
+    if (compact) {
+        return huxerui::Column {
+          cases,
+          huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
+                              huxerui::Background(islands.line_subtle)),
+          configuration,
+        }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch), huxerui::Grow(1.0F));
     }
-        .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-              huxerui::Grow(1.0F));
+    return huxerui::Row {
+      cases,
+      huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth},
+                             huxerui::Background(islands.line_subtle)),
+      configuration,
+    }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch), huxerui::Grow(1.0F));
 }
 
 } // namespace apitab::ui
