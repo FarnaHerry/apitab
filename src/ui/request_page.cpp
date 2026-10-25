@@ -606,31 +606,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                              huxerui::Grow(1.0F),
                              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
     }
-    // 整个请求页只包一张主卡片。卡片上沿打开，与标题栏区域直接衔接；左/右/下
-    // 三边保留细线，内部结构继续由分隔线和拖条表达。
-    huxerui::View framedWorkspace = huxerui::Column {
-        huxerui::Row {
-            huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth},
-                                   huxerui::Background(islandTheme.line_subtle)),
-            std::move(workspace),
-            huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth},
-                                   huxerui::Background(islandTheme.line_subtle)),
-        }
-            .With(huxerui::Spacing(0.0F),
-                  huxerui::Grow(1.0F),
-                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-        huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
-                            huxerui::Background(islandTheme.line_subtle)),
-    }
-        .With(huxerui::Spacing(0.0F),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    return IslandSurface(std::move(framedWorkspace), IslandLevel::Base)
-        .With(huxerui::Border(huxerui::Color::Transparent(), kLineWidth),
-              huxerui::Padding(0.0F),
-              huxerui::CornerRadius(theme.shapes.small),
-              huxerui::ClipChildren(),
-              huxerui::Grow(1.0F),
-              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    // 请求页本身只绘制内部工作区分隔线；四边外框由应用路由层的 PageCard 统一提供。
+    return std::move(workspace);
 }
 
 } // namespace apitab::ui

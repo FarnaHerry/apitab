@@ -82,7 +82,8 @@ apitab 采用 GitHub 风格的中性灰阶，以线条组织主内容；品牌�
 涉及：`src/ui/app.cpp`、`src/ui/title_bar.cpp`、`src/ui/global_status_bar.cpp`。
 
 区域：侧栏右缘、状态栏上缘、顶级标签分隔、主页/设置/项目导航边界。标题栏下缘
-不再绘线；请求主卡片上沿打开，与标题栏区域直接衔接。
+不绘线；主页、项目工作区、全局设置和项目子窗口统一由 `app.cpp::pages::PageCard`
+提供带圆角的顶级内容卡片及唯一外围细线，页面根节点不再重复描边。
 
 工作项：
 
@@ -196,8 +197,9 @@ separator、自绘 PopupMenu 和弹层边界。
 - 全局结构线与普通控件边框统一为 `kLineWidth`（0.5 HuxerUI 逻辑尺寸）；输入框聚焦、
   校验、复选框/单选框/开关不再继承框架的 2.0 宽边框。焦点环和活动下划线共用
   `kEmphasisLineWidth`（2.0），保留状态可见度；标签布局步进按实际 `kLineWidth` 计算。
-- 页面分区取消常态外框，边界只由布局层的单条分隔线表达；测试用例记录以横向分隔线
-  分组，避免“卡片描边 + 间隙”形成重复轮廓。
+- 页面内部面板取消常态外框，边界只由布局层的单条分隔线表达；顶级页面仅由共享
+  `PageCard` 提供一圈外围线，避免页面自身外框与容器卡片叠成重复轮廓。测试用例记录
+  以横向分隔线分组。
 - `cmake --build build --target apitab --parallel $(nproc)`：通过（Linux GCC 16.2.1，源码版
   HuxerUI，WebView 可用）；`git diff --check` 通过。构建输出包含 HuxerUI coroutine
   lambda 的 `-Wsubobject-linkage` 警告，无编译或链接错误。

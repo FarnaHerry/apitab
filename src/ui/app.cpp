@@ -53,6 +53,24 @@ enum PageIndex : std::size_t {
     kProjectSettings = 3,
 };
 
+[[huxerui::composable]] huxerui::View PageCard(huxerui::View content) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
+    huxerui::View cardContent = content;
+    huxerui::View card = std::move(cardContent).With(
+        huxerui::Background(islands.base),
+        huxerui::Border(islands.line_subtle, kLineWidth),
+        huxerui::CornerRadius(theme.shapes.small),
+        huxerui::ClipChildren(),
+        huxerui::Grow(1.0F),
+        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+    // 页面与应用骨架线之间留一圈外边距，所有顶级内容共用同一张卡片外框。
+    return huxerui::Column{std::move(card)}
+        .With(huxerui::Padding(theme.spacing.small),
+              huxerui::Grow(1.0F),
+              huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
+}
+
 [[huxerui::composable]] huxerui::View ProjectPages(
     huxerui::State<std::size_t> selectedPage,
     huxerui::State<std::int64_t> activeProject) {
@@ -994,17 +1012,21 @@ void TrayWindowController::ShowWindow() {
     // P1-B0.5 状态保活：顶级标签内容用 IndexedPages 保持所有页面挂载（设置↔项目切换不卸载，草稿保活）
     std::vector<huxerui::View> indexed;
     indexed.reserve(1 + tabs.Get().size() + (settingsOpen.Get() ? 1 : 0));
-    indexed.push_back(HomePage(onOpenProject, onDeleteProject, activeProject));
+    indexed.push_back(pages::PageCard(
+                          HomePage(onOpenProject, onDeleteProject, activeProject))
+                          .With(huxerui::Grow(1.0F)));
     std::unordered_map<std::int64_t, std::size_t> projIdx;
     for (std::int64_t id : tabs.Get()) {
         const std::size_t idx = indexed.size();
         projIdx[id] = idx;
-        indexed.push_back(pages::ProjectPages(navPage, activeProject)
+        indexed.push_back(pages::PageCard(pages::ProjectPages(navPage, activeProject))
                               .Key(id)
                               .With(huxerui::Grow(1.0F)));
     }
     if (settingsOpen.Get()) {
-        indexed.push_back(GlobalSettingsPage(themeMode, closeBehavior, settingsCategory, avatarImage)
+        indexed.push_back(pages::PageCard(
+                               GlobalSettingsPage(themeMode, closeBehavior, settingsCategory,
+                                                  avatarImage))
                                .Key(kSettingsTabDisplayKey)
                                .With(huxerui::Grow(1.0F)));
     }
@@ -1266,7 +1288,7 @@ void TrayWindowController::ShowWindow() {
     const float statusTopPad = gap - rootSpec.spacing.extra_small;
 
     // 内容区：子窗口只有项目工作区（无主页/设置页），navPage 表达内部页。
-    huxerui::View page = pages::ProjectPages(navPage, activeProject)
+    huxerui::View page = pages::PageCard(pages::ProjectPages(navPage, activeProject))
                              .Key(projectId)
                              .With(huxerui::Grow(1.0F));
 

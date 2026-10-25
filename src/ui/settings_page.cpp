@@ -494,6 +494,7 @@ constexpr AboutDependency kAboutDependencies[] = {
                                                          huxerui::State<std::size_t> category,
                                                          huxerui::State<huxerui::ImageAsset> avatarImage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islands = ResolveIslandTheme(theme);
     auto tasks = huxerui::UseTaskScope();
     // 场景过渡：主题切换（整树换色）用圆形揭示动画包一层；reduced motion
     // 由 handle 自行降级，mutation 在无视觉效果时也必须正确落盘。
@@ -583,29 +584,22 @@ constexpr AboutDependency kAboutDependencies[] = {
         // 横向三分段条，不引入 Drawer）。放在岛内而非海面上——控件不漂浮在
         // 海面（岛屿设计语言）；选择器在滚动内容上方、不随之滚走。与标准
         // 形态共用同一个分类 State，键盘 Left/Right/Home/End 由组件自带。
-        page = IslandSurface(huxerui::Column {
-                                 huxerui::SegmentedButton(
-                                     std::vector<huxerui::StringVariant>{
-                                         kCategoryNames[0], kCategoryNames[1], kCategoryNames[2]},
-                                     category.Get())
-                                     .OnChanged([category](std::size_t index) {
-                                         category = index;
-                                     }),
-                                 huxerui::ScrollView{section}
-                                     .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
-                             }
-                                 .With(huxerui::Spacing(theme.spacing.medium),
-                                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                                       huxerui::Padding(
-                                           huxerui::EdgeInsets::Symmetric(theme.spacing.small, 0.0F)),
-                                       huxerui::Grow(1.0F)),
-                             IslandLevel::Base)
-                 .With(huxerui::Grow(1.0F),
-                       huxerui::Frame{.min_width = 280.0F, .min_height = 280.0F});
+        page = huxerui::Column {
+                   huxerui::SegmentedButton(
+                       std::vector<huxerui::StringVariant>{
+                           kCategoryNames[0], kCategoryNames[1], kCategoryNames[2]},
+                       category.Get())
+                       .OnChanged([category](std::size_t index) { category = index; }),
+                   huxerui::ScrollView{section}
+                       .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
+               }
+                   .With(huxerui::Spacing(theme.spacing.medium),
+                         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                         huxerui::Padding(islands.island_padding),
+                         huxerui::Grow(1.0F),
+                         huxerui::Frame{.min_width = 280.0F, .min_height = 280.0F});
     } else {
-        // 标准：整个设置工作区共用一层边框和内边距。分类栏、竖向 subtle 线、
-        // 独立滚动的右侧内容直接相邻，避免两个相邻面板各自描边形成双竖线。
-        const IslandTheme islands = ResolveIslandTheme(theme);
+        // 标准：根卡片外框由应用路由层提供；分类栏、竖线与内容栏只画内部结构线。
         huxerui::View content = huxerui::Column {
             huxerui::ScrollView{section}
                 .With(huxerui::ScrollBar(), huxerui::Grow(1.0F)),
@@ -618,12 +612,11 @@ constexpr AboutDependency kAboutDependencies[] = {
         huxerui::View divider = huxerui::Column{}
                                     .With(huxerui::Frame{.width = kLineWidth},
                                           huxerui::Background(islands.line_subtle));
-        page = IslandSurface(huxerui::Row {SettingsCategoryRail(category), divider, content}
-                                 .With(huxerui::Spacing(0.0F),
-                                       huxerui::Grow(1.0F),
-                                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)),
-                             IslandLevel::Base)
-                   .With(huxerui::Grow(1.0F),
+        page = huxerui::Row {SettingsCategoryRail(category), divider, content}
+                   .With(huxerui::Spacing(0.0F),
+                         huxerui::Grow(1.0F),
+                         huxerui::Padding(islands.island_padding),
+                         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                          huxerui::Frame{.min_width = 320.0F, .min_height = 240.0F});
     }
 

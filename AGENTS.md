@@ -158,6 +158,10 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
   无常态边框、与海面同底色（`islands.base`）、直角——`IslandSurface` 与各
   页面本地面板统一；面板边界由 `kLineWidth = 0.5F` 逻辑尺寸的分隔线表达，
   **相邻面板之间只画一条线**：
+  - 顶级内容区（主页、项目工作区、全局设置，含项目子窗口）统一由
+    `src/ui/app.cpp::pages::PageCard` 包一张主卡片：外侧留小边距，卡片使用
+    `islands.base`、小圆角和一圈 `line_subtle` 细线。各页面根节点不得再画自己的
+    上/下/左/右周边线或额外外框；页面内部面板仍无常态边框，分区交给单条分隔线。
   - 静态分隔 = 通栏 `kLineWidth` 线：空 `Row{}`/`Column{}` +
     `Frame{.width/.height = kLineWidth}` + `Background(line_subtle)`，靠外层
     `CrossAlign(Stretch)` 拉满。HuxerUI 使用逻辑尺寸，物理像素宽度随窗口缩放映射；
@@ -167,8 +171,8 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
     双竖线（请求页/首页/压测页先后实证）。`Border` 不支持单边，去重只能靠
     面板弃边框、线交给布局层。
   - 线色分级：窗口骨架两条通栏线（侧栏右缘/状态栏上缘，主/子窗口同款）用
-    `line_default`；标题栏下缘不画线，请求主卡片上沿保持打开；页面级分隔用
-    `line_subtle`。焦点环与活动下划线
+    `line_default`；标题栏下缘不画线，顶级内容卡片的周边由 `PageCard` 统一绘制，
+    页面内部结构分隔用 `line_subtle`。焦点环与活动下划线
     属于交互状态，使用 `kEmphasisLineWidth = 2.0F`；普通描边在所有状态下保持
     `kLineWidth`，只切换语义颜色，不因聚焦而变粗。
   - 色阶只保留在"状态/控件/浮层"语言里：列表行 hover/选中（`islands.raised`
