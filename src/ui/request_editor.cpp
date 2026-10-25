@@ -286,19 +286,28 @@ huxerui::View SplitActionButton(
     if (const db::Environment* env = g_requests.findEnvironment(g_requests.currentEnvId()))
         envBaseUrl = env->baseUrl;
 
+    huxerui::TextFieldStyle nameFieldStyle =
+        huxerui::UseEnvironment<huxerui::TextFieldStyle>();
+    // 与左侧 SegmentedButton 的 32pt 高度对齐。标签保留作无障碍语义，隐藏其
+    // 浮动视觉后，Outlined 输入框不再额外占用标签高度。
+    nameFieldStyle.show_label = false;
+    nameFieldStyle.outlined.minimum_height = 32.0F;
+
     // 选择行：调试/文档/测试用例/Mock 切换 + 短名称修改框（原整宽名称行并入此行）。
     // 名称不参与 Grow，避免在宽屏无意义地吞掉整行空间；父级约束不足时仍可收缩。
     children.push_back(huxerui::Row {
         huxerui::SegmentedButton({"调试", "文档", "测试用例", "Mock"}, pageTab)
             .OnChanged([pageTab](std::size_t i) { pageTab = i; }),
-        huxerui::TextField(snapshot.name)
-            .Label("名称")
-            .Placeholder("请求名称")
-            .Variant(huxerui::TextFieldVariant::Outlined)
-            .OnChanged([drafts, index](const huxerui::TextEditingValue& value) {
-                MutateDraft(drafts, index, [&](RequestDraft& d) { d.name = value; });
-            })
-            .With(huxerui::Frame{.width = 180.0F}),
+        huxerui::ProvideEnvironment(
+            nameFieldStyle,
+            huxerui::View{huxerui::TextField(snapshot.name)
+                              .Label("名称")
+                              .Placeholder("请求名称")
+                              .Variant(huxerui::TextFieldVariant::Outlined)
+                              .OnChanged([drafts, index](const huxerui::TextEditingValue& value) {
+                                  MutateDraft(drafts, index, [&](RequestDraft& d) { d.name = value; });
+                              })
+                              .With(huxerui::Frame{.width = 180.0F})}),
     }
         .With(huxerui::Spacing(theme.spacing.small),
               huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
