@@ -42,10 +42,10 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         mixLine(theme.colors.outline, theme.colors.on_surface_variant, 0.30F);
     const huxerui::Color lineDefault =
         mixLine(theme.colors.outline, theme.colors.on_surface_variant, 0.60F);
-    // 线条风（2026-10 从岛屿风整体重构）：结构由细线定义，不再由"面"定义——
-    // 分区无色阶（base/raised/active 统一同海面 surface）、无圆角（island_radius
-    // 与 nested_radius 归零），IslandSurface 只保留主题 subtle 线框；窗口骨架的
-    // 分隔线（标题栏下/侧栏右/状态栏上）由 app.cpp 通栏绘制。控件层保留克制
+    // 线条风（2026-10 从岛屿风整体重构）：内部结构由细线定义——普通 IslandSurface
+    // 的 Base/Raised/Active 统一使用海面 surface、无圆角（island_radius 与
+    // nested_radius 归零），普通分区不描边，内部结构由父布局单条细线划分；
+    // 窗口骨架仅状态栏上缘由 app.cpp 通栏绘制，侧栏与内容卡片之间留白。控件层保留克制
     // 圆角（4/6pt，IDE 风格），浮层（overlay）保留对比底色保证弹层可读性。
     // 历史值：岛屿风 page_gap/圆角 16/12 → 工具化密度 8/6 → 线条风 0/0。
     return IslandTheme{
@@ -65,8 +65,8 @@ IslandTheme ResolveIslandTheme(const huxerui::ThemeSpec& theme) {
         .control_height = 32.0F,                   // 普通控件统一高度
         .rail_width = 48.0F,
         .ocean = theme.colors.background,
-        // 分区底（IslandColor 的 Base/Raised/Active 都走它）：与海面同色，由
-        // IslandSurface 的主题线框与骨架分隔线承担结构表达。
+        // 分区底（IslandColor 的 Base/Raised/Active 都走它）：与海面同色，结构由
+        // 父布局的单条分隔线表达。
         .base = theme.colors.surface,
         // 行状态底色（列表行 hover/选中，见 environment/loadtest/history/
         // settings 各页的手工行底）：保留色阶——选中比 hover 深一档、都比

@@ -56,15 +56,15 @@ enum PageIndex : std::size_t {
 [[huxerui::composable]] huxerui::View PageCard(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
-    huxerui::View cardContent = content;
-    huxerui::View card = std::move(cardContent).With(
+    huxerui::View card = huxerui::Column{content}.With(
+        huxerui::Grow(1.0F),
+        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
         huxerui::Background(islands.raised),
         huxerui::Border(islands.line_subtle, kLineWidth),
         huxerui::CornerRadius(theme.shapes.small),
-        huxerui::ClipChildren(),
-        huxerui::Grow(1.0F),
-        huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
-    // 卡片用浅一档的中性底色与窗口画布区分；页面与骨架线之间留边距。
+        huxerui::ClipChildren());
+    // 独立 Column 承载卡片表面，确保 IndexedPages 等页面根视图填满后绘制底色和边框。
+    // 卡片与侧栏及窗口边缘留出小间距，内部页面继续用细线表达分区。
     return huxerui::Column{std::move(card)}
         .With(huxerui::Padding(theme.spacing.small),
               huxerui::Grow(1.0F),
@@ -1118,18 +1118,11 @@ void TrayWindowController::ShowWindow() {
             .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(
                       titleBarHorizontalPadding, 0.0F)),
                   huxerui::Spacing(gap)),
-        // 主行：图标侧栏（直接落海面）+ 内容区；Grow 吃满标题栏之外的剩余高度。
-        // 内容区不再套外壳岛：区域划分由各页面自己的一级岛屿承担，避免双层嵌套。
+        // 主行：图标侧栏（直接落海面）+ 页面卡片；Grow 吃满标题栏之外的剩余高度。
         // 仅 Project(id) 顶级标签显示侧栏；主页/设置整宽覆盖。
         // 占位必须用空 Row——Spacer 自带 Grow(1)，会分走一半宽度。
         huxerui::Row {
             showSideShell ? huxerui::View{SideShell(navPage)}
-                          : huxerui::View{huxerui::Row{}},
-            // 线条风：侧栏与内容区之间通栏细竖线（主行 CrossAlign Stretch
-            // 拉满高），代替原来的 4pt 间隙。
-            showSideShell ? huxerui::View{huxerui::Row{}.With(
-                                huxerui::Frame{.width = kLineWidth},
-                                huxerui::Background(shellLine))}
                           : huxerui::View{huxerui::Row{}},
             // IndexedPages 的子页面有 Grow，但外层容器本身也必须作为主 Row 的
             // 弹性项接收“侧栏之外的剩余宽度”。漏掉这里会按页面固有宽度测量，
@@ -1151,9 +1144,8 @@ void TrayWindowController::ShowWindow() {
             : huxerui::View{huxerui::Row{}},
     }
                                .With(
-                                     // 线条风：根列分区紧贴（间隙归零），结构由
-                                     // 侧栏与状态栏两条骨架线承担；窗口整体背景：主题背景
-                                     // 色刷满根节点。
+                                     // 线条风：根列分区紧贴（间隙归零），卡片边界与状态栏
+                                     // 上缘线表达结构；窗口整体背景：主题背景色刷满根节点。
                                      huxerui::Background(rootSpec.colors.background),
                                      // 交叉轴必须 Stretch：否则主行（侧栏+页面区）按内容
                                      // 收缩成内容宽，页面里所有 Grow 失去上界、岛屿无法
@@ -1320,9 +1312,6 @@ void TrayWindowController::ShowWindow() {
                   huxerui::Spacing(gap)),
         huxerui::Row {
             huxerui::View{SideShell(navPage)},
-            // 线条风：侧栏与内容区之间通栏细竖线。
-            huxerui::Row{}.With(huxerui::Frame{.width = kLineWidth},
-                                huxerui::Background(shellLine)),
             std::move(page).With(huxerui::Grow(1.0F)),
         }
             .With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
