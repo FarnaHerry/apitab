@@ -55,4 +55,4 @@
    必须由协程帧中的 RAII guard 同步清理，不能只依赖 `co_await` 后或函数末尾的清理语句。
 
 完整分层、线程及资源所有权规则见 [`architecture.md`](architecture.md)；详细 API 规则见
-仓库内 `.claude/skills/huxerui-app-development/SKILL.md` 和对应 references。
+仓库内 [HuxerUI 技能](../project-skills/huxerui-app-development/SKILL.md) 和对应 references。

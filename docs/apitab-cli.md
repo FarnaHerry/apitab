@@ -1,8 +1,3 @@
----
-name: apitab-cli
-description: "Operate apitab from the command line (headless, no GUI): list orgs/projects/requests, inspect saved requests, send HTTP requests via the shared curl engine, and read send history. Use for `apitab --cli`, headless send/show automation, or when Claude (or a script) needs to drive apitab without the GUI."
----
-
 # apitab CLI（agent 可用）
 
 apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**运行中实例的薄客户端**：
@@ -16,7 +11,7 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**�
 - **需要有一个运行中的 apitab 实例**（阶段 0 起，见
   `docs/plans/runtime-control-surface.md`）：`--cli` 是运行中实例的**薄客户端**，
   命令在实例的应用线程上执行，结果经本机 loopback 控制面回传。
-  实例未运行时打印一行错误并以 `1` 退出（后续会加 `--ensure` 自动拉起）。
+  实例未运行时打印错误并以 `1` 退出；`--cli --ensure <命令>` 可先拉起实例。
 - 客户端进程**不进事件循环，也不打开数据库**：`RequestStore`/`LoadStore` 的打开是显式的
   （GUI 进程在进事件循环前 `Open()`），客户端只做控制面转发。实测客户端用假 HOME 跑
   `help`/`orgs`/`projects` **不产生任何文件**，所以跨进程读写同一个库的 BUSY 问题消失。
@@ -29,8 +24,7 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**�
 - 端点：`$XDG_RUNTIME_DIR/apitab-control.json`（0600，含端口与随机 token），
   随实例退出删除；控制面只绑 127.0.0.1 且拒绝无 token 请求。
 - 命令在**有状态的实例**上执行：读的是它当前的组织/项目/环境与打开的项目标签。
-  ⚠️ 已知待办：只读子命令（projects/requests）当前经 `ensureContext` 会切换实例的
-  当前项目，下一轮改为「按参数取上下文、不回写会话」。
+  命令由 `SessionRestore` 快照/恢复上下文；临时切换与 active_project 写回在命令返回前还原。
 
 ## 子命令速查
 
@@ -55,8 +49,7 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**�
 ### send 的要点
 
 - `--env ID|名字`：发送前切换环境（数字=ID，`0`=无环境；否则按环境名精确匹配），
-  只影响本次进程内的 `selectEnv`（finalizeSpec 的 `{{var}}` 替换与 baseUrl 拼接都读它），
-  不持久化。
+  供本次请求的 `finalizeSpec` 替换变量与拼接 baseUrl；收尾时按 SessionRestore 恢复规则处理。
 - `--json`：单行结构化 JSON `{ok,method,url,status,durationMs,sizeBytes,headers,body,error}`
   ——脚本与 AI 解析首选；不含字段即无（如 headers 空数组、error 空串）。
 - Mock 启用条目的语义与 GUI 一致：不走真实网络、不落历史、直接返回模拟响应。
@@ -65,13 +58,15 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**�
   另加 120s 墙钟兜底后协作打断。唯一例外：响应头识别为 `text/event-stream`（SSE）
   时关闭总超时下放长连接，仍受取消/兜底打断约束。
 
-## 项目/组织上下文规则（与 GUI 一致）
+## 项目/组织上下文规则
 
-- 什么都不给：从 `settings.ini` 的 `session.active_project` 恢复（GUI 启动时同样行为）。
-- `--project ID`：跨组织反查所属 org 后切换，并**回写 active_project**（下次 GUI
-  启动会打开到该项目标签——注意此副作用）。
-- `--org ID`：切换组织；只做进程内内存切换，**不回写**偏好。
-- `show/send` 内部跨项目自动定位目标请求。
+- 无参数时，命令针对运行中实例的上下文；内部 ensureContext 也会读取会话偏好。
+- `--project ID`、`--org ID` 和 show/send 的跨项目定位只用于本次命令。
+  SessionRestore 记录原组织、项目、环境和 active_project，在返回前恢复。
+- send 的守卫跨准备/等待/收尾三段持有，必须在应用线程 FinishSend 中恢复一次；
+  不依赖可能在控制面线程执行的 SendHandle 析构。
+- 当前实现的边界：只恢复大于 0 的原组织/项目/环境 ID；原值为 0 时没有完整的反选恢复。
+  不应把这一实现描述为客户端独立状态或承诺所有空上下文均恢复。
 
 ## AI 使用建议
 
@@ -84,16 +79,17 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**�
 
 ## 实现备注（改代码时参考）
 
-- `src/cli.cpp`（普通 C++ TU）+ `platform/*/main.cpp` 的 `--cli` 分支：
-  `argv[1]=="--cli"` → `apitab::cli::run()`，GUI 路径零变化。
+- 平台入口识别 `--cli`：help 本地 `cli::run`，其它命令经 `src/control_client.cpp`
+  转发到 `src/control.cpp`；命令实现在 `src/cli.cpp`，状态操作由实例应用线程执行。
+- 控制面客户端有自己的传输超时（当前 `kForwardTimeoutMs = 90000`），
+  与服务端 send 的 120s 墙钟上限是不同层级；修改超时时须一并核对。
 - **目录即路由**：`finalizeSpec` 用 `RequestSpec.groupId`（CLI 从集合项的 `group_id` 带入）
   经 `composeUrl` 拼 `baseUrl + 目录 Path 链 + 路径`，Path 模式目录逐级累加
   （`api(P) > v1(P)` → `/api/v1`），Name 模式目录不贡献路由；输入带 URI scheme 时
   前缀全部失效、原样直发。URL 行只读前缀段（`urlPrefix`）与拼接共用同一套分段规则，
   所以界面上看到的前缀就是实际会发送的前缀。
-- 复用 `g_requests` 领域单例：构造即打开 SQLite 并持有 curl 引擎（常驻工作线程）。
-  CLI 无事件循环，主线程 `sleep(10ms)` 轮询 `takeResponse`（结果槽内部加锁，跨线程
-  取用安全；契约见 `src/curl_engine.cppm` 注释）。
+- 只有实例显式 Open store 并持有 SQLite/curl 工作线程。send 准备与收尾在应用线程，
+  控制面线程每 10ms 轮询响应，避免传输等待冻结 GUI；引擎结果槽支持跨线程取用。
 - **响应 Cookie 归集**：`g_requests.collectResponseCookies(view)` 必须在每条发送路径
   的收尾调用一次（CLI 在 `cli.cpp` 取回结果处、GUI 在 `request_editor.cpp` 取回结果
   处，与 `recordHistory` 成对）。语义：同名（区分大小写）覆盖值、保留用户的启用/
@@ -101,4 +97,4 @@ apitab 的 CLI 子命令模式：`apitab --cli <子命令> [参数]`。它是**�
   只认第一段 `name=value`，属性段仅用于判过期。项目 Cookie 没有 domain/path 维度：
   任何响应返回的 Cookie 都进本项目列表，并随本项目之后每次发送一起带上（合并进
   单条 `Cookie:` 头，RFC 6265 §5.4，见 `src/curl_engine.cpp`）。
-- 项目上下文/退出码/`--json` 的输出形状改动时，同步本 skill 文档。
+- 项目上下文/退出码/`--json` 的输出形状改动时，同步本专题文档及 [CLI 技能](../project-skills/apitab-cli/SKILL.md)。

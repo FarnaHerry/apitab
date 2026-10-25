@@ -40,9 +40,10 @@ MinimalThemed
 
 外框由 `page_card.h::PageCardSurface` 统一实现：Stack 的第一个 child 是矩形裁剪的内容层，
 中间 Canvas 按窗口画布色填充四个圆角外侧，最后是没有背景及交互的纯描边层。
-内容和描边共享尺寸，前景绘制保证外框不会被工作面覆盖。无需描边内缩。
+内容和描边共享尺寸，前景绘制保证外框不会被工作面覆盖；描边深色用白色、浅色用 line_default。
+不为描边额外加 Padding 或内容内缩。
 不能给 Stack 加圆角 ClipChildren：原生 WebView 不支持祖先路径裁剪，Linux 收到 HTML
-后打开 Preview 会直接抛异常。圆角遮角层不向子树传播路径裁剪。
+后打开 Preview 会直接抛异常。圆角遮角层不向子树传播路径裁剪；遮角和描边层不绑定事件、焦点或语义。
 
 项目状态栏作为卡片 footer 与工作区一起裁剪，上方使用官方 Divider，局部 DividerStyle
 继承当前主题并将线色设为 `line_default`、粗细设为 `kLineWidth`。
@@ -141,3 +142,26 @@ Linux 源码通道且 WebView 可用时，`tests/test_preview_native.cpp` 运行
 维护入口：外壳 `src/ui/app.cpp`；断点 `src/ui/app.h`；分配算法 `split_pane.h`；尺寸
 及分派 `request_page.cpp`；编辑器 `request_editor.cpp`；请求标签 `request_tab_strip.cpp`；
 表面令牌 `common.cpp` / `ui.h`。改变尺寸、断点或滚动所有权时同步更新本说明。
+
+## 分隔线、色板与控件约束
+
+- 页面根不得再画周边线或额外外框；普通分区不使用四边 Border + 相邻间隙，
+  避免叠成双线。相邻面板之间只画一条 `kLineWidth = 0.5F` 逻辑尺寸线。
+- 静态分隔用空 Row/Column + Frame 的 width/height = kLineWidth，
+  Background(line_subtle)，靠父容器 CrossAlign(Stretch) 拉满。
+- ResizeHandle 本身就是分隔，6dp 命中热区内只画一条线；hover/拖动只换 line_focus，
+  不改变粗细。普通描边所有状态保持 kLineWidth，只切换语义颜色。
+- 结构线为 line_subtle，项目状态栏上缘为 line_default；焦点环与活动下划线使用
+  `kEmphasisLineWidth = 2.0F`。侧栏与内容区之间、标题栏下缘不另画线。
+- 色阶只用于状态/控件/浮层：列表 hover/选中为 islands.raised/active，
+  输入框与组合栏底、浮层、头像及媒体画布可有层次，普通分区底色不分色阶。
+- 深色骨架是黑白灰：画布 #000000，表面 #121212/#202020，结构线基色 #666666，
+  正文 #ffffff；浅色为 #ffffff/#f6f8fa/#d0d7de/#1f2328。
+  品牌青只用于按钮、焦点环等交互状态；方法色与危险色按 UI 运行时引用各自取色。
+- 页面不重复展示全局状态栏已有信息；k6 引擎就绪状态只在底部状态栏。
+- Spacer 自带 Grow(1)，零尺寸占位用空 Row/Column。根链逐层有界：外壳 Column
+  使用 CrossAlign(Stretch)，页面根 Grow(1.0F)，分区占满空间且内容在分区内滚动，
+  不用 ScrollView 外套自包含分区。
+
+菜单与弹窗的自适应宽度另见
+[UI 运行时约束](../project-skills/huxerui-app-development/references/apitab-runtime.md)。

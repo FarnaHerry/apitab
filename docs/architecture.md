@@ -1,8 +1,7 @@
 # apitab 架构与运行时资源模型
 
 本文记录 apitab 的分层、线程契约与**运行时资源的所有权**（谁创建、谁释放、跨线程
-怎么用），并给出"基础请求（curl）是否需要池化"的结论与依据。功能模块清单见
-`CLAUDE.md` 的「架构」一节；本文只回答"东西归谁管、什么时候没的"。
+怎么用），并给出"基础请求（curl）是否需要池化"的结论与依据。功能模块、引擎协议与日志约定也统一在本文维护。
 
 ## 1. 分层与依赖方向
 
@@ -48,7 +47,7 @@ Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架�
 | 连接缓存 / DNS 缓存 / TLS 会话缓存 | 挂在 easy 句柄内部 | 传输时 | 随句柄销毁 | 只能靠**句柄复用**保留；`curl_easy_reset` 不清这些 |
 | 请求头表 / MIME 体 | 每次请求的栈上 RAII（`HeaderList` / `MimeHandle`） | `run()` | `run()` 返回时 | curl 不复制内容：必须活到 `curl_easy_perform` 返回 |
 | 结果槽 / 进度槽 | `CurlEngine` | 引擎构造 | 引擎析构 | `resultMutex_` 保护；UI 轮询读、工作线程写 |
-| SQLite 连接 | `RequestStore::db_`（`unique_ptr<db::Db>`） | store 构造 | store 析构 | 进程内单连接；GUI/CLI 两进程靠 SQLite 文件锁串行 |
+| SQLite 连接 | `RequestStore::db_`（`unique_ptr<db::Db>`） | store 构造 | store 析构 | 仅实例进程持有；CLI 客户端通过控制面访问，不打开数据库 |
 | k6 子进程 | `K6Engine::child_`（`ChildProcess`，RAII） | `spawn()` | 监视线程 `reap()`；析构兜底"强杀 + 回收" | 终止信号可从 UI 线程发（`stop()`），句柄是原子的；`reap()` 在监视线程 |
 | k6 输出管道 | `K6Engine::readPipe_`（`ChildPipe`，RAII） | `spawn()` | 监视线程 `close()`；析构兜底关闭 | 父进程只持读端；子进程写端在 `spawn()` 内随局部 guard 关闭（不关则读端永远等不到 EOF） |
 | k6 临时脚本 | `K6Engine::scriptPath_` | `start()` | 监视线程结束前 `remove`；启动/线程失败路径同步删除 | 文件名带 pid，避免多实例互踩 |
@@ -58,7 +57,7 @@ Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架�
 | 响应下载临时文件 | `TemporaryFileGuard`（`request_editor.cpp`，协程帧内） | 保存响应前 | 作用域退出（含协程被取消）同步 `File::Delete()` | 全程 UI 线程；析构不抛出 |
 | 头像裁剪临时 PNG | `AvatarCropOutput`（`settings_avatar_crop.cpp`） | worker 线程跑 `magick` 后 | 结果销毁时 `remove`（成功路径先 `rename` 走） | `shared_ptr` 跨 `RunWorker` 回 UI 线程 |
 | `popen` 流 / 注册表键 | `cfg::PopenPipe` / `cfg::RegKey`（`config.cppm`） | `systemPrefersDark()` | 作用域退出析构 | 仅启动时调用一次 |
-| 应用日志文件 | `apitab::log`（`src/log.cpp`，进程级单例） | 首次写入（惰性建目录） | 进程退出（追加写，无需显式关闭） | mutex 串行；**日志不进 SQLite**（不与领域写抢 WAL 唯一写者），见 CLAUDE.md 关键约定 10 |
+| 应用日志文件 | `apitab::log`（`src/log.cpp`，进程级单例） | 首次写入（惰性建目录） | 进程退出（追加写，无需显式关闭） | mutex 串行；**日志不进 SQLite**（不与领域写抢 WAL 唯一写者），见本文「日志与领域数据」 |
 | 控制面服务（loopback + 端点文件） | `apitab::control::ControlServer`（应用安装期 Provide） | `AppOptions::application_hooks` | 应用关闭析构（停线程 + 删端点文件） | IO 线程收发；命令经 `ApplicationPoster`（`TaskScope::Post`）回应用线程执行 |
 | WebView（响应 Preview 标签） | 组合期持有的 `WebViewController` + 框架 PlatformView 宿主 | 预览档挂载（`ResponsePreviewPane`） | 预览档卸载（框架按 PlatformView 生命周期回收） | 仅 UI 线程；`LoadHtml` 经 `Lifecycle` 在挂载/新响应时重放 |
 
@@ -100,31 +99,39 @@ Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架�
 
 ## 5. RAII 约定
 
-**任何 C 句柄都必须有 RAII 包装，禁止在函数末尾手写 cleanup。** 理由是异常路径：
-`run()` 里任何 `std::bad_alloc`（构造头表、拼 URL、拷贝正文都可能抛）都会跳过
-函数尾部的释放语句，而工作线程是常驻的 —— 泄漏会累积到进程结束。
+**资源一律 RAII 包裹（无例外）**：任何"获取 → 使用 → 释放"的东西都必须由一个
+类型持有、在析构里释放。**禁止在函数末尾手写 cleanup，禁止把裸句柄
+（`int fd` / `HANDLE` / `pid_t` / `FILE*` / 裸指针）存成成员或跨语句传递。**
+本仓有常驻工作线程、常驻监视线程和会被取消的 UI 协程：一次 `std::bad_alloc`、
+一次提前 `return`、一次取消就足以让泄漏累积到进程结束。既有包装与完整清单见本文 §3（所有权矩阵）：
 
-现有包装与本仓自研 RAII 清单：
+- **C 句柄**：curl（`CurlGlobal` / `EasyHandle` / `HeaderList` / `MimeHandle`）、
+  子进程与管道（k6：`ChildProcess` / `ChildPipe` / `SpawnFileActions`）、
+  `popen` 输出流与 Win32 注册表键（config.cppm：`PopenPipe` / `RegKey`）、
+  单实例锁（`SingleInstance` 持有 lock fd / mutex HANDLE）、
+  SQLite（SQLiteCpp 的 `Database` / `Statement`，本身就是 RAII）。
+  CurlGlobal 的引用计数保证全局 cleanup 晚于 easy cleanup；SpawnFileActions
+  必须跨过可能抛 bad_alloc 的 argv 装配过程，不能先释放 posix_spawn 动作表；
+- **C++ 资源**：对象生命周期交 `unique_ptr` / `shared_ptr`；pimpl
+  （`WsSession` / `TcpSession` / `Db`）在析构里 stop / close；
+- **线程"谁起谁 join"**：应用自己起线程的构造函数要么把 worker 起齐，要么自己置停止位
+  并 join 已起的线程后再把异常抛出去——凑不齐时若让异常逸出，未完成构造的
+  对象不会走析构，而 `vector<std::thread>` 析构碰上 joinable 线程会直接
+  `std::terminate`。阻塞/CPU 工作使用 HuxerUI 的 `RunWorker`；worker 生命周期由
+  框架 Runtime 管理，应用不自建或保存线程池；
+- **临时文件/目录**用局部守卫：`settings_avatar_crop.cpp` 的
+  `AvatarCropOutput`、`request_editor.cpp` 的 `TemporaryFileGuard`。协程里尤其
+  要紧——页面卸载/TaskScope 取消会在 `co_await` 悬挂点销毁协程帧，末尾那行
+  `DeleteAsync()` 根本不会执行，同步清理必须挂在守卫析构上（清理要能同步完成，
+  如 `huxerui::File::Delete()`），并保证析构不抛出；
+- **多步装配**（如 k6 spawn：建管道 → 建子进程 → 移交成员）统一用"局部 guard
+  持有 + 成功后 `adopt()` / `release()` 移交成员"，失败路径与中间抛异常都由
+  guard 收尾；
+- **析构兜底要彻底**：子进程代理类析构 = 强杀 + 回收（不留僵尸进程）；
+  延迟初始化的句柄析构 = 若已创建就释放。
 
-- `curl_engine.cpp`：`CurlGlobal`（全局状态，引用计数决定 cleanup 时机，避免静态
-  析构顺序把 `curl_global_cleanup` 提到 `curl_easy_cleanup` 之前）、`EasyHandle`、
-  `HeaderList`、`MimeHandle`；
-- `k6_engine.cpp`：`ChildProcess`（子进程句柄，析构兜底"强杀 + 回收"不留僵尸）、
-  `ChildPipe`（管道端，`adopt()` / `release()` 移交）、`SpawnFileActions`
-  （`posix_spawn` 文件动作表，生命周期跨会抛 `bad_alloc` 的 argv 构造）；
-- `config.cppm`：`PopenPipe`（`popen` 流，析构 `pclose`）、`RegKey`（Win32 注册表键，
-  析构 `RegCloseKey`）；
-- `RequestStore`：`std::unique_ptr<db::Db>` / `std::unique_ptr<api::ApiEngine>`；
-- `WsSession` / `TcpSession` / `Db`：pimpl `unique_ptr` + 析构里 stop/close；
-- 线程：应用自己起线程时一律"谁起谁 join"（`CurlEngine`、`K6Engine`）；线程启动
-  函数在异常逸出前必须停止并 join 已创建的线程。阻塞 / CPU 工作使用 HuxerUI
-  `RunWorker`，由 Runtime 管理其执行器生命周期；
-- 临时文件：`AvatarCropOutput`（`settings_avatar_crop.cpp`）、`TemporaryFileGuard`
-  （`request_editor.cpp`，协程帧内，覆盖"保存对话框开着就切页/关标签"的取消路径）；
-- `SingleInstance`：fd / HANDLE 由析构释放。
-
-`run()` 的异常兜底（`runSafely`）只解决"线程不能死、结果槽必须填"，**不能**代替
-资源释放。
+`runSafely` 的异常兜底只保证线程存活和填充结果槽，不能代替资源释放。
+新增或替换资源时，同步更新本文 §3 的资源所有权矩阵。
 
 ### 5.1 审计结论（2026-09-26）
 
@@ -152,9 +159,8 @@ Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架�
 
 ## 6. 已知缺口
 
-- **进程启动即建重资源**：GUI 与 CLI 都在 `RequestStore` 构造时打开 SQLite 并起
-  curl 工作线程；`apitab --cli orgs` 这类不发送的只读命令也会带着它们。收益只有
-  一次线程创建，暂不做懒启动。
+- **实例启动即建重资源**：平台入口在进入 GUI Runtime 前显式调用 store 的 `Open()`，
+  打开 SQLite 并创建 curl 工作线程。`--cli` 客户端只转发命令，不构造这些资源。
 - 每请求仍会新建一份 `curl_slist` 与（FormData 时）MIME 树；相对传输开销可忽略，
   不做缓存池。
 
@@ -170,3 +176,61 @@ Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架�
 cmake -B build -G Ninja && cmake --build build --target apitab test_curl_engine --parallel "$(nproc)"
 ctest --test-dir build --output-on-failure
 ```
+
+## 8. 模块职责与引擎协议
+
+- `apitab.api_engine`（`src/api_engine.cppm`）提供 `ApiEngine`、`LoadEngine`、
+  `WebSocketEngine`、`TcpEngine`，以及请求、响应、压测配置和汇总类型。
+- `apitab.curl_engine`（`src/curl_engine.cppm/.cpp`）提供 `makeCurlEngine()`；
+  curl 头只进入实现单元。工作线程串行执行，send 纯入队，以代际丢弃旧请求；
+  cancel 协作打断、清理排队请求，取消后不投递结果。run 全程 try/catch 兜底填错误结果。
+  传输期头和正文累积到 `takeProgress` 增量快照；识别 `text/event-stream` 后关闭总超时，
+  长连接仍可取消。常驻一个 easy 句柄，每请求 reset；不做 N 路池。代理每次显式下发，
+  空串为直连并关闭环境变量代理探测。句柄、头表和 MIME 的 RAII 见 §3/§5。
+- `apitab.k6_engine`（`src/k6_engine.cppm/.cpp`）生成脚本、启动子进程，监视线程按
+  `\r`/`\n` 拆行入队。POSIX stop 先 SIGINT，3 秒宽限后 SIGKILL；Windows 优先
+  k6 REST API `PATCH stopped:true` 保留 summary，API 不可达再 TerminateProcess。
+  spawn 按 `spec.proxy` 注入或剥除代理变量，空为直连；进程与管道由 RAII 持有。
+- `apitab.db`（`src/db.cppm/.cpp`）以 SQLiteCpp 管理 requests/history/load_tests
+  等领域表，KV 序列化为 JSON；配置、偏好与纯函数分别归 `apitab.config`、
+  `apitab.preferences`、`apitab.utils`（`src/config.cppm`、`preferences.cppm`、`utils.cppm`）。
+- `apitab.store.requests`（`src/store/requests.cppm`）持有 curl 引擎与 Db，负责组织、
+  项目、集合 CRUD；`finalizeSpec` 替换 `{{var}}`、拼接 URL、合并全局 Cookie，
+  `sendViaEngine`/`takeResponse`/`recordHistory` 负责发送、取回与落历史。
+- `apitab.store.loadtest`（`src/store/loadtest.cppm`）持有 k6 引擎，负责
+  start/stop/drainOutput/pollSummary 和压测记录持久化。
+- UI 普通 TU 位于 `src/ui/*.cpp`；`src/app.cpp` 只声明 `Application{AppRoot, AppOptions}`
+  并保留 no-op `requestUiUpdate`。平台 `main()` 先加载会话偏好、打开 store，再
+  `RunApplication()`。`huxerui_add_app` 建目标并启用 hcg，领域模块以 FILE_SET 加入同一目标。
+
+HTTP 的 UI 协程每拍先 drain `takeProgress`，再取完成结果；SSE/分块正文实时进入流式
+视图，完成后交给只读编辑器。WS/TCP 会话由页面协程持有，IX 管理其内部线程，TCP 的同步
+asio 操作用 `RunWorker` 执行。k6 的 drainOutput/pollSummary 经 `PollWhile` 在 UI 线程
+写 State。worker 只捕获普通值，不读写 State、不操作 View；外部回调经 `TaskScope::Post`。
+原生关闭/托盘回调里会销毁或隐藏窗口的操作，应按 `app_dialogs.cpp` 延后到回调返回后。
+`requestUiUpdate` 仅保留旧引用，不新增调用。
+
+## 9. k6 汇总与配置扩展
+
+**k6 指标与深度配置**：Trend 汇总默认只带 avg/min/med/max/p(90)/p(95)——脚本
+options 里已声明 `summaryTrendStats` 加 p(99)，p50 用 `med` 键（没有 `p(50)`）。
+K6SUMMARY 协议（`k6_engine.cpp` 的 handleSummary 模板与 `ParseSummaryLine`
+互为两端）扩展约定：checks 用 -1 哨兵表示"脚本没写"（C++ 侧必须按键存在性
+判断，不能信默认值 0）；thresholdOk -1/0/1；expectedOkCount 为
+`http_req_duration{expected_response:true}` 计数（-1 = 未提供）。**k6 ≥v2
+实测（v2.3）**：`metrics[key].thresholds` 是 `{ 表达式: {ok} }` 对象而非旧版
+数组（数组遍历会抛 `object is not iterable`，模板两种形态都收）；status 子
+指标（`http_reqs{status:...}`）在汇总数据里已不存在，"非预期响应"由
+requests - expectedOk 推导（expectedOk 无 count 时 UI 自动隐藏）。压测模式
+（Constant/Stages/Iterations）、阈值（p95/失败率）、TLS 跳过与连接复用在
+`LoadOptions`，UI 组装与模板生成共用 `AssembleOptions`（loadtest_page.cpp）
+—— 加参数只改这一处 + LoadOptions，别再复制解析。
+
+## 10. 日志与领域数据
+
+**日志一律落文件，不进 SQLite**：诊断/审计信息（控制面命令、失败原因、启动事件）
+写 `<dataDir>/logs/apitab-YYYYMMDD.log`（`src/log.h`，追加 + 每行 flush + 当日 8 MiB
+上限 + 0600）。理由：日志是高频追加的运维信息，塞进库会与领域读写抢 WAL 的**唯一
+写者**、把库文件撑大，而它对应用查询毫无价值。**领域数据才进库**（组织/项目/请求/
+环境/历史/压测记录/自动化用例）；排查问题时先看日志文件，不要在库里加 `log` 表。
+日志实现本身不得抛异常：写文件失败降级 stderr，绝不反过来影响调用方。

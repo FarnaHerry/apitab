@@ -22,7 +22,7 @@ apitab-v*
 # 本地放置的 k6 二进制（engines/k6）
 engines/
 
-# 会话目录
+# 会话目录；项目技能与引用统一在 project-skills/，纳入版本管理
 .claude/
 
 # HuxerUI 上游源码 clone（存在时优先于 third_party/tarballs 的预编译 SDK）
