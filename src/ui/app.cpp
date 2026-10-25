@@ -58,9 +58,11 @@ enum PageIndex : std::size_t {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
     if (withProjectStatus) {
+        huxerui::DividerStyle dividerStyle = huxerui::UseEnvironment<huxerui::DividerStyle>();
+        dividerStyle.color = islands.line_default;
+        dividerStyle.thickness = kLineWidth;
         huxerui::View footer = huxerui::Column {
-          huxerui::Row{}.With(huxerui::Frame{.height = kLineWidth},
-                              huxerui::Background(islands.line_default)),
+          huxerui::ProvideEnvironment(dividerStyle, huxerui::Divider()),
           GlobalStatusBar(),
         }.With(huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch));
         return PageCardSurface(content, theme, islands.line_default, footer);

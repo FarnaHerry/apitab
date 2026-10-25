@@ -143,11 +143,13 @@ void PageCardOutline() {
         UiTest ui(app, {.viewport = {800.0F, 600.0F}});
         ui.Pump();
         const auto content = ui.Find(UiSelector::Key("painted-page")).One();
-        Expect(Near(content.bounds.x, 8.5F) && Near(content.bounds.y, 8.5F),
-               "opaque page leaves top and left card outline uncovered");
-        Expect(Near(content.bounds.x + content.size.width, 791.5F) &&
-                   Near(content.bounds.y + content.size.height, 591.5F),
-               "opaque page leaves right and bottom card outline uncovered");
+        const auto outline = ui.Find(UiSelector::Key("page-card-outline")).One();
+        Expect(Near(content.bounds.x, 8.0F) && Near(content.bounds.y, 8.0F),
+               "opaque page fills card without extra border padding");
+        Expect(Near(content.bounds.x + content.size.width, 792.0F) &&
+                   Near(content.bounds.y + content.size.height, 592.0F),
+               "page keeps the original outer card margin");
+        Expect(content.bounds == outline.bounds, "foreground outline stretches across the same bounds as content");
     }
 }
 
@@ -173,7 +175,7 @@ void PageCardFooter() {
             return PageCardSurface(
                 Column{}.With(Grow(1.0F)).Key("workspace"), theme, Color::Black(),
                 Column {
-                  Row{}.With(Frame{.height = 0.5F}),
+                  ProvideEnvironment(DividerStyle{.color = Color::Black(), .thickness = 0.5F}, Divider()),
                   Row{}.With(Frame{.height = 28.0F}).Key("status"),
                 }.With(CrossAlign(CrossAxisAlignment::Stretch)));
         };
@@ -182,14 +184,48 @@ void PageCardFooter() {
         ui.Pump();
         const auto workspace = ui.Find(UiSelector::Key("workspace")).One();
         const auto status = ui.Find(UiSelector::Key("status")).One();
-        Expect(Near(status.bounds.x, 8.5F) && Near(status.size.width, 783.0F),
-               "status bar shares the card content width and leaves side outlines uncovered");
-        Expect(Near(status.bounds.y + status.size.height, 591.5F),
-               "status bar sits above the card bottom outline and outer margin");
+        Expect(Near(status.bounds.x, 8.0F) && Near(status.size.width, 784.0F),
+               "status bar shares the full card content width");
+        Expect(Near(status.bounds.y + status.size.height, 592.0F),
+               "status bar sits inside the card above its outer margin");
         Expect(Near(status.bounds.y - workspace.bounds.y - workspace.size.height, 0.5F),
                "one internal separator divides workspace from status bar");
         Expect(Near(status.size.height, 28.0F), "status bar keeps its compact height");
     }
+}
+
+void PageCardInteraction() {
+    int clicks = 0;
+    auto theme = MaterialDarkThemeSpec();
+    theme.spacing.small = 8.0F;
+    theme.shapes.large = 10.0F;
+    root = [&] {
+        auto text = UseState(TextEditingValue{"initial"});
+        return PageCardSurface(
+            Column {
+              TextField(text).OnChanged([text](const TextEditingValue& value) { text = value; }).Key("editor"),
+              Button("Action").OnClick([&clicks] { ++clicks; }).Key("action"),
+              ScrollView {
+                Column {
+                  Text("first"),
+                  Column{}.With(Frame{.height = 1000.0F}),
+                  Text("last"),
+                }.With(CrossAlign(CrossAxisAlignment::Stretch)),
+              }.With(Grow(1.0F)).Key("scroll"),
+            }.With(Background(Color::Rgb(18, 18, 18)), CrossAlign(CrossAxisAlignment::Stretch)),
+            theme, Color::Black());
+    };
+    const Application app{LayoutTestRoot};
+    UiTest ui(app, {.viewport = {800.0F, 600.0F}});
+    ui.Pump();
+    ui.Find(UiSelector::Key("action")).Tap();
+    Expect(clicks == 1, "foreground outline does not intercept button clicks");
+    auto editor = ui.Find(UiSelector::Key("editor"));
+    editor.Tap();
+    editor.ReplaceText("edited through outline");
+    Expect(editor.One().value == "edited through outline", "foreground outline preserves text focus and editing");
+    const auto consumed = ui.Find(UiSelector::Key("scroll")).ScrollBy({0.0F, 100.0F});
+    Expect(Near(consumed.y, 100.0F), "foreground outline preserves wheel scrolling");
 }
 } // namespace
 
@@ -200,6 +236,7 @@ int main() {
     DesktopBreakpoints();
     PageCardOutline();
     PageCardFooter();
+    PageCardInteraction();
     if (failures == 0) std::puts("UI layout checks passed");
     return failures == 0 ? 0 : 1;
 }

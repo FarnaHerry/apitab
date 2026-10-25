@@ -163,8 +163,9 @@ presentation.md` 的 Presentation services 节（UsePopup 自绘菜单配方）�
     （深色 `#303030`、浅色 `#f6f8fa`）、`shapes.large` 圆角（当前 10dp）和一圈 0.5dp 描边
     （深色白色、浅色 `line_default`）。各页面根节点不得再画自己的
     上/下/左/右周边线或额外外框；页面内部面板仍无常态边框，分区交给单条分隔线。
-    卡片实现位于 `src/ui/page_card.h::PageCardSurface`：`Border` 不自动内缩内容，必须
-    预留一圈等于线宽的 Padding，并以“外圆角 − 线宽”的内圆角裁剪页面，防止工作面遮住外框。
+    卡片实现位于 `src/ui/page_card.h::PageCardSurface`：使用 `Stack`，页面在前、纯描边层
+    在后，统一圆角裁剪；不为描边另加 Padding 或内圆角裁剪。描边层不绑定事件、焦点或语义，
+    防止遮住工作面交互。状态栏分隔用官方 `Divider`，局部继承并覆盖 `DividerStyle` 的线色与粗细。
   - 静态分隔 = 通栏 `kLineWidth` 线：空 `Row{}`/`Column{}` +
     `Frame{.width/.height = kLineWidth}` + `Background(line_subtle)`，靠外层
     `CrossAlign(Stretch)` 拉满。HuxerUI 使用逻辑尺寸，物理像素宽度随窗口缩放映射；
