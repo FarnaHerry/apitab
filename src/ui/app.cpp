@@ -56,10 +56,15 @@ enum PageIndex : std::size_t {
 [[huxerui::composable]] huxerui::View PageCard(huxerui::View content) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     const IslandTheme islands = ResolveIslandTheme(theme);
+    constexpr huxerui::Color kDarkPageCardColor = huxerui::Color::Rgb(33, 40, 48);  // #212830
+    constexpr huxerui::Color kLightPageCardColor = huxerui::Color::Rgb(246, 248, 250);  // #f6f8fa
+    const huxerui::Color cardColor = theme.colors.background.red < 0.5F
+                                         ? kDarkPageCardColor
+                                         : kLightPageCardColor;
     huxerui::View card = huxerui::Column{content}.With(
         huxerui::Grow(1.0F),
         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-        huxerui::Background(islands.raised),
+        huxerui::Background(cardColor),
         huxerui::Border(islands.line_subtle, kLineWidth),
         huxerui::CornerRadius(theme.shapes.small),
         huxerui::ClipChildren());
