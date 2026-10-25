@@ -13,7 +13,7 @@ inline huxerui::View PageCardSurface(huxerui::View content, const huxerui::Theme
                                     std::optional<huxerui::View> footer = std::nullopt) {
     constexpr huxerui::Color kDarkPageCardColor = huxerui::Color::Rgb(48, 48, 48);  // #303030
     constexpr huxerui::Color kLightPageCardColor = huxerui::Color::Rgb(246, 248, 250);  // #f6f8fa
-    constexpr float kPageCardBorderWidth = 0.5F;
+    constexpr float kPageCardBorderWidth = 0.3F;
     const float cardRadius = theme.shapes.large;
     const bool isDarkTheme = theme.colors.background.red < 0.5F;
     const huxerui::Color cardColor = isDarkTheme ? kDarkPageCardColor : kLightPageCardColor;
