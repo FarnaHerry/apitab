@@ -65,6 +65,9 @@ enum PageIndex : std::size_t {
     huxerui::View card = huxerui::Column{content}.With(
         huxerui::Grow(1.0F),
         huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+        // Border 在卡片 bounds 内侧绘制；页面根节点会贴边绘制不透明底色，
+        // 因此把内容内缩一条线宽，避免子页面盖住卡片外框。
+        huxerui::Padding(kLineWidth),
         huxerui::Background(cardColor),
         huxerui::Border(cardBorderColor, kLineWidth),
         huxerui::CornerRadius(theme.shapes.small),
