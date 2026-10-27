@@ -566,7 +566,7 @@ huxerui::View LoginPage(huxerui::State<bool> loggedIn);
 huxerui::View LoginPage(huxerui::DialogContext ctx, huxerui::State<bool> loggedIn);
 
 // request_page.cpp — 请求工作区根编排（薄组合：左岛集合树 + 右岛 HTTP/WS/TCP/gRPC 分派）。
-huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject);
+huxerui::View RequestPage(huxerui::State<std::int64_t> activeProject, std::int64_t window_id);
 
 // request_body_editor.cpp — Body 文本编辑器与格式化 helpers（P1-C1 自 request_page.cpp
 // 拆出）：SweetEditor 代码编辑器（行号/语法高亮/等宽，palette 跟随主题）+ JSON 注释
@@ -776,7 +776,8 @@ huxerui::View TitleBarLogo(float slotWidth);
 huxerui::View TopTabStrip(huxerui::State<std::vector<std::int64_t>> tabs,
                           huxerui::State<bool> settingsOpen,
                           huxerui::State<TopTabId> activeTopTab,
-                          const TopTabActions& actions);
+                          const TopTabActions& actions,
+                          bool child_window);
 
 // 底部全局状态条（global_status_bar.cpp）：右缘热区 + 代理/Cookie 弹窗（无模块类型签名）
 huxerui::View GlobalStatusBar();

@@ -23,6 +23,12 @@
 
 namespace apitab::ui {
 
+// Application-owned window ID: the main window is zero; each detached project
+// window uses its positive project ID. HuxerUI no longer provides a framework
+// WindowIdentity because each window owns an explicit content factory.
+using WindowId = std::int64_t;
+inline constexpr WindowId kMainWindowId = 0;
+
 // 请求工作区快照：拆窗/拖回时随项目标签迁移的窗口内组合态（均为纯值）。
 struct WorkspaceSnapshot {
     std::vector<RequestDraft> drafts; // 请求页未保存草稿（含内容、类型、用例等）
@@ -56,8 +62,8 @@ public:
     void SetMainWindow(huxerui::WindowHandle window) { main_window_.emplace(window); }
     void ClearMainWindow() { main_window_.reset(); }
     void RegisterChild(std::int64_t project_id, huxerui::WindowHandle window,
-                       std::uint32_t window_ordinal) {
-        children_.insert_or_assign(project_id, ChildEntry{window, window_ordinal});
+                       WindowId window_id) {
+        children_.insert_or_assign(project_id, ChildEntry{window, window_id});
     }
     void UnregisterChild(std::int64_t project_id) { children_.erase(project_id); }
     bool HasChild(std::int64_t project_id) const { return children_.contains(project_id); }
@@ -67,7 +73,8 @@ public:
     // 丢弃。前置条件是无拆出子窗口（HasChildren() == false）——此时快照提供者
     // 只剩主窗口的，任一快照带未保存草稿即代表主窗口有未保存工作。
     bool AnyUnsavedDrafts() const {
-        for (const auto& [ordinal, capture] : captures_) {
+        for (const auto& [window_id, capture] : captures_) {
+            static_cast<void>(window_id);
             if (capture) {
                 if (const WorkspaceSnapshot snapshot = capture(); !snapshot.drafts.empty()) {
                     return true;
@@ -78,34 +85,34 @@ public:
     }
 
     // 子窗口根组合注册的工作区内部页提供者（实时拖回的信封要带走 nav_page）。
-    void RegisterNavPage(std::uint32_t window_ordinal, std::function<std::size_t()> provider) {
-        nav_providers_.insert_or_assign(window_ordinal, std::move(provider));
+    void RegisterNavPage(WindowId window_id, std::function<std::size_t()> provider) {
+        nav_providers_.insert_or_assign(window_id, std::move(provider));
     }
-    void UnregisterNavPage(std::uint32_t window_ordinal) { nav_providers_.erase(window_ordinal); }
+    void UnregisterNavPage(WindowId window_id) { nav_providers_.erase(window_id); }
 
     // ---- 主窗口桥 ----
     void SetMainBridge(MainBridge bridge) { main_bridge_ = std::move(bridge); }
     void ClearMainBridge() { main_bridge_.reset(); }
 
-    // ---- 工作区快照提供者（键 = 所在窗口的 WindowIdentity::ordinal） ----
+    // ---- 工作区快照提供者（键 = 应用层稳定 WindowId） ----
     // RequestPage 挂载时注册、卸载时注销；快照在拆出/拖回的发起窗口侧采集。
     using Capture = std::function<WorkspaceSnapshot()>;
-    void RegisterCapture(std::uint32_t window_ordinal, Capture capture) {
-        captures_.insert_or_assign(window_ordinal, std::move(capture));
+    void RegisterCapture(WindowId window_id, Capture capture) {
+        captures_.insert_or_assign(window_id, std::move(capture));
     }
-    void UnregisterCapture(std::uint32_t window_ordinal) { captures_.erase(window_ordinal); }
+    void UnregisterCapture(WindowId window_id) { captures_.erase(window_id); }
 
     // ---- 行为 ----
 
     // 拆出（主窗口项目标签拖出标签条）：采集快照 → 主窗口 detach_tab → 光标处
-    // 打开子窗口（key = "project:<id>"，外观参数与主窗口一致）。若该项目已有
+    // 使用显式子窗口内容工厂打开项目窗口（外观参数与主窗口一致）。若该项目已有
     // 子窗口则忽略（同一项目同一时刻只在一个窗口打开）。
-    void TearOff(std::uint32_t from_ordinal, std::int64_t project_id,
+    void TearOff(WindowId from_window_id, std::int64_t project_id,
                  const std::optional<huxerui::Point>& cursor_screen);
 
     // 拖回（子窗口项目标签拖出窗口顶缘）：采集快照 → 存信封（nav_page 由子窗口
     // 根组合随调用给出）→ 主窗口 restore_tab → 退役子窗口并唤醒主窗口。
-    void MergeBack(std::uint32_t from_ordinal, std::int64_t project_id, std::size_t nav_page);
+    void MergeBack(WindowId from_window_id, std::int64_t project_id, std::size_t nav_page);
 
     // ---- 实时拖回（应用级类型化拖拽，全程不松手，Chrome 式）----
     // 原生跨窗口拖拽传输要求源窗口在拖拽期间存活，所以合并拆成三段：
@@ -144,27 +151,22 @@ public:
     std::optional<WorkspaceSnapshot> ConsumeWorkspace(std::int64_t project_id);
 
 private:
-    std::optional<WorkspaceSnapshot> CaptureFrom(std::uint32_t window_ordinal) const;
+    std::optional<WorkspaceSnapshot> CaptureFrom(WindowId window_id) const;
 
     struct ChildEntry {
         huxerui::WindowHandle handle;
-        std::uint32_t ordinal = 0;
+        WindowId window_id = kMainWindowId;
     };
 
     std::optional<huxerui::ApplicationHandle> application_;
     std::optional<huxerui::WindowHandle> main_window_;
     std::unordered_map<std::int64_t, ChildEntry> children_;
     std::optional<MainBridge> main_bridge_;
-    std::unordered_map<std::uint32_t, Capture> captures_;
-    std::unordered_map<std::uint32_t, std::function<std::size_t()>> nav_providers_;
+    std::unordered_map<WindowId, Capture> captures_;
+    std::unordered_map<WindowId, std::function<std::size_t()>> nav_providers_;
     std::optional<TabTransferEnvelope> envelope_;
     std::optional<std::int64_t> pending_merge_;
 };
-
-// 子窗口 key 约定（WindowOptions::key ↔ WindowIdentity::key）。
-inline constexpr char kChildWindowKeyPrefix[] = "project:";
-std::int64_t ParseChildWindowKey(const std::string& key);
-std::string MakeChildWindowKey(std::int64_t project_id);
 
 // 应用安装钩子（AppOptions::application_hooks）：创建并发布进程级 WindowManager，
 // 同时 Provide 给组合（UseService<WindowManager>()）。

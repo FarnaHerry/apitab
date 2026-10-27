@@ -405,7 +405,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                                 huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch)));
 }
 
-[[huxerui::composable]] huxerui::View RequestPage(huxerui::State<std::int64_t> opened) {
+[[huxerui::composable]] huxerui::View RequestPage(huxerui::State<std::int64_t> opened,
+                                                   std::int64_t windowId) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     // 岛屿几何令牌：岛内边距统一从这里取（工具化密度 = small/8pt）。
     // 局部 islands 变量是右侧分支的 View 容器，与令牌命名避让。
@@ -420,8 +421,6 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     // 的转移信封在首组合恢复（按当前项目游标匹配；重组时 UseState 丢弃初值，
     // 重复消费返回空、无害）。
     const auto windowManager = huxerui::UseService<WindowManager>();
-    const huxerui::WindowIdentity windowIdentity =
-        huxerui::UseEnvironment<huxerui::WindowIdentity>();
     std::vector<RequestDraft> restoredDrafts;
     if (auto workspace = windowManager->ConsumeWorkspace(g_requests.currentProjectId())) {
         restoredDrafts = std::move(workspace->drafts);
@@ -455,13 +454,13 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     //（nav_page 由根组合另行提供）。挂载注册、卸载注销；本窗口退役时清理
     // 随协程帧走，指针不悬挂。
     huxerui::Lifecycle(
-        [windowManager, ordinal = windowIdentity.ordinal, openDrafts, activeTab] {
-            windowManager->RegisterCapture(ordinal, [openDrafts, activeTab] {
+        [windowManager, windowId, openDrafts, activeTab] {
+            windowManager->RegisterCapture(windowId, [openDrafts, activeTab] {
                 return WorkspaceSnapshot{openDrafts.Get(), activeTab.Get(), 0};
             });
-            return [windowManager, ordinal] { windowManager->UnregisterCapture(ordinal); };
+            return [windowManager, windowId] { windowManager->UnregisterCapture(windowId); };
         },
-        windowIdentity.ordinal);
+        windowId);
 
     // 窄桌面仍保留左右工作区，收窄请求树；避免上下堆叠挤占 HTTP 编辑/响应区高度。
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;

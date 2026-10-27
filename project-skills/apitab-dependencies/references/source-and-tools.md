@@ -15,11 +15,13 @@
   源码模式编译 Linux 后端需要 `sudo dnf install gtk4-devel libepoxy-devel libsoup3-devel`。
   强制回落已安装/离线 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`；该通道是兼容与发布门禁，
   不阻塞开发期使用最新源码 API。
-- 源码 clone 现为 **FarnaHerry/HuxerUI fork 的 farna/main**（基于上游 0c51262 +
-  21 个 fork 提交：Linux PlatformView 宿主支持——Lib-WebView 的 Linux WebKitGTK
-  后端依赖它、窗口边框 10dp/14dp 缩放热区+方向光标、bounded stretch 布局测量
-  修复、宿主工具 `HUXERUI_HOST_TOOLS_STATIC_RUNTIME` 选项等；CI 固定
-  ba8a900，上游推进后由 fork rebase 跟进）。**原三个本地补丁已全部被 fork
+- 源码 clone 现为 **FarnaHerry/HuxerUI fork 的 farna/main**（CI 固定
+  `5873eebcbc47cf659ce465bb89ae6634bfeca64b`，2026-10-28；包含 Linux PlatformView
+  宿主支持——Lib-WebView 的 Linux WebKitGTK 后端依赖它、窗口边框缩放热区、bounded
+  stretch 布局测量修复、宿主工具 `HUXERUI_HOST_TOOLS_STATIC_RUNTIME` 选项，以及
+  应用级多窗口 API）。`89b7815` 移除了 `WindowOptions::key` / `WindowIdentity`，运行期
+  `ApplicationHandle::OpenWindow` 现在必须传入独立 `ViewFactory`；apitab 用应用层
+  `WindowId` 和显式主/子窗口工厂接入。**原三个本地补丁已全部被 fork
   收编并删除**：`huxerui-window-p0960.patch`（CrossAlign 花括号，fork
   window.h 已用花括号）、`huxerui-hosttools-dynamic.patch`（改为 fork 的
   `HUXERUI_HOST_TOOLS_STATIC_RUNTIME=OFF`）、`huxerui-linux-resize-hitarea.patch`

@@ -1,7 +1,6 @@
 // window_manager.cpp — 多窗口控制器实现：安装钩子、拆出/拖回/关闭/唤醒行为。
 #include "window_manager.h"
 
-#include <charconv>
 #include <utility>
 
 #include "app.h"
@@ -23,20 +22,6 @@ constexpr huxerui::Size kChildMinimumSize{800.0F, 600.0F};
 
 } // namespace
 
-std::int64_t ParseChildWindowKey(const std::string& key) {
-    if (!key.starts_with(kChildWindowKeyPrefix)) return 0;
-    const std::string_view digits(key.data() + std::char_traits<char>::length(kChildWindowKeyPrefix),
-                                  key.size() - std::char_traits<char>::length(kChildWindowKeyPrefix));
-    std::int64_t id = 0;
-    const auto [ptr, ec] = std::from_chars(digits.data(), digits.data() + digits.size(), id);
-    if (ec != std::errc{} || ptr != digits.data() + digits.size() || id <= 0) return 0;
-    return id;
-}
-
-std::string MakeChildWindowKey(std::int64_t project_id) {
-    return std::string{kChildWindowKeyPrefix} + std::to_string(project_id);
-}
-
 WindowManager* CurrentWindowManager() { return g_windowManager; }
 
 void InstallWindowManager(huxerui::ApplicationContext& context) {
@@ -50,7 +35,6 @@ huxerui::WindowOptions MakeChildWindowOptions(std::int64_t project_id, const std
                                               const std::optional<huxerui::Point>& position) {
     huxerui::WindowOptions options;
     options.title = title;
-    options.key = MakeChildWindowKey(project_id);
     options.initial_size = kChildInitialSize;
     options.minimum_size = kChildMinimumSize;
     options.chrome_mode = huxerui::WindowChromeMode::Custom;
@@ -61,8 +45,8 @@ huxerui::WindowOptions MakeChildWindowOptions(std::int64_t project_id, const std
     return options;
 }
 
-std::optional<WorkspaceSnapshot> WindowManager::CaptureFrom(std::uint32_t window_ordinal) const {
-    const auto it = captures_.find(window_ordinal);
+std::optional<WorkspaceSnapshot> WindowManager::CaptureFrom(WindowId window_id) const {
+    const auto it = captures_.find(window_id);
     if (it == captures_.end() || !it->second) return std::nullopt;
     return it->second();
 }
@@ -79,7 +63,7 @@ std::optional<WorkspaceSnapshot> WindowManager::ConsumeWorkspace(std::int64_t pr
     return snapshot;
 }
 
-void WindowManager::TearOff(std::uint32_t from_ordinal, std::int64_t project_id,
+void WindowManager::TearOff(WindowId from_window_id, std::int64_t project_id,
                             const std::optional<huxerui::Point>& cursor_screen) {
     // 已有同名子窗口（重复触发/竞态）：忽略本次手势，标签留在主窗口。
     if (!main_bridge_ || !main_bridge_->detach_tab || HasChild(project_id)) return;
@@ -92,7 +76,7 @@ void WindowManager::TearOff(std::uint32_t from_ordinal, std::int64_t project_id,
 
     // 快照在 detach 之前采集：主窗口的项目页此时仍然挂载（IndexedPages 保活）。
     // nav_page 来自主窗口根组合（request 页的快照提供者只管草稿）。
-    WorkspaceSnapshot workspace = CaptureFrom(from_ordinal).value_or(WorkspaceSnapshot{});
+    WorkspaceSnapshot workspace = CaptureFrom(from_window_id).value_or(WorkspaceSnapshot{});
     if (main_bridge_->current_nav_page) workspace.nav_page = main_bridge_->current_nav_page();
     envelope_ = TabTransferEnvelope{project_id, std::move(workspace)};
     main_bridge_->detach_tab(project_id);
@@ -108,16 +92,17 @@ void WindowManager::TearOff(std::uint32_t from_ordinal, std::int64_t project_id,
     }
     const huxerui::WindowOptions options = MakeChildWindowOptions(project_id, title, cursor_screen);
     if (application_) {
-        static_cast<void>(application_->OpenWindow(options));
+        static_cast<void>(application_->OpenWindow(
+            [project_id] { return ChildWindowRoot(project_id); }, options));
     }
 }
 
-void WindowManager::MergeBack(std::uint32_t from_ordinal, std::int64_t project_id,
+void WindowManager::MergeBack(WindowId from_window_id, std::int64_t project_id,
                               std::size_t nav_page) {
     const auto child = children_.find(project_id);
     if (child == children_.end() || !main_bridge_ || !main_bridge_->restore_tab) return;
 
-    WorkspaceSnapshot workspace = CaptureFrom(from_ordinal).value_or(WorkspaceSnapshot{});
+    WorkspaceSnapshot workspace = CaptureFrom(from_window_id).value_or(WorkspaceSnapshot{});
     workspace.nav_page = nav_page;
     envelope_ = TabTransferEnvelope{project_id, std::move(workspace)};
     main_bridge_->restore_tab(project_id);
@@ -134,8 +119,9 @@ bool WindowManager::MergeBegin(std::int64_t project_id) {
     if (child == children_.end()) return false;
     // 信封从子窗口的快照提供者采集（其请求页仍挂载、状态活跃），nav_page 由
     // 子窗口根组合的提供者给出；MergeAbort 即整份丢弃。
-    WorkspaceSnapshot workspace = CaptureFrom(child->second.ordinal).value_or(WorkspaceSnapshot{});
-    if (const auto nav = nav_providers_.find(child->second.ordinal); nav != nav_providers_.end() && nav->second) {
+    WorkspaceSnapshot workspace = CaptureFrom(child->second.window_id).value_or(WorkspaceSnapshot{});
+    if (const auto nav = nav_providers_.find(child->second.window_id);
+        nav != nav_providers_.end() && nav->second) {
         workspace.nav_page = nav->second();
     }
     envelope_ = TabTransferEnvelope{project_id, std::move(workspace)};

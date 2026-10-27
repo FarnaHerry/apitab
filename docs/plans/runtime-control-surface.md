@@ -153,12 +153,12 @@ agent 全程经控制面操作；人不在场也不需要窗口。
 |---|---|
 | 运行中隐藏窗口 | ✅ `WindowHandle::Hide()`（apitab 已用于"最小化到托盘"） |
 | 隐藏时停止出帧 | ✅ 隐式（实测 CPU ≈ 0） |
-| **启动即无窗口/纯后台** | ❌ 不是公开能力：`WindowOptions` 没有 visible/background 开关，`RunApplication()` 由平台建窗 |
-| **关窗后重建窗口** | ❌ 没有公开 `OpenWindow`；"window retirement" 只出现在 `Runtime::Retire()`（进程退出）语境；多窗口仍是计划项（`docs/plans/project-tab-tear-off-window.md`） |
+| **启动即无窗口/纯后台** | ✅ `AppOptions::create_initial_window = false` 跳过初始窗口；apitab 仍用默认值 `true`，托盘展示也仍在根组合中 |
+| **关窗后重建窗口** | ✅ `ApplicationHandle::OpenWindow(ViewFactory, WindowOptions)` 创建带独立内容工厂的窗口；`WindowHandle::Retire()` 可退役窗口，apitab 托盘唤回已使用此路径 |
 | 释放渲染缓存/内存压力回调 | ❌ 无公开 API（建议反馈上游） |
 
-→ 现在能做的形态是"**有窗启动 → 关到托盘（Hide）→ 控制面继续服务**"；
-"启动就后台、点托盘再建窗"要等 hui 提供无窗口启动或窗口重建能力。
+→ SDK 已提供无初始窗口启动和运行期建窗能力；apitab 目前仍以有窗模式启动，并在根组合
+展示托盘。完成托盘接线迁移后，可以采用"**无窗启动 → 托盘常驻 → 激活时显式建窗**"。
 
 ### 7.3 要真省内存，两条路
 
@@ -205,14 +205,14 @@ agent 全程经控制面操作；人不在场也不需要窗口。
 
 ## 8. "CLI 拉起 → 默认到托盘" 还差什么
 
-> **TODO（等上游 HuxerUI）：`WindowOptions::start_hidden` / 无窗口启动。**
-> 现状：Linux 适配器启动序列先 `gtk_window_present()` 再出首帧，应用代码只能在首帧
-> 组合里 `Hide()`，所以"启动即进入托盘"必然闪一下窗口。本仓先把其余部分做完，
-> 该能力等作者支持后接入（届时删掉"拉起时闪一下"的说明与 workaround 代码）。
+> HuxerUI 现在支持 `AppOptions::create_initial_window = false` 与运行期
+> `ApplicationHandle::OpenWindow(ViewFactory, WindowOptions)`；apitab 目前仍以默认初始窗启动，
+> 且托盘展示由根组合设置。要做到托盘优先且不闪窗，需先把托盘展示移到应用安装期，并按
+> 托盘激活/显式命令再创建主窗口。`WindowOptions::start_hidden` 仍未提供。
 
-目标形态（用户确认的方向）：`apitab --cli <cmd>` 发现实例没跑 → 把它拉起到**托盘 +
-轻量模式** → 经控制面执行命令。这样进程里 runtime/DB(ORM)/curl 引擎/k6/托盘全在，
-agent 的数据类命令（orgs/projects/requests/show/send/history）全部可用。
+目标形态（用户确认的方向）：`apitab --cli <cmd>` 发现实例没跑 → 以无初始窗口模式启动，
+安装期展示托盘并保持轻量运行 → 经控制面执行命令。这样进程里 runtime/DB(ORM)/curl
+引擎/k6/托盘全在，agent 的数据类命令（orgs/projects/requests/show/send/history）全部可用。
 
 三个前提 + 一个代价：
 
@@ -225,14 +225,11 @@ agent 的数据类命令（orgs/projects/requests/show/send/history）全部可�
 新逻辑：发现实例 → 连控制端点；没有端点 → 拉起 + 等端点就绪（超时兜底）→ 失败给明确
 错误码。并发拉起天然被单实例锁串行化。
 
-**前提 C — hui 没有"启动即隐藏"**
-`WindowOptions` 无 visible/background 字段；Linux 适配器的启动序列是
-`CreateWindow → InitializeWindow → running_=true → gtk_window_present() → RequestFrameAt()`
-（`platform/linux/linux_adapter.cpp:640-654`），**先 present 再出首帧** → 应用代码只能在
-首帧组合里 `window.Hide()`，因此**会闪一下窗口**（数十至数百 ms；apitap 现有
-`hideToTray` 还多一跳 `Delay(0)`，启动路径没有回调栈约束，可直接 Hide）。
-要彻底无闪，需上游提供 `WindowOptions::start_hidden`（或允许运行时建窗/无窗口启动）
-—— 列入上游反馈项。
+**前提 C — apitab 还未切换无窗口启动**
+HuxerUI 的 `create_initial_window=false` 可跳过 Linux 的初始 `gtk_window_present()`；
+但 apitab 目前仍用默认初始窗口并在根组合中展示托盘，因此现有启动路径仍会先显示窗口。
+切换需要把托盘展示放进应用安装期，并确认不同宿主的 tray 能力；收到托盘激活后再经
+`ApplicationHandle::OpenWindow` 创建主窗口。`WindowOptions::start_hidden` 仍无公开 API。
 
 **代价/边界 — 隐藏时不出帧**
 实测隐藏态 CPU ≈ 0，说明不再出帧；UI 状态失效要等到恢复显示才重绘。runtime 定时器

@@ -1,13 +1,19 @@
 # 计划：项目标签拖出成独立窗口（tear-off）与拖回
 
-状态：**初步实现，手动验证存在多处问题，待修复**（2026-10-18）。
-阻塞已解除：HuxerUI fork eab74b0 已落地 Linux 多窗口移植（`Runtime::OpenWindow`、
-`Retire`、`WindowOptions::initial_position` / `WindowHandle::Position()`，X11/Windows
-定位、Wayland 退化）。apitab 侧已接线：窗口身份路由（AppRoot → ChildWindowRoot）、
-WindowManager 应用服务（窗口表/转移信封/主窗口桥）、二维拖拽拆出/拖回手势、
-主页唤醒、✕ 关闭策略、焦点驱动领域游标重同步。用户手动验证反馈"仍有不少问题"，
-具体问题清单待逐条记录后修复；验证过的部分：fork [linux-native] 原生多窗口测试
-（开窗/退役/定位）、apitab 启动组合、构建链路。
+状态：**初步实现，手动验证仍有问题，待修复**（2026-10-28）。
+HuxerUI fork `farna/main` 已加入应用级多窗口 API：`ApplicationHandle::OpenWindow`
+接收每个窗口自己的 `ViewFactory`，`WindowHandle::Retire()` 退役窗口；窗口位置仍以
+`WindowOptions::initial_position` / `WindowHandle::Position()` 暴露，X11/Windows 支持定位，
+Wayland 退化。2026-10-28 fork `5873eeb` 的破坏性 API 变更移除了
+`WindowOptions::key` / `WindowIdentity`；apitab 现用应用层 `WindowId`，拆窗和托盘重建
+分别显式传子窗与主窗内容工厂。fork 的 `DragDropScope::Application` 支持跨窗口 typed
+drop；原生传输取决于宿主能力。apitab 保留松手拆窗/拖回回退路径。
+
+apitab 已接线 WindowManager 应用服务（窗口表/转移信封/主窗口桥）、二维拖拽拆出/拖回
+手势、主页唤醒、✕ 关闭策略、焦点驱动领域游标重同步。用户手动验证反馈"仍有不少问题"，
+具体问题清单待逐条记录后修复；此前验证过的部分：fork [linux-native] 原生多窗口测试
+（开窗/退役/定位）、apitab 启动组合、构建链路。当前 fork 文档记录 Linux 浮动窗口完整输入
+序列仍有待验证项，不能用独立开窗/拖拽测试代替该验证。
 
 ## 已知风险区（修复时优先排查）
 
@@ -25,7 +31,7 @@ WindowManager 应用服务（窗口表/转移信封/主窗口桥）、二维拖�
 - 仅项目级标签生效；请求页内部标签（RequestTabStrip chips）不需要此功能，
   保持纯 X 轴换位。
 
-## 实施方案（SDK 支持后）
+## 实施方案
 
 1. `ProjectTab` 的 `DragSource` 去掉 axis 限制（恢复二维拖拽）。
 2. 拖的过程中经 `DragSourceEvents::Changed` 观察 `translation.y`；`Ended`
@@ -38,21 +44,24 @@ WindowManager 应用服务（窗口表/转移信封/主窗口桥）、二维拖�
    `tabs` 插回对应位置。
 4. 主页标签（id==0）恒不参与拆窗。
 
-## 阻塞点（需要 HuxerUI SDK 提供）
+## 当前 SDK 能力与待验证项
 
-1. **多窗口 API**：运行期创建/销毁次级窗口（如
-   `ApplicationHandle.OpenWindow(WindowOptions, RootFactory)`）。0.2.0 仍只有
-   单 `Application` 单 root factory，`UseWindow()` 仅主窗口命令。
-2. **跨窗口拖放**：同进程 typed payload 拖拽会话跨窗口边界（A 窗口
-   DragSource → B 窗口 DropTarget）；或至少提供「拖拽离开窗口边界」回调
-   （带最终屏幕坐标），由应用层自建 tear-off。
+1. **多窗口 API 已提供**：`ApplicationHandle::OpenWindow(ViewFactory, WindowOptions)`
+   创建独立组合树并共享 Runtime 与应用服务。每个 factory 显式决定内容；框架不再把
+   `WindowOptions` 的 key 注入 `WindowIdentity`。
+2. **跨窗口拖放 API 已提供**：`DragSource::Scope(DragDropScope::Application)` 可触达同
+   Runtime 的其他窗口；宿主没有原生跨窗传输时保留窗口内行为，因此 apitab 仍需保留
+   松手拆窗/拖回回退路径，并在目标平台实际验证。
+3. **待验证**：用户反馈的产品问题逐项补录；Linux 浮动窗口完整输入序列与
+   `DragDropScope::Application` 原生传输需按 fork 当前验证记录单独确认。
 
 ## 版本检索规则
 
-- **每次更新** `third_party/tarballs/huxerui-sdk-*`（即 CMakeLists.txt 里的
-  SDK 版本字符串变化）时，检索新版 SDK 是否提供上述两项能力（查
-  `include/huxerui/app.h` / `window.h` / `gesture.h` 与官方 changelog）。
+- **每次更新** HuxerUI 源码 fork pin 或 `third_party/tarballs/huxerui-sdk-*`
+  （即 CMakeLists.txt 里的 SDK 版本字符串）时，检查 `include/huxerui/app.h` /
+  `window.h` / `gesture.h` 与 fork 的设计、开发文档，确认窗口创建、窗口身份、
+  跨窗口拖放和宿主支持边界。
 - **不更新不用检索**。
-- 最后检索版本：源码 main `d0b3684`（2026-09-05，项目版本仍为 0.2.0；两项均不
-  支持）。本批新增 `FileDropTarget` 接收系统拖入的文件，但没有运行期创建次级窗口
-  或跨窗口传递 typed payload 的公开 API，不能用于项目标签拆窗；计划继续保持阻塞。
+- 最近检索版本：FarnaHerry/HuxerUI `farna/main` `5873eeb`（2026-10-28）。已具备
+  应用级多窗口与 Application-scope typed drag API；窗口内容需由 `ViewFactory` 显式提供，
+  `WindowIdentity` 路由已移除。Linux 原生输入完整序列仍有 fork 记录的待验证项。

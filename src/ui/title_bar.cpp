@@ -335,7 +335,8 @@ struct ProjectTabDragPayload {
 // 拖拽排序与 open_projects 持久化（§13.1）。
 [[huxerui::composable]] huxerui::View TopTabStrip(
     huxerui::State<std::vector<std::int64_t>> tabs, huxerui::State<bool> settingsOpen,
-    huxerui::State<TopTabId> activeTopTab, const TopTabActions& actions) {
+    huxerui::State<TopTabId> activeTopTab, const TopTabActions& actions,
+    bool childWindow) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
     // 拖拽中的 strip 级状态：被拖标签显示 key + 钳制后的累计 X 位移 + 起点槽位
     // （见 TopTab）。dragId 只会持有项目 id（主页/设置标签不挂 DragSource），
@@ -366,9 +367,7 @@ struct ProjectTabDragPayload {
     // 响应，子窗口的同名组件只挂修饰符不做事。子窗口的标签 DragSource 开
     // Application scope（原生跨窗口传输，Linux X11/Wayland 皆可；无原生传输的
     // 宿主退化为武装态松手合并，见 TopTab 的 fallback）。
-    const huxerui::WindowIdentity stripIdentity = huxerui::UseEnvironment<huxerui::WindowIdentity>();
     const auto stripWindowManager = huxerui::UseService<WindowManager>();
-    const bool childWindow = !stripIdentity.key.empty();
     auto mergePending = huxerui::UseState<std::int64_t>(0);
     // 步进 = 标签宽 + 分隔竖线(kLineWidth) + 两侧间距（竖线作为 Row 子节点占布局，
     // 用 Opacity 显隐避免悬停时回流抖动）。

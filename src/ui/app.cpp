@@ -72,10 +72,11 @@ enum PageIndex : std::size_t {
 
 [[huxerui::composable]] huxerui::View ProjectPages(
     huxerui::State<std::size_t> selectedPage,
-    huxerui::State<std::int64_t> activeProject) {
+    huxerui::State<std::int64_t> activeProject,
+    WindowId windowId) {
     std::vector<huxerui::View> pages;
     pages.reserve(4);
-    pages.push_back(RequestPage(activeProject)
+    pages.push_back(RequestPage(activeProject, windowId)
                         .Key(std::size_t{kRequest})
                         .With(huxerui::Grow(1.0F)));
     pages.push_back(LoadTestPage()
@@ -597,7 +598,7 @@ void TrayWindowController::ShowWindow() {
     }
     if (!application_) return;
     // 重建主窗口：与 src/app.cpp 的 AppOptions.window 同值（title/尺寸/chrome），
-    // 两处需同步修改。新窗口走同一 AppRoot 路由（key 空 = 主窗口），会话持久化
+    // 两处需同步修改。新窗口显式使用 AppRoot 内容工厂，会话持久化
     // 的标签/主题/关闭行为按启动路径恢复；未持久化的组合态不继承。
     huxerui::WindowOptions options;
     options.title = "apitab — API 测试与压测";
@@ -605,7 +606,7 @@ void TrayWindowController::ShowWindow() {
     options.minimum_size = huxerui::Size{800.0F, 600.0F};
     options.chrome_mode = huxerui::WindowChromeMode::Custom;
     options.title_bar_height = 24.0F;
-    const huxerui::WindowHandle rebuilt = application_->OpenWindow(options);
+    const huxerui::WindowHandle rebuilt = application_->OpenWindow([] { return AppRoot(); }, options);
     retired_ = false;
     rebuilt.Show();
     rebuilt.Activate();
@@ -618,15 +619,6 @@ void TrayWindowController::ShowWindow() {
 // CloseGuard 已移至 app_dialogs.cpp（P1-C2 纯搬移）
 
 [[huxerui::composable]] huxerui::View AppRoot() {
-    // 多窗口内容路由：RootFactory 全局唯一，每个窗口首组合前被注入自己的
-    // WindowIdentity（WindowOptions::key + ordinal）。初始窗口（ordinal 0、key 空）
-    // 走下方完整装配；子窗口（key = "project:<id>"，拆出/拖回创建）走轻量装配，
-    // 不执行主窗口专属的应用级接线（托盘/控制面/会话恢复/关闭询问）。
-    const huxerui::WindowIdentity windowIdentity = huxerui::UseEnvironment<huxerui::WindowIdentity>();
-    if (!windowIdentity.key.empty()) {
-        return ChildWindowRoot(windowIdentity);
-    }
-
     const huxerui::ApplicationHandle application = huxerui::UseApplication();
     const huxerui::WindowHandle window = huxerui::UseWindow();
     const huxerui::SystemTrayHandle tray = application.SystemTray();
@@ -888,14 +880,14 @@ void TrayWindowController::ShowWindow() {
         // 项目标签拖出标签条：拆成独立子窗口（Chrome 式 tear-off）。落点屏幕
         // 坐标 = 本窗口客户区原点 + 拖拽指针窗口内位置；Position 在 Wayland 无
         // 值，子窗口退化为窗口管理器默认摆放。
-        [windowManager, window, ordinal = windowIdentity.ordinal](
+        [windowManager, window](
             std::int64_t id, const huxerui::Point pointer) {
             std::optional<huxerui::Point> screen;
             if (const std::optional<huxerui::Point> origin = window.Position();
                 origin.has_value()) {
                 screen = huxerui::Point{origin->x + pointer.x, origin->y + pointer.y};
             }
-            windowManager->TearOff(ordinal, id, screen);
+            windowManager->TearOff(kMainWindowId, id, screen);
         },
     };
 
@@ -998,7 +990,7 @@ void TrayWindowController::ShowWindow() {
     for (std::int64_t id : tabs.Get()) {
         const std::size_t idx = indexed.size();
         projIdx[id] = idx;
-        indexed.push_back(pages::PageCard(pages::ProjectPages(navPage, activeProject), true)
+        indexed.push_back(pages::PageCard(pages::ProjectPages(navPage, activeProject, kMainWindowId), true)
                               .Key(id)
                               .With(huxerui::Grow(1.0F)));
     }
@@ -1048,7 +1040,7 @@ void TrayWindowController::ShowWindow() {
         huxerui::WindowTitleBar {
             TitleBarLogo(titleBarLogoWidth).With(huxerui::WindowDragRegion{}),
             // 标签条按真实内容宽度布局；窄窗时受父约束收缩并横向滚动。
-            TopTabStrip(tabs, settingsOpen, activeTopTab, topTabActions),
+            TopTabStrip(tabs, settingsOpen, activeTopTab, topTabActions, false),
             // 标题栏唯一的弹性项。ScrollView 本身必须保持 Client；所有标签内容之外
             // 的剩余宽度由这个真实 sibling 占有，因此整块空白可靠命中 Drag，右侧
             // 动作组仍按自然宽度固定在系统按钮左侧。
@@ -1131,10 +1123,9 @@ void TrayWindowController::ShowWindow() {
 //   - ✕（标题栏或标签）= 直接关闭该标签（主窗口 open_projects 移除并持久化），
 //     然后退役本窗口；
 //   - 焦点回到本窗口 = 领域游标重同步到本窗口项目（单游标 store 的多窗口治理）。
-// 主窗口专属接线（托盘/控制面/会话恢复/关闭询问弹窗）不在这里执行——AppRoot
-// 在路由时已把子窗口分流到本函数。
-[[huxerui::composable]] huxerui::View ChildWindowRoot(const huxerui::WindowIdentity& identity) {
-    const std::int64_t projectId = ParseChildWindowKey(identity.key);
+// 主窗口专属接线（托盘/控制面/会话恢复/关闭询问弹窗）不在这里执行；拆窗时由
+// ApplicationHandle::OpenWindow 显式传入此子窗口内容工厂。
+[[huxerui::composable]] huxerui::View ChildWindowRoot(std::int64_t projectId) {
     const huxerui::WindowHandle window = huxerui::UseWindow();
     const auto windowManager = huxerui::UseService<WindowManager>();
     auto toast = huxerui::UseToast();
@@ -1159,12 +1150,12 @@ void TrayWindowController::ShowWindow() {
     // 挂载登记 + 卸载清理（退役/应用退出都会走清理，窗口表不悬挂）。
     // navPage 提供者给实时拖回的信封带走子窗口的工作区内部页。
     huxerui::Lifecycle(
-        [windowManager, window, projectId, ordinal = identity.ordinal, navPage] {
-            windowManager->RegisterChild(projectId, window, ordinal);
-            windowManager->RegisterNavPage(ordinal, [navPage] { return navPage.Get(); });
-            return [windowManager, projectId, ordinal] {
+        [windowManager, window, projectId, navPage] {
+            windowManager->RegisterChild(projectId, window, projectId);
+            windowManager->RegisterNavPage(projectId, [navPage] { return navPage.Get(); });
+            return [windowManager, projectId] {
                 windowManager->UnregisterChild(projectId);
-                windowManager->UnregisterNavPage(ordinal);
+                windowManager->UnregisterNavPage(projectId);
             };
         },
         0);
@@ -1223,9 +1214,9 @@ void TrayWindowController::ShowWindow() {
         [windowManager, projectId](const TopTabId target) {
             if (target.kind == TopTabKind::Project) windowManager->CloseChildTab(projectId);
         },
-        [windowManager, ordinal = identity.ordinal, navPage, projectId](
+        [windowManager, navPage, projectId](
             std::int64_t, const huxerui::Point&) {
-            windowManager->MergeBack(ordinal, projectId, navPage.Get());
+            windowManager->MergeBack(projectId, projectId, navPage.Get());
         },
     };
 
@@ -1242,14 +1233,14 @@ void TrayWindowController::ShowWindow() {
     const float titleBarLogoWidth = sideShellWidth - 2.0F * titleBarHorizontalPadding;
 
     // 内容区：子窗口只有项目工作区（无主页/设置页），navPage 表达内部页。
-    huxerui::View page = pages::PageCard(pages::ProjectPages(navPage, activeProject), true)
+    huxerui::View page = pages::PageCard(pages::ProjectPages(navPage, activeProject, projectId), true)
                              .Key(projectId)
                              .With(huxerui::Grow(1.0F));
 
     huxerui::View content = huxerui::Column {
         huxerui::WindowTitleBar {
             TitleBarLogo(titleBarLogoWidth).With(huxerui::WindowDragRegion{}),
-            TopTabStrip(tabs, settingsOpen, activeTopTab, topTabActions),
+            TopTabStrip(tabs, settingsOpen, activeTopTab, topTabActions, true),
             huxerui::Spacer{}.With(huxerui::Grow(1.0F), huxerui::WindowDragRegion{}),
             // 齿轮 = 唤醒主窗口打开全局设置（与主窗口同款外观，行为路由主窗口）。
             huxerui::Row {
