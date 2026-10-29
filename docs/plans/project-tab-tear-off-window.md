@@ -1,13 +1,13 @@
 # 计划：项目标签拖出成独立窗口（tear-off）与拖回
 
 状态：**初步实现，手动验证仍有问题，待修复**（2026-10-28）。
-HuxerUI fork `farna/main` 已加入应用级多窗口 API：`ApplicationHandle::OpenWindow`
-接收每个窗口自己的 `ViewFactory`，`WindowHandle::Retire()` 退役窗口；窗口位置仍以
-`WindowOptions::initial_position` / `WindowHandle::Position()` 暴露，X11/Windows 支持定位，
-Wayland 退化。2026-10-28 fork `5873eeb` 的破坏性 API 变更移除了
-`WindowOptions::key` / `WindowIdentity`；apitab 现用应用层 `WindowId`，拆窗和托盘重建
-分别显式传子窗与主窗内容工厂。fork 的 `DragDropScope::Application` 支持跨窗口 typed
-drop；原生传输取决于宿主能力。apitab 保留松手拆窗/拖回回退路径。
+HuxerUI fork `farna/main` 的应用级多窗口 API 由 `ApplicationHandle::OpenWindow`
+接收每个窗口自己的 `ViewFactory`；窗口位置以 `WindowOptions::initial_position` /
+`WindowHandle::Position()` 暴露，X11/Windows 支持定位，Wayland 退化。2026-10-29 fork
+`b083028` 移除了 `WindowHandle::Retire()`，统一使用会经过 `OnCloseRequest` 的 `Close()`；
+apitab 用 `managed_closes_` 区分管理器关闭和用户原生关闭，避免拖回后重复 detach。
+`quit_on_last_window_closed=false` 保持轻量模式无窗常驻。fork 的
+`DragDropScope::Application` 支持跨窗口 typed drop；原生传输取决于宿主能力。
 
 apitab 已接线 WindowManager 应用服务（窗口表/转移信封/主窗口桥）、二维拖拽拆出/拖回
 手势、主页唤醒、✕ 关闭策略、焦点驱动领域游标重同步。用户手动验证反馈"仍有不少问题"，
@@ -62,6 +62,6 @@ apitab 已接线 WindowManager 应用服务（窗口表/转移信封/主窗口�
   `window.h` / `gesture.h` 与 fork 的设计、开发文档，确认窗口创建、窗口身份、
   跨窗口拖放和宿主支持边界。
 - **不更新不用检索**。
-- 最近检索版本：FarnaHerry/HuxerUI `farna/main` `5873eeb`（2026-10-28）。已具备
+- 最近检索版本：FarnaHerry/HuxerUI `farna/main` `b083028`（2026-10-29）。已具备
   应用级多窗口与 Application-scope typed drag API；窗口内容需由 `ViewFactory` 显式提供，
-  `WindowIdentity` 路由已移除。Linux 原生输入完整序列仍有 fork 记录的待验证项。
+  `WindowIdentity` 路由与 `Retire()` 均已移除。Linux 原生输入完整序列仍有 fork 记录的待验证项。

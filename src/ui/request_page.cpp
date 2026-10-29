@@ -451,7 +451,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     const auto responseMetrics = huxerui::UseState(std::make_shared<SplitPaneMetrics>());
 
     // 多窗口快照采集：拆出/拖回的发起窗口侧经 WindowManager 采集本页草稿
-    //（nav_page 由根组合另行提供）。挂载注册、卸载注销；本窗口退役时清理
+    //（nav_page 由根组合另行提供）。挂载注册、卸载注销；本窗口关闭时清理
     // 随协程帧走，指针不悬挂。
     huxerui::Lifecycle(
         [windowManager, windowId, openDrafts, activeTab] {

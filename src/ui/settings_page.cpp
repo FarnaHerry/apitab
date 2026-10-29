@@ -499,6 +499,8 @@ constexpr AboutDependency kAboutDependencies[] = {
                                                          huxerui::State<std::size_t> category,
                                                          huxerui::State<huxerui::ImageAsset> avatarImage) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const bool systemDark =
+        huxerui::UseSystemThemeBrightness() == huxerui::ThemeBrightness::Dark;
     const IslandTheme islands = ResolveIslandTheme(theme);
     auto tasks = huxerui::UseTaskScope();
     // 场景过渡：主题切换（整树换色）用圆形揭示动画包一层；reduced motion
@@ -534,11 +536,10 @@ constexpr AboutDependency kAboutDependencies[] = {
     // 动画原点 = 本次点击的指针位置（RunFromCurrentInteraction 取当前事件
     // 派发的精确坐标；键盘激活时回落到锚点 View 中心）。浅→深正向展开，
     // 深→浅使用 Reversed() 收束。
-    auto applyTheme = [themeMode, transition, tasks, animating](int mode) {
+    auto applyTheme = [themeMode, transition, tasks, animating, systemDark](int mode) {
         if (animating.Get()->animating) return; // 动画进行中：冻结，再按无反应
-        const bool currentDark =
-            themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
-        const bool targetDark = mode == 1 || (mode == 0 && cfg::systemPrefersDark());
+        const bool currentDark = themeMode.Get() == 1 || (themeMode.Get() == 0 && systemDark);
+        const bool targetDark = mode == 1 || (mode == 0 && systemDark);
         auto mutation = [themeMode, mode] {
             themeMode = mode;
             saveSessionPreference("theme_mode", std::to_string(themeMode.Get()));

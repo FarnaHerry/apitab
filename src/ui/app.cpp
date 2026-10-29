@@ -27,7 +27,6 @@
 #include "ui.h"
 #include "app.h"
 #include "page_card.h"
-#include "control_server.h"
 #include "lightweight.h"
 #include "window_manager.h"
 #include "app_resources.h"
@@ -632,15 +631,6 @@ void TrayWindowController::ShowWindow() {
     // 这里在组合期订阅，可用性翻转后本作用域重组、托盘随后注册。
     const bool trayAvailable = tray.IsAvailable();
     auto tasks = huxerui::UseTaskScope();
-    // 控制面（`apitab --cli` 的服务端）在应用安装期起来，那时还没有组合作用域；
-    // 这里把根作用域的 TaskScope::Post 注入它的投递口，命令才能回到应用线程执行。
-    const auto controlPoster = huxerui::UseService<apitab::control::ApplicationPoster>();
-    huxerui::Lifecycle(
-        [controlPoster, tasks] {
-            controlPoster->Set([tasks](std::function<void()> task) { tasks.Post(std::move(task)); });
-            return [controlPoster] { controlPoster->Clear(); };
-        },
-        0);
     auto loggedIn = huxerui::UseState(true);
     auto loginDialog = huxerui::UseDialog();
     // UseState 的 initial 参数在重组时仍会先求值；用一个一次性门闩避免把启动恢复
@@ -909,8 +899,9 @@ void TrayWindowController::ShowWindow() {
         return removed ? std::string{} : removed.error().message;
     };
 
-    const bool dark =
-        themeMode.Get() == 1 || (themeMode.Get() == 0 && cfg::systemPrefersDark());
+    const bool systemDark =
+        huxerui::UseSystemThemeBrightness() == huxerui::ThemeBrightness::Dark;
+    const bool dark = themeMode.Get() == 1 || (themeMode.Get() == 0 && systemDark);
     // 注意：AppRoot 里的 UseTheme() 拿到的是 MaterialTheme provider 之上（应用外）
     // 的默认浅色 spec——主题由本函数返回时包进子树，自身读不到。所以根节点自身的
     // 配色（整窗背景、标题栏底、间距）必须直接按 dark 选 spec；子组件在 provider
@@ -944,11 +935,11 @@ void TrayWindowController::ShowWindow() {
                 // 菜单项用 push_back 构造：GCC 16 对 menu 列表初始化内的
                 // MenuItem/MenuSection 隐式转换报 "expected primary-expression"
                 std::vector<huxerui::MenuEntry> menuEntries;
-                // 走控制器而非捕获窗口句柄：轻量模式期间句柄已退役，
+                // 走控制器而非捕获窗口句柄：轻量模式期间句柄已关闭，
                 // ShowWindow 会按需重建主窗口。
                 menuEntries.push_back(
                     huxerui::MenuItem("显示主窗口", [trayWindow] { trayWindow->ShowWindow(); }));
-                // 轻量模式（伪纯 CLI 形态）：销毁全部窗口（fork 级联退役）真正
+                // 轻量模式（伪纯 CLI 形态）：销毁全部窗口（fork 级联关闭）真正
                 // 释放渲染内存，控制面继续服务；托盘/`show` 命令可唤回重建。
                 // Enter 在系统托盘回调返回后执行，避免回调栈内销毁窗口。
                 menuEntries.push_back(huxerui::MenuItem(
@@ -1121,7 +1112,7 @@ void TrayWindowController::ShowWindow() {
 //   - 齿轮 = 唤醒主窗口打开全局设置；头像 = 唤醒主窗口（账号页在主窗口）；
 //   - 项目标签拖出窗口顶缘 = 拖回主窗口（MergeBack，草稿随信封迁移）；
 //   - ✕（标题栏或标签）= 直接关闭该标签（主窗口 open_projects 移除并持久化），
-//     然后退役本窗口；
+//     然后关闭本窗口；
 //   - 焦点回到本窗口 = 领域游标重同步到本窗口项目（单游标 store 的多窗口治理）。
 // 主窗口专属接线（托盘/控制面/会话恢复/关闭询问弹窗）不在这里执行；拆窗时由
 // ApplicationHandle::OpenWindow 显式传入此子窗口内容工厂。
@@ -1147,7 +1138,7 @@ void TrayWindowController::ShowWindow() {
         return 0;
     }());
 
-    // 挂载登记 + 卸载清理（退役/应用退出都会走清理，窗口表不悬挂）。
+    // 挂载登记 + 卸载清理（关闭/应用退出都会走清理，窗口表不悬挂）。
     // navPage 提供者给实时拖回的信封带走子窗口的工作区内部页。
     huxerui::Lifecycle(
         [windowManager, window, projectId, navPage] {
@@ -1160,10 +1151,11 @@ void TrayWindowController::ShowWindow() {
         },
         0);
 
-    // 标题栏 ✕ = 直接关闭该标签（等价主窗口内 ✕），随后退役本窗口。
+    // 原生 ✕：用户关闭时移除对应主窗口标签；管理器拖回/标签关闭发起的 Close
+    // 只放行，不重复 detach。返回 false 让框架执行实际销毁。
     window.OnCloseRequest([windowManager, projectId] {
-        windowManager->CloseChildTab(projectId);
-        return true;
+        windowManager->HandleChildCloseRequest(projectId);
+        return false;
     });
 
     // 焦点驱动重同步（与主窗口同一治理规则）。
@@ -1221,8 +1213,9 @@ void TrayWindowController::ShowWindow() {
     };
 
     const int themeModeValue = themeMode.Get();
-    const bool dark =
-        themeModeValue == 1 || (themeModeValue == 0 && cfg::systemPrefersDark());
+    const bool systemDark =
+        huxerui::UseSystemThemeBrightness() == huxerui::ThemeBrightness::Dark;
+    const bool dark = themeModeValue == 1 || (themeModeValue == 0 && systemDark);
     const huxerui::ThemeSpec rootSpec = dark ? MinimalDarkThemeSpec() : MinimalLightThemeSpec();
     const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
     const float gap = rootSpec.spacing.extra_small;

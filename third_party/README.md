@@ -71,3 +71,10 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
 - SweetEdit 与嵌套 SweetEditor（`bd4330e`）、SweetLine（`64665d9`）上游仍无新提交。
 - 重建 hcg/hrc；清掉 `build/huxerui-resources` 后 ninja 仍引用其中旧资源计划，
   重新 configure 再生成后 `apitab` 全量构建链接通过。
+
+### 2026-10-29 HuxerUI fork 同步
+
+- HuxerUI 源码 `5873eeb` → `b083028`：加入每窗口 `UseSystemThemeBrightness()`，
+  主/子窗口跟随系统主题改为框架响应式 hook，删除 apitab 自写平台查询。
+- `WindowHandle::Retire()` 被移除，拆窗关闭与轻量模式统一迁移到 `Close()`；
+  `quit_on_last_window_closed=false` 保持无窗 Runtime，普通退出显式调用 `Quit()`。

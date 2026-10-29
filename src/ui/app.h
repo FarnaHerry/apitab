@@ -32,19 +32,19 @@ public:
     void Hide() const {
         if (window_) window_->Hide();
     }
-    // 轻量模式：请求退役主窗口（fork 会级联退役 owned 子窗口），应用无窗常驻，
-    // 渲染内存随窗口销毁由框架释放。退役在当前回调返回后异步执行，retired_
-    // 先行置位——窗口期内的唤回请求立即走重建路径，不会撞上 retired 句柄。
-    void Retire() {
+    // 轻量模式：关闭主窗口并释放其 UI/原生资源；CloseGuard 在此期间放行，
+    // AppOptions::quit_on_last_window_closed=false 保证应用无窗常驻。关闭在当前
+    // 回调返回后异步执行，retired_ 先行置位，唤回请求立即走重建路径。
+    void ReleaseWindow() {
         if (window_) {
             retired_ = true;
-            window_->Retire();
+            window_->Close();
         }
     }
     bool HasWindow() const { return window_.has_value() && !retired_; }
 
     // 唤回主窗口（托盘激活、二次启动 show、退出轻量统一入口）：窗口仍在时仅
-    // Show+Activate；已退役（轻量模式）时 OpenWindow 重建——重建窗口走同一
+    // Show+Activate；已关闭（轻量模式）时 OpenWindow 重建——重建窗口走同一
     // AppRoot 路由（key 空 = 主窗口），首组合经 Lifecycle 把新句柄写回本控制器，
     // 界面状态按会话持久化恢复（"热重启 UI"，Clash-Flux 托盘运行时同款语义）。
     // 定义在 app.cpp：主窗口 WindowOptions 与 src/app.cpp 的 AppOptions.window

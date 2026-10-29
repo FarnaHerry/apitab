@@ -159,8 +159,8 @@ void RunCommandOnApplicationThread(std::vector<std::string> args,
         // 轻量模式属于"实例进程形态"操作，不是数据命令：由控制面自己处理
         // （cli::run 只管 apitab 领域命令）。
         // 就绪探测：与 lightweight 一样由控制面自己处理。它必须经 poster 投递，
-        // 所以能回答"应用线程投递口已挂载"——客户端据此判断实例是否真的可服务
-        // （端点文件在监听成功后立刻写出，但投递口要等首次组合才挂上）。
+        // 所以能回答"应用线程投递口已挂载"——客户端据此判断实例是否真的可服务。
+        // 投递口在应用安装期注入，无窗轻量模式也保持可用。
         if (!args.empty() && args.front() == "ping") {
             sink.Out("pong");
             code = 0;
@@ -356,7 +356,14 @@ public:
     void Stop() {
         if (stopping_.exchange(true)) return;
         asio::error_code ec;
-        acceptor_.close(ec);  // 唤醒阻塞中的 accept，服务线程随后退出
+        // Linux 上跨线程 close 不一定唤醒阻塞 accept；先自连一次让服务线程
+        // 观察到 stopping_ 并返回，再关闭监听 socket 并 join。
+        const asio::ip::tcp::endpoint endpoint = acceptor_.local_endpoint(ec);
+        if (!ec) {
+            asio::ip::tcp::socket wake{*context_};
+            wake.connect(endpoint, ec);
+        }
+        acceptor_.close(ec);
         if (thread_.joinable()) thread_.join();
     }
 
@@ -366,7 +373,7 @@ private:
             asio::ip::tcp::socket socket{*context_};
             asio::error_code ec;
             acceptor_.accept(socket, ec);
-            if (ec) return;  // acceptor 已关闭 → 退出
+            if (ec || stopping_.load()) return;
             SetSocketTimeouts(socket);
             // 一条连接一个线程：长命令（send 最长 120s）只该挡住它自己的连接，不能把
             // ping 等短命令排在后面。连接线程只捕获快照值 + io_context 的 shared_ptr，
@@ -522,8 +529,10 @@ bool ApplicationPoster::PostTask(std::function<void()> task) const {
 }
 
 void InstallControlServer(huxerui::ApplicationContext& context) {
-    // 投递口先 Provide：根组合挂载时会 UseService 取它并注入 TaskScope::Post。
+    // 应用级 TaskScope 与 Runtime 同寿命；窗口销毁/重建不会清空控制面投递口。
     auto poster = std::make_shared<ApplicationPoster>();
+    const auto tasks = huxerui::UseApplicationTaskScope();
+    poster->Set([tasks](std::function<void()> task) { tasks.Post(std::move(task)); });
     context.Provide(poster);
     auto server = std::make_shared<ControlServer>(poster);
     std::string error;

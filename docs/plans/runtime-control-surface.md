@@ -154,7 +154,7 @@ agent 全程经控制面操作；人不在场也不需要窗口。
 | 运行中隐藏窗口 | ✅ `WindowHandle::Hide()`（apitab 已用于"最小化到托盘"） |
 | 隐藏时停止出帧 | ✅ 隐式（实测 CPU ≈ 0） |
 | **启动即无窗口/纯后台** | ✅ `AppOptions::create_initial_window = false` 跳过初始窗口；apitab 仍用默认值 `true`，托盘展示也仍在根组合中 |
-| **关窗后重建窗口** | ✅ `ApplicationHandle::OpenWindow(ViewFactory, WindowOptions)` 创建带独立内容工厂的窗口；`WindowHandle::Retire()` 可退役窗口，apitab 托盘唤回已使用此路径 |
+| **关窗后重建窗口** | ✅ `ApplicationHandle::OpenWindow(ViewFactory, WindowOptions)` 创建带独立内容工厂的窗口；`WindowHandle::Close()` 销毁窗口，`quit_on_last_window_closed=false` 保持 Runtime 常驻，apitab 托盘唤回使用此路径 |
 | 释放渲染缓存/内存压力回调 | ❌ 无公开 API（建议反馈上游） |
 
 → SDK 已提供无初始窗口启动和运行期建窗能力；apitab 目前仍以有窗模式启动，并在根组合
@@ -263,8 +263,8 @@ HuxerUI 的 `create_initial_window=false` 可跳过 Linux 的初始 `gtk_window_
 - [x] GUI 进程起控制面：loopback HTTP（一次性端口 + 随机 token）+ 端点文件
       `$XDG_RUNTIME_DIR/apitab-control.json`（0600，退出删除），只绑 127.0.0.1、
       拒无 token 请求（401）。
-- [x] 命令在应用线程执行：`TaskScope::Post` 经 `ApplicationPoster` 注入（安装期还没有
-      组合作用域，所以由根组合挂载时注入、卸载时清空）；60s 超时 → 504。
+- [x] 命令在应用线程执行：`ApplicationPoster` 在安装期注入
+      `UseApplicationTaskScope()`，生命周期与 Runtime 一致，不随窗口关闭清空；60s 超时 → 504。
 - [x] `cli::run(args, Sink&)` 单一实现：进程直跑写标准流，控制面收集成字符串回传——
       stdout/stderr 分流、退出码、`--json` 形状天然一致。
 - [x] `apitab --cli` 变薄客户端：不构造 store、不碰数据库、不进事件循环；
@@ -300,17 +300,16 @@ HuxerUI 的 `create_initial_window=false` 可跳过 Linux 的初始 `gtk_window_
       实例侧一切照常。
 - [x] `help` 离线可用：客户端对无参数/`help`/`--help`/`-h`（含子命令 `--help`）直接在
       本地打印，不需要实例、不碰数据库（实测：无实例 + 无 runtime dir → 打印帮助、exit 0）。
-- [x] **就绪探测（ping）**：端点文件在监听成功后立刻写出，而命令投递口要等首次组合
-      才挂上——中间那段窗口里发命令会拿到 503。现在 `InstanceRunning()` 用 `ping`
-      走完整链路（含应用线程投递）作为判据，`--ensure` 冷启动 3/3 稳定通过。
+- [x] **就绪探测（ping）**：`InstanceRunning()` 用 `ping` 走完整链路（含应用线程投递）
+      作为判据；投递口在安装期先于端点监听注入，无窗时也保持可用。
 - [x] **拉起的实例与调用者标准流解耦**：`posix_spawn` 把子进程 stdin/stdout/stderr 接到
       `/dev/null`（Windows 用 `DETACHED_PROCESS`）。否则 `out=$(apitab --cli --ensure …)`
       会一直等管道关闭（= 等实例退出），对 agent 就是"命令挂住"——本轮实测踩到过。
 
 下一轮：
-- [x] 轻量模式落地：控制面 `lightweight [off]` 命令 + 托盘菜单项「轻量模式（隐藏并释放
-      缓存）」，隐藏窗口 + 释放应用侧可再生缓存；实测见 §7.5（CPU 归零成立，内存收益
-      空闲态≈0，需按 §7.5 的修正下一步扩大释放集）。
+- [x] 轻量模式落地：控制面 `lightweight [off]` 命令 + 托盘菜单项，关闭窗口释放渲染资源
+      与应用侧可再生缓存，退出时重建主窗口；2026-10-29 实测无窗时 `projects` 可执行，
+      `lightweight off` 后进程和窗口恢复。
 - [ ] 轻量模式释放集扩到组合态对象（编辑器文档/响应正文/头像/列表 State）+
       "打开若干请求后再进轻量"的对照基线（§7.5）。
 - [x] **`send` 三段式 + 控制面并发**（2026-09-26）：

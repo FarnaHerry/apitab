@@ -24,7 +24,6 @@ module;
 #include <unistd.h>  // readlink, access, X_OK
 #include <limits.h>  // PATH_MAX
 #endif
-#include <cstdio>  // popen / pclose（跟随系统的深色检测）
 
 export module apitab.config;
 
@@ -135,82 +134,6 @@ export std::filesystem::path k6Binary() {
         }
     }
     return findInPath(k6Name);
-}
-
-// ---- 系统查询用到的 C 资源（RAII）-------------------------------------------
-// popen 的 FILE* 与 Win32 注册表键都必须由类型持有：函数体内的查询语句本身虽
-// 不抛，但"创建 → 使用 → 释放"之间任何后续维护（给 fgets 换更长的读取、加日志、
-// 提前返回）都会让手写 cleanup 漏掉。约定见 CLAUDE.md「关键约定」第 9 条。
-#if !defined(_WIN32)
-class PopenPipe {
-public:
-    explicit PopenPipe(const char* command) : file_(::popen(command, "r")) {}
-    ~PopenPipe() {
-        if (file_ != nullptr) ::pclose(file_);
-    }
-
-    PopenPipe(const PopenPipe&) = delete;
-    PopenPipe& operator=(const PopenPipe&) = delete;
-
-    bool valid() const { return file_ != nullptr; }
-
-    // 读一行到 buf；返回是否读到内容（同 std::fgets 语义）。
-    bool readLine(std::span<char> buf) const {
-        return file_ != nullptr &&
-               std::fgets(buf.data(), static_cast<int>(buf.size()), file_) != nullptr;
-    }
-
-private:
-    FILE* file_ = nullptr;
-};
-#else
-// Win32 注册表键：析构 RegCloseKey；打开失败时空操作。
-class RegKey {
-public:
-    RegKey(HKEY root, const char* subkey) {
-        opened_ = ::RegOpenKeyExA(root, subkey, 0, KEY_READ, &key_) == ERROR_SUCCESS;
-    }
-    ~RegKey() {
-        if (opened_) ::RegCloseKey(key_);
-    }
-
-    RegKey(const RegKey&) = delete;
-    RegKey& operator=(const RegKey&) = delete;
-
-    bool opened() const { return opened_; }
-
-    LONG queryDword(const char* name, DWORD& value) const {
-        DWORD size = sizeof(value);
-        return ::RegQueryValueExA(key_, name, nullptr, nullptr,
-                                  reinterpret_cast<LPBYTE>(&value), &size);
-    }
-
-private:
-    HKEY key_ = nullptr;
-    bool opened_ = false;
-};
-#endif
-
-// 系统是否偏好深色（"跟随系统"主题模式用）。启动时读取一次即可。
-export bool systemPrefersDark() {
-#if defined(_WIN32)
-    const RegKey key{HKEY_CURRENT_USER,
-                     "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"};
-    if (!key.opened()) return false;
-    DWORD value = 1;
-    return key.queryDword("AppsUseLightTheme", value) == ERROR_SUCCESS && value == 0;
-#elif defined(__APPLE__)
-    const PopenPipe pipe{"defaults read -g AppleInterfaceStyle 2>/dev/null"};
-    if (!pipe.valid()) return false;
-    std::array<char, 32> buf{};
-    return pipe.readLine(buf) && std::string_view(buf.data()).starts_with("Dark");
-#else
-    const PopenPipe pipe{"gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null"};
-    if (!pipe.valid()) return false;
-    std::array<char, 64> buf{};
-    return pipe.readLine(buf) &&
-           std::string_view(buf.data()).find("prefer-dark") != std::string_view::npos;
-#endif
 }
 
 } // namespace cfg

@@ -56,9 +56,8 @@ Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架�
 | 单实例锁 | 平台入口 `SingleInstance` | `main()` | 进程退出析构 | fd/HANDLE 由 RAII 释放 |
 | 响应下载临时文件 | `TemporaryFileGuard`（`request_editor.cpp`，协程帧内） | 保存响应前 | 作用域退出（含协程被取消）同步 `File::Delete()` | 全程 UI 线程；析构不抛出 |
 | 头像裁剪临时 PNG | `AvatarCropOutput`（`settings_avatar_crop.cpp`） | worker 线程跑 `magick` 后 | 结果销毁时 `remove`（成功路径先 `rename` 走） | `shared_ptr` 跨 `RunWorker` 回 UI 线程 |
-| `popen` 流 / 注册表键 | `cfg::PopenPipe` / `cfg::RegKey`（`config.cppm`） | `systemPrefersDark()` | 作用域退出析构 | 仅启动时调用一次 |
 | 应用日志文件 | `apitab::log`（`src/log.cpp`，进程级单例） | 首次写入（惰性建目录） | 进程退出（追加写，无需显式关闭） | mutex 串行；**日志不进 SQLite**（不与领域写抢 WAL 唯一写者），见本文「日志与领域数据」 |
-| 控制面服务（loopback + 端点文件） | `apitab::control::ControlServer`（应用安装期 Provide） | `AppOptions::application_hooks` | 应用关闭析构（停线程 + 删端点文件） | IO 线程收发；命令经 `ApplicationPoster`（`TaskScope::Post`）回应用线程执行 |
+| 控制面服务（loopback + 端点文件） | `apitab::control::ControlServer`（应用安装期 Provide） | `AppOptions::application_hooks` | 应用关闭析构（停线程 + 删端点文件） | IO 线程收发；命令经 `ApplicationPoster`（`UseApplicationTaskScope()`）回应用线程执行，无窗时也有效 |
 | WebView（响应 Preview 标签） | 组合期持有的 `WebViewController` + 框架 PlatformView 宿主 | 预览档挂载（`ResponsePreviewPane`） | 预览档卸载（框架按 PlatformView 生命周期回收） | 仅 UI 线程；`LoadHtml` 经 `Lifecycle` 在挂载/新响应时重放 |
 
 阻塞与 CPU 工作由 HuxerUI Runtime 的 worker 执行器调度；`apitab` 不再拥有自建任务线程池，
@@ -107,7 +106,6 @@ Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架�
 
 - **C 句柄**：curl（`CurlGlobal` / `EasyHandle` / `HeaderList` / `MimeHandle`）、
   子进程与管道（k6：`ChildProcess` / `ChildPipe` / `SpawnFileActions`）、
-  `popen` 输出流与 Win32 注册表键（config.cppm：`PopenPipe` / `RegKey`）、
   单实例锁（`SingleInstance` 持有 lock fd / mutex HANDLE）、
   SQLite（SQLiteCpp 的 `Database` / `Statement`，本身就是 RAII）。
   CurlGlobal 的引用计数保证全局 cleanup 晚于 easy cleanup；SpawnFileActions
@@ -147,8 +145,8 @@ Runtime 执行，恢复点在 UI 线程；worker 不访问 State/View。框架�
      刚建的两根管道句柄；现改由 `ChildProcess` / `ChildPipe` 持有；
   2. `K6Engine::start()` 里 `std::thread` 构造抛 `system_error` 时，子进程会活着
      且无人回收；现已在该分支强杀 + 回收 + 清临时脚本；
-  3. `config.cppm::systemPrefersDark()` 原本手写 `pclose` / `RegCloseKey`；现由
-     `PopenPipe` / `RegKey` 持有；
+  3. 系统主题检测曾由 `PopenPipe` / `RegKey` 持有查询资源；2026-10-29 起改由
+     HuxerUI 各平台宿主提供，应用侧旧查询与包装一并移除；
   4. `TaskPool` 当时已通过构造失败时 join 已启动 worker 满足 RAII；本轮进一步移除
      应用自建线程池并改用 HuxerUI `RunWorker`。`request_editor.cpp` 的下载临时文件
      在协程取消时不会执行末尾的 `DeleteAsync()`，现由协程帧内 `TemporaryFileGuard`

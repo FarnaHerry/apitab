@@ -5,8 +5,7 @@
 // 服务 + 主窗口组合期注册的回调；State 句柄始终只被其所属窗口的回调写）。
 //
 // 线程约定：全部方法只在应用线程调用（组合、事件回调、控制面任务回投后）。
-// 主窗口是初始窗口、永不退役，其桥的回调在应用运行期始终有效；子窗口的
-// 句柄经 UnregisterChild 在退役清理时移除，不悬挂。
+// 主窗口桥只在主窗口挂载期有效；子窗口句柄经 UnregisterChild 在关闭清理时移除。
 #pragma once
 
 #include <huxerui/huxerui.h>
@@ -16,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "draft.h"
@@ -65,11 +65,14 @@ public:
                        WindowId window_id) {
         children_.insert_or_assign(project_id, ChildEntry{window, window_id});
     }
-    void UnregisterChild(std::int64_t project_id) { children_.erase(project_id); }
+    void UnregisterChild(std::int64_t project_id) {
+        children_.erase(project_id);
+        managed_closes_.erase(project_id);
+    }
     bool HasChild(std::int64_t project_id) const { return children_.contains(project_id); }
     bool HasChildren() const { return !children_.empty(); }
 
-    // 轻量模式进入防御：Retire 主窗口会级联退役全部窗口，未保存草稿随窗口
+    // 轻量模式进入防御：Close 主窗口会级联关闭全部窗口，未保存草稿随窗口
     // 丢弃。前置条件是无拆出子窗口（HasChildren() == false）——此时快照提供者
     // 只剩主窗口的，任一快照带未保存草稿即代表主窗口有未保存工作。
     bool AnyUnsavedDrafts() const {
@@ -111,25 +114,28 @@ public:
                  const std::optional<huxerui::Point>& cursor_screen);
 
     // 拖回（子窗口项目标签拖出窗口顶缘）：采集快照 → 存信封（nav_page 由子窗口
-    // 根组合随调用给出）→ 主窗口 restore_tab → 退役子窗口并唤醒主窗口。
+    // 根组合随调用给出）→ 主窗口 restore_tab → 关闭子窗口并唤醒主窗口。
     void MergeBack(WindowId from_window_id, std::int64_t project_id, std::size_t nav_page);
 
     // ---- 实时拖回（应用级类型化拖拽，全程不松手，Chrome 式）----
     // 原生跨窗口拖拽传输要求源窗口在拖拽期间存活，所以合并拆成三段：
     // MergeBegin（DropTarget::Entered，指针进入主窗口标签条）：采集信封并把
-    //   标签插入主窗口（挂起态）；子窗口不退役，仍显示原标签。
+    //   标签插入主窗口（挂起态）；子窗口不关闭，仍显示原标签。
     //   @return 是否真的开启了挂起合并（调用方据此记录本地 pending 门控）。
     // MergeAbort（Exited，指针离开标签条）：撤销挂起合并——主窗口移除标签，
     //   信封丢弃；标签与草稿仍在子窗口（其组合态从未动过）。
-    // MergeCommit（Dropped，松手确认）：退役子窗口，合并完成，主窗口已挂载的
+    // MergeCommit（Dropped，松手确认）：关闭子窗口，合并完成，主窗口已挂载的
     //   项目页消费信封恢复草稿。
     bool MergeBegin(std::int64_t project_id);
     void MergeAbort(std::int64_t project_id);
     void MergeCommit(std::int64_t project_id);
 
-    // 关闭子窗口（✕ 或子窗口内点标签 ✕）：等价主窗口里关闭该标签——主窗口
-    // detach 后按关闭语义回退并持久化，然后退役子窗口（草稿按设计丢弃）。
+    // 子窗口内点标签 ✕：主窗口 detach 并持久化，然后由管理器关闭子窗口。
     void CloseChildTab(std::int64_t project_id);
+
+    // 原生关闭请求：用户直接关闭时只 detach，返回后由框架关闭窗口；管理器已经
+    // 发起 Close 时不再 detach，避免拖回后误删刚恢复的主窗口标签。
+    void HandleChildCloseRequest(std::int64_t project_id);
 
     // 子窗口点主页：单纯唤醒主窗口并切主页，子窗口自己不导航。
     void WakeMainToHome() const;
@@ -152,6 +158,8 @@ public:
 
 private:
     std::optional<WorkspaceSnapshot> CaptureFrom(WindowId window_id) const;
+    bool DetachChildTab(std::int64_t project_id);
+    void CloseChildWindow(std::int64_t project_id);
 
     struct ChildEntry {
         huxerui::WindowHandle handle;
@@ -161,6 +169,7 @@ private:
     std::optional<huxerui::ApplicationHandle> application_;
     std::optional<huxerui::WindowHandle> main_window_;
     std::unordered_map<std::int64_t, ChildEntry> children_;
+    std::unordered_set<std::int64_t> managed_closes_;
     std::optional<MainBridge> main_bridge_;
     std::unordered_map<WindowId, Capture> captures_;
     std::unordered_map<WindowId, std::function<std::size_t()>> nav_providers_;

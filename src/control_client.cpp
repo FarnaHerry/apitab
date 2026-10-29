@@ -221,8 +221,7 @@ bool InstanceRunning() {
     std::string token;
     std::string ignored;
     if (!ReadEndpoint(port, token, ignored)) return false;
-    // 只"能连上"不够：端点文件在监听成功后立刻写出，而命令投递口要等首次组合才挂上。
-    // 用 ping 走一遍完整链路（含应用线程投递），这才是"实例可服务"。
+    // 只"能连上"不够：用 ping 走一遍完整链路（含应用线程投递），这才是"实例可服务"。
     json response;
     if (!RoundTrip(port, token, {"ping"}, response, ignored, kProbeTimeoutMs)) return false;
     return response.contains("exit") && response.value("exit", 1) == 0;

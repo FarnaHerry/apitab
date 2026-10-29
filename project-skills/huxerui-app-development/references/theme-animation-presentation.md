@@ -38,6 +38,10 @@ For a branded dark Material theme, customize `MaterialDarkThemeSpec()` and still
 
 `primary_container`/`on_primary_container` and `tertiary_container`/`on_tertiary_container` are tonal surface/foreground pairs, distinct from the stronger primary and tertiary pairs. Customize both sides together to preserve contrast in light and dark themes.
 
+## System appearance
+
+`UseSystemThemeBrightness()` reads and observes the current window host's effective `ThemeBrightness`; each window can therefore follow system appearance independently. Call it during composition, select `MaterialDarkThemeSpec()` or `MaterialLightThemeSpec()` from the result, and keep any explicit user override in application state. `UseTheme().brightness` describes the inherited HuxerUI palette, not the host preference; setting `ThemeSpec::brightness` alone does not recolor a palette. Built-in theme boundaries remain light by default.
+
 ## Typed style catalog
 
 Component styles are typed Environment values. Verify their current fields in the active SDK headers before constructing a replacement.

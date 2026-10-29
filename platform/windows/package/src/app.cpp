@@ -136,8 +136,7 @@ ThemeSpec MinimalLightThemeSpec() {
     return spec;
 }
 
-// 与主应用 src/config.cppm 的 systemPrefersDark() 同一注册表键；深浅主题
-// 跟随系统，安装器不读 apitab 自身的主题偏好。
+// 安装器独立读取系统深浅色，不读 apitab 自身的主题偏好。
 bool SystemPrefersDark() {
     HKEY raw_key = nullptr;
     if (RegOpenKeyExA(HKEY_CURRENT_USER,

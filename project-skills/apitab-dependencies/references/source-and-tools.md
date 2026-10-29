@@ -16,16 +16,13 @@
   强制回落已安装/离线 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`；该通道是兼容与发布门禁，
   不阻塞开发期使用最新源码 API。
 - 源码 clone 现为 **FarnaHerry/HuxerUI fork 的 farna/main**（CI 固定
-  `5873eebcbc47cf659ce465bb89ae6634bfeca64b`，2026-10-28；包含 Linux PlatformView
-  宿主支持——Lib-WebView 的 Linux WebKitGTK 后端依赖它、窗口边框缩放热区、bounded
-  stretch 布局测量修复、宿主工具 `HUXERUI_HOST_TOOLS_STATIC_RUNTIME` 选项，以及
-  应用级多窗口 API）。`89b7815` 移除了 `WindowOptions::key` / `WindowIdentity`，运行期
-  `ApplicationHandle::OpenWindow` 现在必须传入独立 `ViewFactory`；apitab 用应用层
-  `WindowId` 和显式主/子窗口工厂接入。**原三个本地补丁已全部被 fork
-  收编并删除**：`huxerui-window-p0960.patch`（CrossAlign 花括号，fork
-  window.h 已用花括号）、`huxerui-hosttools-dynamic.patch`（改为 fork 的
-  `HUXERUI_HOST_TOOLS_STATIC_RUNTIME=OFF`）、`huxerui-linux-resize-hitarea.patch`
-  （fork f38d5ec 正式实现，含 linux_window_chrome 单测）。
+  `b08302858fe7f3d6ff6d9c0b00a09c1ad0e6524b`，2026-10-29；包含 Linux PlatformView
+  宿主支持、应用级多窗口与每窗口系统深浅色 hook）。`OpenWindow` 必须传独立
+  `ViewFactory`；`b083028` 移除 `WindowHandle::Retire()`，统一用会经过
+  `OnCloseRequest` 的 `Close()`。无窗常驻须设 `quit_on_last_window_closed=false`，
+  普通退出显式调用 `ApplicationHandle::Quit()`。系统主题用
+  `UseSystemThemeBrightness()`，不再由 apitab 查询各平台设置。**原三个本地补丁已
+  全部被 fork 收编并删除**，不要恢复旧 API 别名或兼容层。
   WebView 组件库 clone：`third_party/lib-webview`（FarnaHerry/Lib-WebView 的
   farna/main，上游 HuxerUI/Lib-WebView + Linux WebKitGTK 6.0 后端等应用补丁；
   CI pin 50ac929），不入库、已 gitignore，经 `huxerui_use_library(apitab

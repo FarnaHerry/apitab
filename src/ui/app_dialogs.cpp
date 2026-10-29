@@ -8,6 +8,7 @@
 #include <string>
 
 #include "ui.h"
+#include "lightweight.h"
 
 import apitab.preferences;
 
@@ -22,11 +23,9 @@ namespace apitab::ui {
     auto dialog = huxerui::UseDialog();
     auto tasks = huxerui::UseTaskScope();
 
-    // 关闭拦截：按配置直接关闭/进托盘；未配置时第一次询问并把选择写入配置。
-    // 托盘可用性在关闭时动态查询（不要用组合期快照，避免错过宿主晚就绪）。
-    // Hide 在关闭请求回调返回后执行：同步隐藏最后一个可见窗口会让 SDK 运行时在
-    // 回调栈上拆毁窗口；回调返回后栈上的 WindowService 已被回收。先同步 return
-    // true 拦下关闭，再在事件循环外 Hide，行为不变、栈安全。
+    // 关闭拦截：按配置直接退出/进托盘；未配置时第一次询问并把选择写入配置。
+    // quit_on_last_window_closed=false 供轻量模式无窗常驻，所以普通关闭必须显式
+    // Quit。Quit 只请求安全维护边界；Hide 则延后到当前原生回调返回后执行。
     auto hideToTray = [tasks, window] {
         tasks.Launch([window]() -> huxerui::Task<void> {
             co_await huxerui::Delay(std::chrono::duration<double>{0});
@@ -35,8 +34,11 @@ namespace apitab::ui {
     };
     window.OnCloseRequest(
         [=]() mutable -> bool {
-            if (!tray.IsAvailable()) return false; // 无托盘：交给系统直接关闭
-            if (closeBehavior.Get() == 1) return false;
+            if (LightweightActive()) return false;
+            if (!tray.IsAvailable() || closeBehavior.Get() == 1) {
+                application.Quit();
+                return true;
+            }
             if (closeBehavior.Get() == 2) {
                 hideToTray();
                 return true;

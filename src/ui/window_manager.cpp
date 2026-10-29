@@ -106,7 +106,7 @@ void WindowManager::MergeBack(WindowId from_window_id, std::int64_t project_id,
     workspace.nav_page = nav_page;
     envelope_ = TabTransferEnvelope{project_id, std::move(workspace)};
     main_bridge_->restore_tab(project_id);
-    child->second.handle.Retire();
+    CloseChildWindow(project_id);
     if (main_window_) main_window_->Activate();
 }
 
@@ -142,21 +142,35 @@ void WindowManager::MergeAbort(std::int64_t project_id) {
 void WindowManager::MergeCommit(std::int64_t project_id) {
     if (pending_merge_ != project_id) return;
     pending_merge_.reset();
-    const auto child = children_.find(project_id);
-    if (child != children_.end()) {
-        child->second.handle.Retire();
-    }
+    CloseChildWindow(project_id);
     if (main_window_) main_window_->Activate();
 }
 
-void WindowManager::CloseChildTab(std::int64_t project_id) {
+bool WindowManager::DetachChildTab(std::int64_t project_id) {
+    if (!main_bridge_ || !main_bridge_->detach_tab) return false;
+    main_bridge_->detach_tab(project_id);
+    return true;
+}
+
+void WindowManager::CloseChildWindow(std::int64_t project_id) {
     const auto child = children_.find(project_id);
-    if (child == children_.end() || !main_bridge_ || !main_bridge_->detach_tab) return;
+    if (child == children_.end()) return;
+    managed_closes_.insert(project_id);
+    child->second.handle.Close();
+}
+
+void WindowManager::CloseChildTab(std::int64_t project_id) {
+    if (!children_.contains(project_id) || !DetachChildTab(project_id)) return;
     // 主窗口按关闭语义回退（含持久化）；领域游标若在被关项目上，桥实现负责
     // 清零（与主窗口内 ✕ 关标签一致）。草稿按产品决策随窗口丢弃。
-    main_bridge_->detach_tab(project_id);
-    child->second.handle.Retire();
+    CloseChildWindow(project_id);
     if (main_window_) main_window_->Activate();
+}
+
+void WindowManager::HandleChildCloseRequest(std::int64_t project_id) {
+    if (!managed_closes_.contains(project_id)) {
+        static_cast<void>(DetachChildTab(project_id));
+    }
 }
 
 void WindowManager::WakeMainToHome() const { WakeMainToTab(TopTabId{}); }
@@ -171,7 +185,7 @@ void WindowManager::WakeMainToTab(TopTabId target) const {
         main_bridge_->wake_to_tab(target);
         return;
     }
-    // 主窗口桥缺失（轻量模式或主窗口退役窗口期）：唤回重建主窗口；目标标签
+    // 主窗口桥缺失（轻量模式或主窗口关闭窗口期）：唤回重建主窗口；目标标签
     // 的切换交由新主窗口按会话持久化恢复，不在本次调用里补投。
     if (TrayWindowController* controller = CurrentWindowController()) {
         controller->ShowWindow();

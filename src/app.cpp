@@ -33,6 +33,9 @@ const huxerui::Application application{
         },
         // 800dp 最小桌面窗口使用 Compact；900dp 起常规分栏，1200dp 起 Expanded。
         .viewport_breakpoints = apitab::ui::kAppViewportBreakpoints,
+        // 轻量模式通过 Close 销毁全部窗口，但 Runtime、控制面和托盘继续常驻；
+        // 普通直接退出由 CloseGuard 显式调用 ApplicationHandle::Quit()。
+        .quit_on_last_window_closed = false,
         // 托盘激活处理器是应用级一次性注册（见 ui/app.h 的 InstallSystemTray），
         // 必须在安装钩子里注册，不能放进会重组的 AppRoot。
         // 控制面（`apitab --cli` 的服务端）同样在安装期起，活到应用关闭。

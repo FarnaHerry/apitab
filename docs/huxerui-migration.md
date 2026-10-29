@@ -26,6 +26,7 @@
 | 阻塞或 CPU 工作 | `co_await huxerui::RunWorker(fn)`，恢复后在 UI 协程更新 State |
 | 外部线程回调 | 用 `TaskScope::Post` 投递到 UI 线程 |
 | 主题 | 在 `MaterialTheme` 内读取现有 typed style，再只覆写品牌字段 |
+| 跟随系统深浅色 | 每个窗口用 `UseSystemThemeBrightness()` 观察宿主偏好，再选择对应 ThemeSpec |
 
 ## 当前布局
 

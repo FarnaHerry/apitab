@@ -15,9 +15,8 @@
 namespace apitab::control {
 
 // 应用线程投递口：控制面线程 → 应用线程的唯一通道。
-// 应用安装期还没有组合作用域（拿不到 TaskScope::Post），所以由根组合在挂载时注入
-// `TaskScope::Post`（见 src/ui/app.cpp），卸载时清空。线程安全：Set/Clear 来自
-// 应用线程，Post 来自控制面线程。
+// 安装期由 UseApplicationTaskScope() 注入，生命周期与 Runtime 一致，不随窗口卸载。
+// 线程安全：Set/Clear 来自应用线程，Post 来自控制面线程。
 class ApplicationPoster {
 public:
     using Post = std::function<void(std::function<void()>)>;
