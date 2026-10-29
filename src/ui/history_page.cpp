@@ -391,12 +391,18 @@ constexpr int kLoadRecordLimit = 50;
     }
 
     // 列表在内容区滚动，分页栏固定在请求历史面板底部；窄窗口把分类切换移到上方。
+    const float outerPadding = compact ? theme.spacing.small : theme.spacing.large;
     return huxerui::Column {
         PageHeader("历史记录", subtitle),
         std::move(contentLayout),
     }
-        .With(huxerui::Padding(compact ? theme.spacing.small : theme.spacing.large),
-              huxerui::Spacing(compact ? theme.spacing.small : theme.spacing.medium),
+        .With(huxerui::Padding(huxerui::EdgeInsets{
+                  .top = compact ? theme.spacing.small : theme.spacing.medium,
+                  .right = outerPadding,
+                  .bottom = outerPadding,
+                  .left = outerPadding,
+              }),
+              huxerui::Spacing(theme.spacing.small),
               huxerui::Background(islands.base),
               huxerui::Grow(1.0F),
               huxerui::Frame{.min_width = 320.0F, .min_height = 220.0F},
