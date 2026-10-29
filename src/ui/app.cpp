@@ -1044,7 +1044,7 @@ void TrayWindowController::ShowWindow() {
             // API Image::Tint(Color)（view.h，内部走 DrawImage(VectorAsset,…,tint)
             // 通道）才是矢量图的着色入口——改用 .Tint(on_surface)，深底白/浅底黑。
             // 本作用域在主题 provider 之上，颜色取 rootSpec 而非 UseTheme()。
-            // 偏上的根因：gear.svg 画布 24x24，大于 14pt 的 Frame——未指定
+            // 偏上的根因：gear.svg 画布 24x24，大于 16pt 的 Frame——未指定
             // Fit 时按画布原始尺寸绘制并从边缘锚定。显式 Fit(Contain) +
             // Align(Center, Center) 让图案缩放后钉在框中心。
             // 齿轮：打开/激活设置单例标签（未开则开、已开仅激活，§13.1）；顶级
@@ -1055,7 +1055,7 @@ void TrayWindowController::ShowWindow() {
                     .Align(huxerui::HorizontalAlignment::Center,
                            huxerui::VerticalAlignment::Center)
                     .Tint(rootSpec.colors.on_surface)
-                    .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}),
+                    .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
             }
                 .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
                       huxerui::Frame{.height = kTitleBarContentHeight},
@@ -1242,7 +1242,7 @@ void TrayWindowController::ShowWindow() {
                     .Align(huxerui::HorizontalAlignment::Center,
                            huxerui::VerticalAlignment::Center)
                     .Tint(rootSpec.colors.on_surface)
-                    .With(huxerui::Frame{.width = 14.0F, .height = 14.0F}),
+                    .With(huxerui::Frame{.width = 16.0F, .height = 16.0F}),
             }
                 .With(huxerui::Padding(huxerui::EdgeInsets::Symmetric(6.0F, 2.0F)),
                       huxerui::Frame{.height = kTitleBarContentHeight},
