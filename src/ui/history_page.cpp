@@ -382,7 +382,8 @@ constexpr int kLoadRecordLimit = 50;
             // 线条风分区：分类栏和记录列表之间由一条通栏 subtle 线分隔。
             huxerui::Column{}.With(huxerui::Frame{.width = kLineWidth},
                                    huxerui::Background(islands.line_subtle)),
-            std::move(selectedPanel),
+            std::move(selectedPanel)
+                .With(huxerui::Padding(huxerui::EdgeInsets{.left = theme.spacing.medium})),
         }
             .With(huxerui::Spacing(0.0F),
                   huxerui::Grow(1.0F),
