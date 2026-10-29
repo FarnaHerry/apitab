@@ -24,6 +24,10 @@ engines/
 
 # 会话目录；项目技能与引用统一在 project-skills/，纳入版本管理
 .claude/
+# 其他桌面代理工具的工作区（会话计划等本地产物）
+.zcode/
+# HuxerUI 运行时帧跟踪转储（本地排障产物，单个文件可达数 MB）
+traces/
 
 # HuxerUI 上游源码 clone（存在时优先于 third_party/tarballs 的预编译 SDK）
 third_party/huxerui/
