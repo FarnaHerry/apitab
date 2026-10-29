@@ -85,7 +85,7 @@ jobs:
           # WebView 组件库（响应 HTML 预览）：FarnaHerry/Lib-WebView fork 的
           # farna/main（含 Linux WebKitGTK 6.0 后端），固定 commit 跟进 fork 更新。
           git clone https://github.com/FarnaHerry/Lib-WebView.git third_party/lib-webview
-          git -C third_party/lib-webview checkout 158a587cebf925e96259924956bdb1a5dc508575
+          git -C third_party/lib-webview checkout 857c69f2e431e76c282c2f9431596bf03ac8cc7d
 
       - name: Install dependencies
         run: |
@@ -261,7 +261,7 @@ jobs:
           git -C third_party/huxerui-sweetedit/3dparty/SweetLine apply ../../../../cmake/patches/sweetline-locale-include.patch
           # WebView 组件库（响应 HTML 预览）：同 Linux job 的 fork 固定 commit。
           git clone https://github.com/FarnaHerry/Lib-WebView.git third_party/lib-webview
-          git -C third_party/lib-webview checkout 158a587cebf925e96259924956bdb1a5dc508575
+          git -C third_party/lib-webview checkout 857c69f2e431e76c282c2f9431596bf03ac8cc7d
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
