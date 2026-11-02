@@ -18,6 +18,8 @@ CMake/Ninja 构建，HuxerUI 0.3.0 前端，支持源码与发布 SDK 两条通�
 
 开始相关工作前读取对应入口，后续只加载涉及的小节：
 
+凡要修改 UI，必须先读取 [HuxerUI skill](project-skills/huxerui-app-development/SKILL.md)。
+
 | 任务 | 必读入口 |
 |---|---|
 | UI、交互、主题、布局、挂载 | [HuxerUI skill](project-skills/huxerui-app-development/SKILL.md) |
