@@ -377,10 +377,10 @@ endif ()
 # ---- WebView（Lib-WebView 嵌入式网页组件，HuxerUI 依赖库）---------------------
 # 响应区 HTML 预览。third_party/lib-webview 是 FarnaHerry/Lib-WebView fork 的
 # farna/main clone（含 Linux WebKitGTK 6.0 后端），同 sweetedit 一样经
-# huxerui_use_library 接入（add_subdirectory + 链接 + 资源包合并）。Linux 缺
-# webkitgtk-6.0 开发包时库会静默禁用后端，而 InstallWebView 在无适配器的平台上
-# 抛异常——应用侧接线（app.cpp 钩子注册 + 响应区 Preview 标签）统一由
-# APITAB_HAS_WEBVIEW 编译期宏门控，缺包只降级、不破坏构建。
+# huxerui_use_library 接入（add_subdirectory + 链接 + 资源包合并）。上游库在缺
+# webkitgtk-6.0 开发包时会回落为源码构建 WebKitGTK（耗时极大）；应用侧不跟随
+# 该回落，自行 pkg-config 检测并以 APITAB_HAS_WEBVIEW 编译期宏门控接线（app.cpp
+# 钩子注册 + 响应区 Preview 标签）——缺包只降级、不破坏构建，也不触发源码大构建。
 if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib-webview/CMakeLists.txt")
     huxerui_use_library(apitab TARGET HuxerUI::WebView
         PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib-webview")

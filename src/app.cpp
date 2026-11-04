@@ -39,9 +39,9 @@ const huxerui::Application application{
         // 托盘激活处理器是应用级一次性注册（见 ui/app.h 的 InstallSystemTray），
         // 必须在安装钩子里注册，不能放进会重组的 AppRoot。
         // 控制面（`apitab --cli` 的服务端）同样在安装期起，活到应用关闭。
-        // WebView 平台适配（响应区 HTML 预览）也是应用级注册；Linux 缺
-        // webkitgtk-6.0 开发包时后端不存在，InstallWebView 会抛异常，经
-        // APITAB_HAS_WEBVIEW 编译期宏整条摘除。
+        // WebView 平台适配（响应区 HTML 预览）也是应用级注册；缺 webkitgtk-6.0
+        // 开发包时 CMake 侧即置 APITAB_HAS_WEBVIEW=OFF，整条接线编译期摘除，
+        // 不会走到 InstallWebView 在无适配器平台上抛异常的路径。
         .application_hooks = {apitab::ui::InstallSystemTray,
                               apitab::ui::InstallWindowManager,
                               apitab::control::InstallControlServer,

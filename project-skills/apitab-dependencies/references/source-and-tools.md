@@ -27,7 +27,9 @@
   全部被 fork 收编并删除**，不要恢复旧 API 别名或兼容层。
   WebView 组件库 clone：`third_party/lib-webview`（FarnaHerry/Lib-WebView 的
   farna/main，上游 HuxerUI/Lib-WebView + Linux WebKitGTK 6.0 后端等应用补丁；
-  CI pin 50ac929），不入库、已 gitignore，经 `huxerui_use_library(apitab
+  CI pin `e3429b81154032010502d3e2f9dc059ac5001eea`，2026-11-04，已合上游
+  cookie 管理与 WebKitGTK 后端整理，公开面未变 apitab 仍只用 `LoadHtml`），
+  不入库、已 gitignore，经 `huxerui_use_library(apitab
   TARGET HuxerUI::WebView PATH ...)` 接入。
 - **上游预置宿主工具已随源码刷新**（95f07ab 起由 CI 自动重发 linux 预置 hcg/hrc），
   旧「4a56daf svg/path 编码 linux 预置落后」问题与本地
