@@ -16,10 +16,12 @@
   强制回落已安装/离线 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`；该通道是兼容与发布门禁，
   不阻塞开发期使用最新源码 API。
 - 源码 clone 现为 **FarnaHerry/HuxerUI fork 的 farna/main**（CI 固定
-  `b08302858fe7f3d6ff6d9c0b00a09c1ad0e6524b`，2026-10-29；包含 Linux PlatformView
-  宿主支持、应用级多窗口与每窗口系统深浅色 hook）。`OpenWindow` 必须传独立
+  `83617e66ab03e2680bfef9af8484861db86ec3d6`，2026-11-04；包含 Linux PlatformView
+  宿主支持、应用级多窗口与每窗口系统深浅色 hook，已合入上游 SDK 0.4.0：
+  自定义字体族/主题排版、Task 回调集成、原生文件引用工厂）。`OpenWindow` 必须传独立
   `ViewFactory`；`b083028` 移除 `WindowHandle::Retire()`，统一用会经过
-  `OnCloseRequest` 的 `Close()`。无窗常驻须设 `quit_on_last_window_closed=false`，
+  `OnCloseRequest` 的 `Close()`；`83617e6` 再移除 `AppOptions::extra_windows`，
+  额外启动窗口一律用 `OpenWindow`。无窗常驻须设 `quit_on_last_window_closed=false`，
   普通退出显式调用 `ApplicationHandle::Quit()`。系统主题用
   `UseSystemThemeBrightness()`，不再由 apitab 查询各平台设置。**原三个本地补丁已
   全部被 fork 收编并删除**，不要恢复旧 API 别名或兼容层。
@@ -27,18 +29,11 @@
   farna/main，上游 HuxerUI/Lib-WebView + Linux WebKitGTK 6.0 后端等应用补丁；
   CI pin 50ac929），不入库、已 gitignore，经 `huxerui_use_library(apitab
   TARGET HuxerUI::WebView PATH ...)` 接入。
-- **上游 linux 预置宿主工具可能落后于源码**：4a56daf 改了 svg 编译器/path
-  编码却只重发了 mac/windows/android 的预置 hrc/hcg，linux 预置仍是旧的
-  → 新运行时解旧资源包启动即抛 "unknown path operation"。对策：用当前
-  源码本地构建 hcg/hrc 到 `third_party/huxerui-tools/linux/x86_64/`
-  （已 gitignore）：
-  `cmake -S third_party/huxerui/tools/<codegen|resource_compiler> -B
-  build/host-tools-build/<...> -G Ninja -DCMAKE_BUILD_TYPE=Release
-  -DHUXERUI_HOST_TOOLS_STATIC_RUNTIME=OFF && cmake --build ... && cmake --install ...
-  --strip --prefix third_party/huxerui-tools/linux/x86_64`；
-  顶层 CMakeLists 检测到该目录即设 `HUXERUI_HOST_TOOL_ROOT` 优先使用。
-  **每次 pull 后都应重跑一次该流程**（并删除 build/hcg、
-  build/huxerui-resources 等旧工具产物缓存）。上游补齐 linux 预置后可删。
+- **上游预置宿主工具已随源码刷新**（95f07ab 起由 CI 自动重发 linux 预置 hcg/hrc），
+  旧「4a56daf svg/path 编码 linux 预置落后」问题与本地
+  `third_party/huxerui-tools` 构建流程已删。若未来预置再次落后，临时对策仍是
+  用当前源码本地构建 hcg/hrc 并设 `HUXERUI_HOST_TOOL_ROOT`；**每次 pull 后删除
+  build/hcg、build/huxerui-resources 等旧工具产物缓存**再配置。
 
 ## 更新后检索计划
 

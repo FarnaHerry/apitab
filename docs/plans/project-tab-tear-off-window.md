@@ -62,6 +62,9 @@ apitab 已接线 WindowManager 应用服务（窗口表/转移信封/主窗口�
   `window.h` / `gesture.h` 与 fork 的设计、开发文档，确认窗口创建、窗口身份、
   跨窗口拖放和宿主支持边界。
 - **不更新不用检索**。
-- 最近检索版本：FarnaHerry/HuxerUI `farna/main` `b083028`（2026-10-29）。已具备
+- 最近检索版本：FarnaHerry/HuxerUI `farna/main` `83617e6`（2026-11-04）。已具备
   应用级多窗口与 Application-scope typed drag API；窗口内容需由 `ViewFactory` 显式提供，
-  `WindowIdentity` 路由与 `Retire()` 均已移除。Linux 原生输入完整序列仍有 fork 记录的待验证项。
+  `WindowIdentity` 路由与 `Retire()` 均已移除；`83617e6` 进一步移除
+  `AppOptions::extra_windows`（额外启动窗口走 `OpenWindow`），窗口关系公开面收敛为
+  `SetWindowRelationship()` 自由函数，`DragDropScope::Application` 保持不变。
+  Linux 原生输入完整序列仍有 fork 记录的待验证项。

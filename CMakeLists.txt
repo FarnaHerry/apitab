@@ -148,19 +148,6 @@ if (APITAB_HUXERUI_SOURCE_DIR)
     if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         set(HUXERUI_BUILD_TESTING_LIBRARY ${APITAB_BUILD_TESTS})
     endif ()
-    # 上游预置宿主工具可能落后于源码（4a56daf 更新了 svg/path 编码却只发了
-    # mac/windows/android 的预置 hrc，linux 仍是旧的 → 新运行时解旧资源包直接
-    # 抛 "unknown path operation"）。本地若有用当前源码编出的工具
-    # （third_party/huxerui-tools/<platform>/<arch>/{hcg,hrc}，构建方法见
-    # CLAUDE.md），优先使用；缺失时回落上游预置。
-    set(APITAB_HUXERUI_LOCAL_TOOLS
-        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/huxerui-tools")
-    if (APITAB_HUXERUI_SOURCE_DIR STREQUAL APITAB_HUXERUI_BUNDLED_SOURCE_DIR
-            AND EXISTS "${APITAB_HUXERUI_LOCAL_TOOLS}/linux/x86_64/hrc"
-            AND EXISTS "${APITAB_HUXERUI_LOCAL_TOOLS}/linux/x86_64/hcg")
-        set(HUXERUI_HOST_TOOL_ROOT "${APITAB_HUXERUI_LOCAL_TOOLS}")
-        message(STATUS "apitab: 宿主工具用本地源码构建（third_party/huxerui-tools）")
-    endif ()
     add_subdirectory("${APITAB_HUXERUI_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/huxerui-sdk"
         EXCLUDE_FROM_ALL)
     # HuxerUI currently attaches -fobjc-arc to the whole macOS object
