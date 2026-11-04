@@ -396,7 +396,7 @@ namespace {
 }
 
 // 扁平选择行（契约见 ui.h）：横向排布的纯文本选项，无外框、无卡片分段。选中外观由
-// style 决定——Underline = 主色文字 + 底部强调线（未选中用同高透明占位，
+// style 决定——Underline = 主色文字 + 底部 2pt 主色下划线（未选中用同高透明占位，
 // 布局不跳动）；Framed = 主色文字 + 整项 kLineWidth 主色圆角描边（未选中用透明描边，几何
 // 不变）。两者都靠"选择中"（hover/press）的普通按钮式叠加填充与选中态区分：常态
 // 透明，指针进入出 8% 圆角填充、按下 14%。
@@ -444,7 +444,7 @@ namespace {
                     .With(huxerui::Foreground(labelColor)),
                 // 两态同高的短线：选中显示主色，未选中透明占位，无布局跳动。
                 huxerui::Row{}
-                    .With(huxerui::Frame{.height = kEmphasisLineWidth},
+                    .With(huxerui::Frame{.height = 2.0F},
                           active ? huxerui::Background(islands.line_focus)
                                  : huxerui::Background(huxerui::Color::Transparent()),
                           huxerui::CornerRadius(theme.shapes.full)),
@@ -984,7 +984,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
 // 方法 + URL 合并控件（Postman 风格）：左侧扁平方法选择（统一无尾下箭头弹自绘下拉，
 // DELETE 常驻红；保持自绘而非官方 Select——Select 触发器自带描边外观，塞不进
 // 这个共用外框的组合栏），其后是当前环境 baseUrl + 目录 Path 链显示区（灰色只读；
-// 输入框内容带 URI scheme 时以输入为准不拼接 → 该段半透明弱化），中间 kLineWidth
+// 输入框内容带 URI scheme 时以输入为准不拼接 → 该段半透明弱化），中间 1pt
 // 分隔线，右侧 URL 输入；整体共用一个描边圆角外框。外框圆角 = 几何令牌
 // large_control_radius（8pt）：请求 URL 行是高密度工具条，用紧凑的大圆角
 // 组合栏、不做 full capsule（§5.2）。方法触发器/前缀段/分隔线/URL 输入共享
@@ -1021,7 +1021,7 @@ huxerui::LayerId ShowHoverAppMenu(huxerui::PopupHandle popup,
     urlStyle.outlined.focused_border = huxerui::Color::Transparent();
     urlStyle.outlined.corner_radii = huxerui::CornerRadii{0.0F};
     // 高度对齐旁边的"发送"按钮：Outlined 默认 minimum_height=36 会让控件偏高；
-    // 内层字段高度减 2*kLineWidth，再加外层上下各 kLineWidth 内缩，组合栏总高仍为 control_height。
+    // 内层字段高度减 2pt，再加外层上下各 1pt 内缩，组合栏总高仍为 control_height。
     urlStyle.outlined.minimum_height = islands.control_height - 2.0F * kLineWidth;
     urlStyle.padding = huxerui::EdgeInsets::Symmetric(10.0F, 6.0F);
 
