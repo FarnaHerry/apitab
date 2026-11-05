@@ -111,3 +111,13 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
   不满足时整个库不接入，应用侧以 `APITAB_HAS_MARKDOWN` 门控降级为等宽原文。
 - 应用侧用法：请求页「文档」分区渲染 `requests.doc`；导入 OpenAPI/Swagger/Postman
   时把 operation description 写入该列。
+
+### 2026-11-06 HuxerUI fork 同步（Split/Dock 布局）
+
+- HuxerUI 源码 `11161a7` → `97d6fed1`：合入上游受控分栏与停靠工作区
+  （`SplitLayout`/`DockLayout`/`DockTree`/`DockItem`，`docs/design/split-and-docking.md`）、
+  `linux/window.h` 原生窗口几何头与相机扩展的原生表面工厂。`app.h`/`window.h`/
+  `gesture.h` 无 API 变化。
+- 请求页工作区改用 `DockLayout`（`APITAB_HAS_DOCK_LAYOUT` 头文件检测门控）：
+  面板拓扑/尺寸/拖拽停靠由框架管理；离线 0.3.0 SDK 回退到自管
+  `SplitPane` + `ResizeHandle`（行为不变，仅 SDK 通道编译）。
