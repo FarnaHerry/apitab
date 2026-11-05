@@ -35,9 +35,10 @@
   不入库、已 gitignore，经 `huxerui_use_library(apitab
   TARGET HuxerUI::WebView PATH ...)` 接入。
   Markdown 组件库 clone：`third_party/lib-markdown`（HuxerUI/Lib-Markdown main，
-  CI pin `970950f2d38b85f094c7f7ae3be12e3cefa99103`，2026-11-05；0.2 公共 API +
+  CI pin `794f2c1591071dff87b0271cb66587a038e2bc76`，2026-11-05；0.2 公共 API +
   `VirtualizedMarkdown`/UTF-8 流式解析 + MD4C 扩展（highlight/insertions/underline/
-  wiki_links/admonitions/footnotes，默认全关）），同样不入库、经
+  wiki_links/admonitions/footnotes/math/preserve_blank_lines，默认全关）+ 实验性
+  编辑会话（`<huxerui/markdown/editing.h>`，应用侧未使用）），同样不入库、经
   `huxerui_use_library(apitab TARGET HuxerUI::Markdown PATH ...)` 接入。
   该库的 `MarkdownStyle::FromTheme` 依赖 `Font::FromFamily` 与
   `theme.typography.family`（0.4.0 系列），**离线 `huxerui-sdk-0.3.0` 没有**：

@@ -88,7 +88,7 @@ jobs:
           git -C third_party/lib-webview checkout e3429b81154032010502d3e2f9dc059ac5001eea
           # Markdown 组件库（请求文档渲染）：HuxerUI/Lib-Markdown main，固定 commit。
           git clone https://github.com/HuxerUI/Lib-Markdown.git third_party/lib-markdown
-          git -C third_party/lib-markdown checkout 970950f2d38b85f094c7f7ae3be12e3cefa99103
+          git -C third_party/lib-markdown checkout 794f2c1591071dff87b0271cb66587a038e2bc76
 
       - name: Install dependencies
         run: |
@@ -267,7 +267,7 @@ jobs:
           git -C third_party/lib-webview checkout e3429b81154032010502d3e2f9dc059ac5001eea
           # Markdown 组件库（请求文档渲染）：HuxerUI/Lib-Markdown main，固定 commit。
           git clone https://github.com/HuxerUI/Lib-Markdown.git third_party/lib-markdown
-          git -C third_party/lib-markdown checkout 970950f2d38b85f094c7f7ae3be12e3cefa99103
+          git -C third_party/lib-markdown checkout 794f2c1591071dff87b0271cb66587a038e2bc76
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'

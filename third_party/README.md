@@ -26,7 +26,7 @@ CI 按固定 commit 检出；接口经 `huxerui_use_library(... PATH ...)` 接�
 |----|------|------------------|------|
 | SweetEditor（Lib-CodeEditor） | `third_party/huxerui-sweetedit/` | `21925a2` + 本地补丁 | Body/k6 脚本编辑器 |
 | Lib-WebView | `third_party/lib-webview/` | `e3429b8`（FarnaHerry fork） | 响应 HTML 预览 |
-| Lib-Markdown | `third_party/lib-markdown/` | `970950f` | 请求文档 Markdown 渲染；依赖 `Font::FromFamily`，缺失时 CMake 不接入并以 `APITAB_HAS_MARKDOWN` 门控降级 |
+| Lib-Markdown | `third_party/lib-markdown/` | `794f2c1` | 请求文档 Markdown 渲染；依赖 `Font::FromFamily`，缺失时 CMake 不接入并以 `APITAB_HAS_MARKDOWN` 门控降级 |
 
 ## 为什么提交预编译的 OpenSSL
 
@@ -100,11 +100,12 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
 
 ### 2026-11-05 Lib-Markdown 接入
 
-- 新增 `third_party/lib-markdown`（HuxerUI/Lib-Markdown `main`，pin `970950f`，
-  含 0.2 API、`VirtualizedMarkdown`/UTF-8 流式解析与 MD4C 扩展），经
-  `huxerui_use_library` 接入；内置 md4c 为 C99，按库自身 CMake 编译。
-  扩展（`highlight`/`insertions`/`underline`/`wiki_links`/`admonitions`/`footnotes`）
-  默认关闭，应用侧未启用；需求出现时经 `ParseOptions` 显式打开。
+- 新增 `third_party/lib-markdown`（HuxerUI/Lib-Markdown `main`，pin `794f2c1`，
+  含 0.2 API、`VirtualizedMarkdown`/UTF-8 流式解析、MD4C 扩展与实验性编辑会话），
+  经 `huxerui_use_library` 接入；内置 md4c 为 C99，按库自身 CMake 编译。
+  扩展（`highlight`/`insertions`/`underline`/`wiki_links`/`admonitions`/`footnotes`/
+  `math`/`preserve_blank_lines`）默认关闭，应用侧未启用；需求出现时经 `ParseOptions`
+  显式打开。
 - 库的 `MarkdownStyle::FromTheme` 依赖 `Font::FromFamily` + `theme.typography.family`
   （0.4.0 系列），仓库离线 `huxerui-sdk-0.3.0` 没有；CMake 按实际头文件检测，
   不满足时整个库不接入，应用侧以 `APITAB_HAS_MARKDOWN` 门控降级为等宽原文。
