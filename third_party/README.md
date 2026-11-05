@@ -78,3 +78,11 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
   主/子窗口跟随系统主题改为框架响应式 hook，删除 apitab 自写平台查询。
 - `WindowHandle::Retire()` 被移除，拆窗关闭与轻量模式统一迁移到 `Close()`；
   `quit_on_last_window_closed=false` 保持无窗 Runtime，普通退出显式调用 `Quit()`。
+
+### 2026-11-05 HuxerUI fork 同步
+
+- HuxerUI 源码 `83617e6` → `11161a7`：合入上游 Android window-scoped Java modules
+  与 Activity Result routing、iOS application/window-scoped Objective-C module
+  factory（iOS factory 改名），以及 runtime dependency 暂存树冲突裁决修正。
+  桌面 `app.h`/`window.h`/`gesture.h` 无差异，apitab 源码无需改动。
+- `build` 全量构建链接通过，`ctest` 9/9 通过（含 41 s 的 huxerui_selection_matrix）。

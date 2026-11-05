@@ -16,12 +16,15 @@
   强制回落已安装/离线 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`；该通道是兼容与发布门禁，
   不阻塞开发期使用最新源码 API。
 - 源码 clone 现为 **FarnaHerry/HuxerUI fork 的 farna/main**（CI 固定
-  `83617e66ab03e2680bfef9af8484861db86ec3d6`，2026-11-04；包含 Linux PlatformView
+  `11161a7e093f4e388a5b88a857f4dfcdd5ab6b27`，2026-11-05；包含 Linux PlatformView
   宿主支持、应用级多窗口与每窗口系统深浅色 hook，已合入上游 SDK 0.4.0：
   自定义字体族/主题排版、Task 回调集成、原生文件引用工厂）。`OpenWindow` 必须传独立
   `ViewFactory`；`b083028` 移除 `WindowHandle::Retire()`，统一用会经过
   `OnCloseRequest` 的 `Close()`；`83617e6` 再移除 `AppOptions::extra_windows`，
-  额外启动窗口一律用 `OpenWindow`。无窗常驻须设 `quit_on_last_window_closed=false`，
+  额外启动窗口一律用 `OpenWindow`。`11161a7` 合入上游 Android window-scoped Java
+  modules / Activity Result routing 与 iOS application/window-scoped Objective-C
+  module factory（iOS factory 改名，仅移动端扩展受影响）；桌面公开面未变，
+  apitab 无需改动。无窗常驻须设 `quit_on_last_window_closed=false`，
   普通退出显式调用 `ApplicationHandle::Quit()`。系统主题用
   `UseSystemThemeBrightness()`，不再由 apitab 查询各平台设置。**原三个本地补丁已
   全部被 fork 收编并删除**，不要恢复旧 API 别名或兼容层。
