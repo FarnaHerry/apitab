@@ -324,6 +324,88 @@ void RequestDocSection() {
     }
 }
 
+// 请求工作区 Dock 骨架（源码通道，镜像 request_page.cpp 的接线）：
+// 面板出树只是隐藏（语义树消失），重新入树原样恢复且面板内部状态保留。
+#if defined(APITAB_HAS_DOCK_LAYOUT)
+void RequestDockWorkspace() {
+    auto theme = MaterialDarkThemeSpec();
+    std::optional<State<bool>> showResponse;
+    root = [&, theme] {
+        return MaterialTheme(theme, Scope([&]() -> View {
+            const auto& current = UseTheme();
+            (void)current;
+            auto tree = UseState(DockTree::Split(
+                Axis::Horizontal,
+                {DockTree::Tabs({"tree"})
+                     .With(Frame{.width = 260.0F, .min_width = 180.0F, .max_width = 420.0F}),
+                 DockTree::Split(
+                     Axis::Vertical,
+                     {DockTree::Tabs({"workspace"})
+                          .With(Grow(), Frame{.min_width = 480.0F, .min_height = 300.0F}),
+                      DockTree::Tabs({"response"})
+                          .With(Frame{.height = 260.0F,
+                                      .min_height = 140.0F,
+                                      .max_height = 640.0F})})}));
+            auto visible = UseState(true);
+            showResponse.emplace(visible);
+            auto editCount = UseState(0);
+            // 镜像 request_page：调试开关同步 response 面板在树中的存在性。
+            Lifecycle(
+                [tree, visible] {
+                    DockTree next = tree.Get();
+                    if (visible.Get() && !next.Contains("response")) {
+                        next = next.Dock("response", "workspace", DockPlacement::Bottom);
+                    } else if (!visible.Get() && next.Contains("response")) {
+                        next = next.Remove("response");
+                    }
+                    if (!(next == tree.Get())) tree = std::move(next);
+                },
+                visible);
+            return DockLayout(
+                {
+                    DockItem("tree", "请求树", Column{Text("tree-panel")}).Closable(false),
+                    DockItem("workspace", "编辑器", Column{Text("workspace-panel")})
+                        .Closable(false),
+                    DockItem("response", "响应区",
+                             Column{
+                                 Button("Edit")
+                                     .OnClick([editCount] { editCount = editCount.Get() + 1; })
+                                     .Key("edit"),
+                                 Text(std::to_string(editCount.Get()) + " edits")
+                                     .Key("edits-label"),
+                             })
+                        .Closable(false),
+                },
+                tree.Get())
+                .OnChanged([tree](DockTree next) { tree = std::move(next); });
+        }));
+    };
+    const Application app{LayoutTestRoot};
+    UiTest ui(app, {.viewport = {1100.0F, 800.0F}});
+    ui.Pump();
+    Expect(ui.Find(UiSelector::Text("tree-panel")).Exists(), "dock mounts the tree panel");
+    Expect(ui.Find(UiSelector::Text("workspace-panel")).Exists(),
+           "dock mounts the workspace panel");
+    Expect(ui.Find(UiSelector::Text("响应区")).Exists(), "response tab bar is visible");
+    ui.Find(UiSelector::Key("edit")).Tap();
+    ui.Pump();
+    Expect(ui.Find(UiSelector::Text("1 edits")).Exists(), "response panel edits state works");
+    showResponse.value() = false;
+    ui.Pump();
+    ui.Pump(); // Lifecycle 晚一帧应用，再提交一次确认树已收敛
+    Expect(!ui.Find(UiSelector::Text("响应区")).Exists(),
+           "removing response from tree hides its tab bar and content");
+    showResponse.value() = true;
+    ui.Pump();
+    ui.Pump();
+    Expect(ui.Find(UiSelector::Text("响应区")).Exists(), "re-docked response panel reappears");
+    ui.Find(UiSelector::Key("edit")).Tap();
+    ui.Pump();
+    Expect(ui.Find(UiSelector::Text("2 edits")).Exists(),
+           "re-docked response panel keeps its mounted state");
+}
+#endif // APITAB_HAS_DOCK_LAYOUT
+
 } // namespace
 
 int main() {
@@ -337,6 +419,9 @@ int main() {
     PageCardInteraction();
     OpenSettingsTheme();
     RequestDocSection();
+#if defined(APITAB_HAS_DOCK_LAYOUT)
+    RequestDockWorkspace();
+#endif
     if (failures == 0) std::puts("UI layout checks passed");
     return failures == 0 ? 0 : 1;
 }

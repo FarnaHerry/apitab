@@ -1,5 +1,8 @@
-// request_page.cpp — 请求工作区：请求树与右侧编辑/响应内容统一收进一个主卡片，
-// 内部以拖拽分隔线组织区域；HTTP 可拆编辑区/响应区，WS/TCP 与 gRPC 使用整页内容。
+// request_page.cpp — 请求工作区：请求树与右侧编辑/响应内容统一收进一个主卡片。
+// 源码通道（fork 97d6fed1 起）用受控 DockLayout 组织面板：拓扑/尺寸/拖拽停靠
+// 全部由框架管理，apitab 只持有 DockTree 状态并写回提议；离线 0.3.0 SDK 没有
+// 该 API，回退到自管的 SplitPane + ResizeHandle（split_pane.h，仅 SDK 通道编译）。
+// HTTP 可拆编辑区/响应区，WS/TCP 与 gRPC 使用整页内容。
 // 发送走 store 持有的 curl 引擎（api::ApiEngine 抽象：send 纯入队，UI 协程
 // PollWhile 轮询 takeResponse 取回结果，回 UI 线程写 State 并落历史）；
 // 保存落到当前项目集合并刷新请求树。
@@ -9,6 +12,7 @@
 // 导入接口弹窗（ApiImportDialogContent）。
 #include <huxerui/huxerui.h>
 
+#include <algorithm>
 #include <charconv>
 #include <memory>
 #include <string>
@@ -120,7 +124,9 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
     return 2;
 }
 
-// 可调分隔：6pt 是命中热区，工作面底色填满热区以免露出 PageCard 底色；
+#if !defined(APITAB_HAS_DOCK_LAYOUT)
+// 可调分隔（仅 SDK 回退路径；源码通道由 DockLayout 的内建分隔符接管）：
+// 6pt 是命中热区，工作面底色填满热区以免露出 PageCard 底色；
 // 中间仅绘制 kLineWidth 细线，悬停/拖动时只切换线色、不改变粗细。
 // 拖动期间即使指针移出热区也保持高亮，Ended/Canceled 才熄灭。
 [[huxerui::composable]] huxerui::View ResizeHandle(huxerui::Axis axis, huxerui::State<float> value,
@@ -174,19 +180,231 @@ std::size_t ImportedBodyKindIndex(const std::string& kind) {
         .On<huxerui::DragEvents::Ended>([dragging](const huxerui::DragEvent&) { dragging = false; })
         .On<huxerui::DragEvents::Canceled>([dragging](const huxerui::DragEvent&) { dragging = false; });
 }
+#endif // !APITAB_HAS_DOCK_LAYOUT
 
 // 右侧分区与请求树统一使用 islands.base 工作面底色，无独立边框、无圆角。
-// 分隔线由父布局的 ResizeHandle 绘制；高度与 Grow 由调用方设置，内容独立滚动。
+// 分隔线由父布局的 ResizeHandle（回退）或 DockLayout 分隔符（Dock 路径）绘制；
+// 高度与 Grow 由调用方设置，内容独立滚动。
 huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSpec& theme,
                                    huxerui::Frame minimum = {.min_width = 320.0F,
                                                              .min_height = 140.0F}) {
     const IslandTheme islands = ResolveIslandTheme(theme);
     return std::move(content).With(huxerui::Background(islands.base),
                                    // 线条风：分区直角无边框——请求页各岛的边界由
-                                   // 骨架线与拖条分隔线表达，避免相邻边框叠成双线。
-                                   // SplitPane 先为对侧保留空间，再以有界约束测量本区域。
+                                   // 骨架线与分隔线表达，避免相邻边框叠成双线。
                                    minimum);
 }
+
+#if defined(APITAB_HAS_DOCK_LAYOUT)
+// ---- Dock 工作区（源码通道）：拓扑与尺寸的纯函数构造 ------------------------
+// 面板 id：tree=请求树，workspace=右岛（编辑器/会话/选择器），response=响应区。
+// 响应区仅在 HTTP 调试页进树；面板声明恒存在，出树只是隐藏挂载（状态保留）。
+
+// 右侧子树：workspace 撑满 + 可选的响应区（高度默认 260，范围 140–640）。
+huxerui::DockTree DockRightSide(bool debugging) {
+    auto workspace = huxerui::DockTree::Tabs({"workspace"})
+                         .With(huxerui::Grow(), huxerui::Frame{.min_width = 480.0F,
+                                                               .min_height = 300.0F});
+    if (!debugging) return workspace;
+    auto response = huxerui::DockTree::Tabs({"response"})
+                        .With(huxerui::Frame{.height = 260.0F,
+                                             .min_height = 140.0F,
+                                             .max_height = 640.0F});
+    return huxerui::DockTree::Split(huxerui::Axis::Vertical,
+                                    {std::move(workspace), std::move(response)});
+}
+
+// 规范拓扑：根 = 横向 [请求树(260，180–420/Compact 220), 右侧]。
+huxerui::DockTree InitialDockTree(bool debugging, bool compact) {
+    auto treePane = huxerui::DockTree::Tabs({"tree"})
+                        .With(huxerui::Frame{.width = 260.0F,
+                                             .min_width = 180.0F,
+                                             .max_width = compact ? 220.0F : 420.0F});
+    return huxerui::DockTree::Split(huxerui::Axis::Horizontal,
+                                    {std::move(treePane), DockRightSide(debugging)});
+}
+
+// 当前请求树面板宽度（规范拓扑读根的左子；用户停靠过的非常规拓扑回落 260）。
+float DockTreePaneWidth(const huxerui::DockTree& tree) {
+    if (tree.SplitAxis() == huxerui::Axis::Horizontal && tree.Children().size() == 2) {
+        if (const auto& width = tree.Children()[0].GetFrame().width) return *width;
+    }
+    return 260.0F;
+}
+
+// 请求工作区骨架（Dock 路径）：面板拓扑/尺寸/停靠全部由 DockLayout 管理，
+// apitab 只持有 DockTree 并写回提议。hcg 不允许 composable 体内条件编译，
+// 两条构建通道在此各自完整定义一份（签名一致，RequestPage 无条件调用）。
+[[huxerui::composable]] huxerui::View RequestWorkspace(
+    huxerui::State<std::vector<RequestDraft>> openDrafts, huxerui::State<std::size_t> activeTab,
+    huxerui::State<int> listVersion, huxerui::View workspacePanel, std::string workspaceTitle,
+    bool httpDebugging, bool compact, huxerui::State<std::string> responseBody,
+    huxerui::StateList<std::string> responseHeaders,
+    huxerui::StateList<std::string> responseCookies,
+    huxerui::State<ResponsePreview> responsePreview, huxerui::State<bool> inFlight) {
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islandTheme = ResolveIslandTheme(theme);
+    auto dockTree = huxerui::UseState(InitialDockTree(httpDebugging, compact));
+
+    // 响应面板内容恒构建：DockItem 需要非空内容；面板不在树中时仅隐藏挂载
+    // （保留语义），切回调试页原样恢复，不丢滚动与内部状态。
+    huxerui::View responsePanel = RequestIslandSurface(
+        huxerui::Column {
+            ResponseArea(responseBody, responseHeaders, responseCookies, responsePreview,
+                         inFlight, theme)
+                .With(huxerui::Grow(1.0F)),
+        }
+            .With(huxerui::Spacing(theme.spacing.small),
+                  huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                  huxerui::Padding(islandTheme.island_padding)),
+        theme);
+
+    // HTTP 调试可用性变化（切子页/切标签/切类型）：同步响应区在树中的存在性。
+    // 规范拓扑（根 = 横向 [请求树, 右侧]）下显式重建右侧，响应区回底部默认位；
+    // 用户停靠出的非常规拓扑退化为 Dock(Bottom)，由用户自行再调。
+    const std::int64_t dockResponseKey = httpDebugging ? 1 : 0;
+    huxerui::Lifecycle(
+        [dockTree, dockResponseKey] {
+            huxerui::DockTree next = dockTree.Get();
+            if (dockResponseKey != 0 && !next.Contains("response")) {
+                if (next.SplitAxis() == huxerui::Axis::Horizontal &&
+                    next.Children().size() == 2) {
+                    std::vector<huxerui::DockTree> children{next.Children().begin(),
+                                                            next.Children().end()};
+                    huxerui::DockTree rightSide = huxerui::DockTree::Split(
+                        huxerui::Axis::Vertical,
+                        {std::move(children[1])
+                             .With(huxerui::Grow(),
+                                   huxerui::Frame{.min_width = 480.0F,
+                                                  .min_height = 300.0F}),
+                         huxerui::DockTree::Tabs({"response"})
+                             .With(huxerui::Frame{.height = 260.0F,
+                                                  .min_height = 140.0F,
+                                                  .max_height = 640.0F})});
+                    next = huxerui::DockTree::Split(huxerui::Axis::Horizontal,
+                                                    {children[0], std::move(rightSide)});
+                } else {
+                    next = next.Dock("response", "workspace", huxerui::DockPlacement::Bottom);
+                }
+            } else if (dockResponseKey == 0 && next.Contains("response")) {
+                next = next.Remove("response");
+            }
+            if (!(next == dockTree.Get())) dockTree = std::move(next);
+        },
+        dockResponseKey);
+
+    // Compact 视口把请求树钳到 220dp（对齐旧 maximum 语义）；展宽恢复 420 上限。
+    huxerui::Lifecycle(
+        [dockTree, compact] {
+            huxerui::DockTree next = dockTree.Get();
+            if (next.SplitAxis() != huxerui::Axis::Horizontal ||
+                next.Children().size() != 2)
+                return;
+            std::vector<huxerui::DockTree> children{next.Children().begin(),
+                                                    next.Children().end()};
+            const float maxWidth = compact ? 220.0F : 420.0F;
+            const huxerui::Frame frame = children[0].GetFrame();
+            const float width = std::clamp(frame.width.value_or(260.0F), 180.0F, maxWidth);
+            huxerui::DockTree previous = children[0]; // With 是 && 限定的：先留底再改写
+            huxerui::DockTree clamped = std::move(previous)
+                                            .With(huxerui::Frame{.width = width,
+                                                                 .min_width = 180.0F,
+                                                                 .max_width = maxWidth});
+            if (clamped == children[0]) return;
+            next = huxerui::DockTree::Split(huxerui::Axis::Horizontal,
+                                            {std::move(clamped), children[1]});
+            dockTree = std::move(next);
+        },
+        compact ? 1 : 0);
+
+    // 面板 tab 条沿用全局 Tabs 组件：收窄内边距，不横向撑开，视觉贴近线条风。
+    auto dockTabsStyle = huxerui::UseEnvironment<huxerui::TabsStyle>();
+    dockTabsStyle.expand_items = false;
+    dockTabsStyle.item_padding = huxerui::EdgeInsets::Symmetric(12.0F, 6.0F);
+    dockTabsStyle.minimum_item_width = 64.0F;
+
+    return huxerui::Theme(
+        huxerui::ThemeDefinition{}.Set(std::move(dockTabsStyle)),
+        huxerui::DockLayout(
+            {
+                huxerui::DockItem("tree", "请求树",
+                                  RequestListIsland(openDrafts, activeTab, listVersion, false,
+                                                    DockTreePaneWidth(dockTree.Get())))
+                    .Closable(false),
+                huxerui::DockItem("workspace", workspaceTitle, std::move(workspacePanel))
+                    .Closable(false),
+                huxerui::DockItem("response", "响应区", std::move(responsePanel))
+                    .Closable(false),
+            },
+            dockTree.Get())
+            .OnChanged([dockTree](huxerui::DockTree next) { dockTree = std::move(next); })
+            .With(huxerui::Grow(1.0F)));
+}
+
+#else // !APITAB_HAS_DOCK_LAYOUT
+
+// 请求工作区骨架（SDK 回退路径）：自管 SplitPane + ResizeHandle，行为与
+// DockLayout 采用前一致（离线 0.3.0 SDK 没有 Dock/Split 布局）。
+[[huxerui::composable]] huxerui::View RequestWorkspace(
+    huxerui::State<std::vector<RequestDraft>> openDrafts, huxerui::State<std::size_t> activeTab,
+    huxerui::State<int> listVersion, huxerui::View workspacePanel, std::string workspaceTitle,
+    bool httpDebugging, bool compact, huxerui::State<std::string> responseBody,
+    huxerui::StateList<std::string> responseHeaders,
+    huxerui::StateList<std::string> responseCookies,
+    huxerui::State<ResponsePreview> responsePreview, huxerui::State<bool> inFlight) {
+    (void)workspaceTitle; // 回退路径无面板标题条
+    const huxerui::ThemeSpec& theme = huxerui::UseTheme();
+    const IslandTheme islandTheme = ResolveIslandTheme(theme);
+    auto leftIslandWidth = huxerui::UseState(260.0F);
+    auto leftIslandOrigin = huxerui::UseState(260.0F);
+    auto responseIslandHeight = huxerui::UseState(260.0F);
+    auto responseIslandOrigin = huxerui::UseState(260.0F);
+    const auto leftMetrics = huxerui::UseState(std::make_shared<SplitPaneMetrics>());
+    const auto responseMetrics = huxerui::UseState(std::make_shared<SplitPaneMetrics>());
+
+    huxerui::View rightArea = std::move(workspacePanel);
+    if (httpDebugging) {
+        // 非调试子页隐藏响应区；调试页由编辑器 Grow 分配响应区之外的剩余高度。
+        // 两个无边框分区之间插入 6dp 拖拽热区，中间仅绘制 kLineWidth 单线。
+        rightArea = huxerui::View{
+            SplitPane({std::move(rightArea),
+                       ResizeHandle(huxerui::Axis::Horizontal, responseIslandHeight,
+                                    responseIslandOrigin, responseMetrics.Get(), true),
+                       RequestIslandSurface(
+                           huxerui::Column {
+                               ResponseArea(responseBody, responseHeaders, responseCookies,
+                                            responsePreview, inFlight)
+                                   .With(huxerui::Grow(1.0F)),
+                           }
+                               .With(huxerui::Spacing(theme.spacing.small),
+                                     huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
+                                     huxerui::Padding(islandTheme.island_padding)),
+                           theme)})
+                .LayoutValue<SplitPaneOptions>(SplitPaneOptions{
+                    .axis = huxerui::Axis::Vertical,
+                    .extent = responseIslandHeight.Get(),
+                    .minimum = 140.0F,
+                    .maximum = 640.0F,
+                    .reserve = 300.0F,
+                    .trailing = true,
+                    .metrics = responseMetrics.Get(),
+                })
+                .With(huxerui::Grow(1.0F))};
+    }
+    // 在父约束内为编辑区保留 480dp，拖动与缩窗都不能把请求树扩到编辑区之上。
+    huxerui::View workspace = SplitPane {
+      RequestListIsland(openDrafts, activeTab, listVersion, false, leftIslandWidth.Get()),
+      ResizeHandle(huxerui::Axis::Vertical, leftIslandWidth, leftIslandOrigin, leftMetrics.Get()),
+      rightArea,
+    }.LayoutValue<SplitPaneOptions>(SplitPaneOptions{
+        .extent = leftIslandWidth.Get(),
+        .maximum = compact ? 220.0F : 420.0F,
+        .metrics = leftMetrics.Get(),
+    }).With(huxerui::Grow(1.0F));
+    return std::move(workspace);
+}
+
+#endif // APITAB_HAS_DOCK_LAYOUT
 
 } // namespace
 
@@ -444,12 +662,18 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     // HTML 预览文档（原文 + base URL + 代数）：编辑器发送路径写入，响应区
     // Preview 标签消费。
     auto responsePreview = huxerui::UseState(ResponsePreview{});
-    auto leftIslandWidth = huxerui::UseState(260.0F);
-    auto leftIslandOrigin = huxerui::UseState(260.0F);
-    auto responseIslandHeight = huxerui::UseState(260.0F);
-    auto responseIslandOrigin = huxerui::UseState(260.0F);
-    const auto leftMetrics = huxerui::UseState(std::make_shared<SplitPaneMetrics>());
-    const auto responseMetrics = huxerui::UseState(std::make_shared<SplitPaneMetrics>());
+
+    // 窄桌面仍保留左右工作区，收窄请求树；避免上下堆叠挤占 HTTP 编辑/响应区高度。
+    const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
+
+    const std::vector<RequestDraft> snapshot = openDrafts.Get();
+    const std::size_t current =
+        snapshot.empty() ? 0 : std::min(activeTab.Get(), snapshot.size() - 1);
+    const int currentKind = snapshot.empty() ? 0 : snapshot[current].kind;
+    // 右岛内容 Key：kind + 标签下标组合，切标签/切类型时正确重组。
+    const std::int64_t contentKey = static_cast<std::int64_t>(current) * 4 + currentKind;
+    // HTTP 调试页（响应区在树中的唯一条件）；Dock 树初始值与 Lifecycle 都用它。
+    const bool httpDebugging = currentKind == 0 && editorPage.Get() == 0;
 
     // 多窗口快照采集：拆出/拖回的发起窗口侧经 WindowManager 采集本页草稿
     //（nav_page 由根组合另行提供）。挂载注册、卸载注销；本窗口关闭时清理
@@ -463,16 +687,6 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
         },
         windowId);
 
-    // 窄桌面仍保留左右工作区，收窄请求树；避免上下堆叠挤占 HTTP 编辑/响应区高度。
-    const bool compact = huxerui::UseViewportClass() == huxerui::ViewportClass::Compact;
-
-    const std::vector<RequestDraft> snapshot = openDrafts.Get();
-    const std::size_t current =
-        snapshot.empty() ? 0 : std::min(activeTab.Get(), snapshot.size() - 1);
-    const int currentKind = snapshot.empty() ? 0 : snapshot[current].kind;
-    // 右岛内容 Key：kind + 标签下标组合，切标签/切类型时正确重组。
-    const std::int64_t contentKey = static_cast<std::int64_t>(current) * 4 + currentKind;
-
     // 右侧按活跃草稿类型分派：
     // - HTTP 调试页：上 = 标签条 + 编辑器（Grow 1，取得剩余高度），下 =
     //   响应区（高度 State 可拖 140–640dp），中间独立 6dp 拖条；编辑器固定部分
@@ -482,7 +696,10 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
     // - gRPC（kind=3）：引擎未实现——整页占位（仅标签条 + 提示文案，无操作栏、
     //   无分区、不可保存/发送；gRPC 草稿不落库）。
     // - 无打开草稿或新建标签：请求类型选择器。
-    huxerui::View rightArea = huxerui::Column{};
+    // 各分支先把右岛内容建成 workspacePanel（标题随类型），再按构建通道决定
+    // 容器：Dock 路径交给 DockLayout 面板，回退路径塞进 SplitPane/单岛。
+    huxerui::View workspacePanel = huxerui::Column{};
+    std::string workspaceTitle = "工作区";
     if (snapshot.empty() || newTabOpen.Get()) {
         auto createDraft = [openDrafts, activeTab, newTabOpen](int kind) {
             std::vector<RequestDraft> copy = openDrafts.Get();
@@ -491,7 +708,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
             activeTab = copy.size() - 1;
             newTabOpen = false;
         };
-        rightArea = RequestIslandSurface(
+        workspaceTitle = "新建请求";
+        workspacePanel = RequestIslandSurface(
             huxerui::Column {
                 RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                 NewRequestChooser(createDraft),
@@ -506,7 +724,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
         huxerui::View content = currentKind == 1
                                     ? WebSocketPage().With(huxerui::Grow(1.0F)).Key(contentKey)
                                     : TcpPage().With(huxerui::Grow(1.0F)).Key(contentKey);
-        rightArea = RequestIslandSurface(
+        workspaceTitle = "会话";
+        workspacePanel = RequestIslandSurface(
             huxerui::Column {
                 RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                 content,
@@ -518,7 +737,8 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
             theme);
     } else if (currentKind == 3) {
         // gRPC 占位页：支持规划中——只给标签条 + 居中提示，无操作栏/分区。
-        rightArea = RequestIslandSurface(
+        workspaceTitle = "gRPC";
+        workspacePanel = RequestIslandSurface(
             huxerui::Column {
                 RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                 huxerui::Column {
@@ -540,13 +760,10 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                       huxerui::Grow(1.0F)),
             theme);
     } else {
-        // 非调试子页隐藏响应区；调试页由编辑器 Grow 分配响应区之外的剩余高度。
-        // 两个无边框分区之间插入 6dp 拖拽热区，中间仅绘制 kLineWidth 单线。
-        const bool debugging = editorPage.Get() == 0;
-        std::vector<huxerui::View> islands;
         // HTTP 编辑器岛（含 URL 栏）比普通响应/会话岛需要更高的最低工作区，
         // 保证标签、名称、URL 操作栏与一个可编辑分区能够同时保留。
-        islands.push_back(RequestIslandSurface(
+        workspaceTitle = "编辑器";
+        workspacePanel = RequestIslandSurface(
             huxerui::Column {
                 RequestTabStrip(openDrafts, activeTab, envVersion, newTabOpen),
                 RequestEditor(openDrafts, current, activeTab, listVersion,
@@ -559,47 +776,15 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                       huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
                       huxerui::Padding(islandTheme.island_padding),
                       huxerui::Grow(1.0F)),
-            theme, huxerui::Frame{.min_width = 480.0F, .min_height = 300.0F}));
-        if (debugging) {
-            islands.push_back(ResizeHandle(huxerui::Axis::Horizontal, responseIslandHeight,
-                                           responseIslandOrigin, responseMetrics.Get(), true));
-            islands.push_back(RequestIslandSurface(
-                huxerui::Column {
-                    ResponseArea(responseBody, responseHeaders, responseCookies,
-                                 responsePreview, inFlight, theme)
-                        .With(huxerui::Grow(1.0F)),
-                }
-                    .With(huxerui::Spacing(theme.spacing.small),
-                          huxerui::CrossAlign(huxerui::CrossAxisAlignment::Stretch),
-                          huxerui::Padding(islandTheme.island_padding)),
-                theme));
-        }
-        rightArea = debugging
-            ? huxerui::View{SplitPane(std::move(islands))
-                  .LayoutValue<SplitPaneOptions>(SplitPaneOptions{
-                      .axis = huxerui::Axis::Vertical,
-                      .extent = responseIslandHeight.Get(),
-                      .minimum = 140.0F,
-                      .maximum = 640.0F,
-                      .reserve = 300.0F,
-                      .trailing = true,
-                      .metrics = responseMetrics.Get(),
-                  }).With(huxerui::Grow(1.0F))}
-            : islands.front();
+            theme, huxerui::Frame{.min_width = 480.0F, .min_height = 300.0F});
     }
 
-    // 在父约束内为编辑区保留 480dp，拖动与缩窗都不能把请求树扩到编辑区之上。
-    huxerui::View workspace = SplitPane {
-      RequestListIsland(openDrafts, activeTab, listVersion, false, leftIslandWidth.Get()),
-      ResizeHandle(huxerui::Axis::Vertical, leftIslandWidth, leftIslandOrigin, leftMetrics.Get()),
-      rightArea,
-    }.LayoutValue<SplitPaneOptions>(SplitPaneOptions{
-        .extent = leftIslandWidth.Get(),
-        .maximum = compact ? 220.0F : 420.0F,
-        .metrics = leftMetrics.Get(),
-    }).With(huxerui::Grow(1.0F));
-    // 请求页本身只绘制内部工作区分隔线；四边外框由应用路由层的 PageCard 统一提供。
-    return std::move(workspace);
+    // 工作区骨架按构建通道分派：Dock 路径（DockLayout 面板）或 SDK 回退
+    // （SplitPane + ResizeHandle）。两条路径在 RequestWorkspace 各自完整定义，
+    // 这里无条件调用，避免 composable 体内出现条件编译。
+    return RequestWorkspace(openDrafts, activeTab, listVersion, std::move(workspacePanel),
+                            std::move(workspaceTitle), httpDebugging, compact, responseBody,
+                            responseHeaders, responseCookies, responsePreview, inFlight);
 }
 
 } // namespace apitab::ui

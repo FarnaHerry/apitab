@@ -58,7 +58,7 @@ MinimalThemed
 | 页面 | 常规分区 | 滚动所有者 |
 |---|---|---|
 | 主页 | 常规左组织栏 240dp；Compact 顶部满宽组织栏 160dp；项目区 Grow，中间单线 | 组织 VirtualList；项目 VirtualGrid，自适应列数，卡片 200×96dp |
-| 请求 | 左请求树，右编辑/响应区，分区由拖条分隔 | 树、编辑内容和响应各自滚动；固定工具栏不随内容滚动 |
+| 请求 | 左请求树，右编辑/响应区；源码通道为 DockLayout 可停靠面板，SDK 回退为拖条分隔 | 树、编辑内容和响应各自滚动；固定工具栏不随内容滚动 |
 | 压测 | 常规左用例树 250dp；Compact 顶部满宽用例栏 160dp；配置区 Grow | 左树滚动；右侧整体 ScrollView，其中输出另有 260dp 高的 VirtualList |
 | 历史 | 左侧 320dp：标题、请求/压测分段、按请求分组记录；右侧多标签只读详情；Compact 上下分区 | 左侧分组列表与右侧详情各自滚动；标签条横向滚动；请求历史分页栏固定在左侧底部 |
 | 全局设置 | 左分类栏，右设置内容 | 左栏固定，右侧 ScrollView；分类栏宽按 192dp 基准扣除外侧缩进 |
@@ -77,24 +77,33 @@ Grow、Frame、背景或过渡锚点；这些修饰必须放在内部页面容�
 HTTP 调试页右侧按以下层级布局：
 
 ```text
-右侧 Column
-├─ 编辑区（Grow；期望最小 480×300dp）
-│  ├─ 请求标签条：横向滚动标签 + 环境组合控件
-│  └─ RequestEditor
-│     ├─ 调试 / 文档 / 测试用例 / Mock + 请求名称
-│     ├─ 方法 / URL / 发送 / 保存 / 更多
-│     ├─ Auth / Params / Headers / Cookies / Body / 设置
-│     └─ 当前分区：固定头 + 独立滚动内容
-├─ 横向 ResizeHandle
-└─ 响应区：Body / Headers / Cookies / 可选 Preview
+DockLayout（受控 DockTree；源码通道）
+├─ 面板 tree（请求树）：请求集合树（分组/拖拽移入）
+├─ 面板 workspace：请求标签条 + RequestEditor
+│  ├─ 调试 / 文档 / 测试用例 / Mock + 请求名称
+│  ├─ 方法 / URL / 发送 / 保存 / 更多
+│  └─ Auth / Params / Headers / Cookies / Body / 设置
+└─ 面板 response（仅 HTTP 调试页在树中）：Body / Headers / Cookies / 可选 Preview
 ```
 
-请求树宽度 State 默认 260dp，常规拖动范围 180～420dp，Compact 上限为 220dp；
-响应高度 State 默认 260dp，范围 140～640dp。`SplitPane` 在每次测量时先为编辑区保留
-480dp 宽度和 300dp 高度，再用剩余空间限制请求树/响应区。父空间连下限都无法满足时，
-可调分区继续缩小到零，防止负尺寸和重叠；正常桌面最小窗口仍可同时保留两个分区。
-拖条独占 6dp 命中热区，中央只画
-0.5dp 线，悬停/拖动只改变线色，不叠在面板边缘，也不附加第二条分隔线。
+请求页工作区骨架由框架 **DockLayout** 管理（fork `97d6fed1` 起可用；离线 0.3.0 SDK
+没有该 API，回退到自管 `SplitPane` + `ResizeHandle`，行为与下述契约一致）。apitab 只
+持有受控 `DockTree` 并写回 `DockEvents::Changed` 提议，分隔符拖拽、键盘调节（方向键
+10dp 步进、Home/End）与面板拖拽停靠全部由框架负责：
+
+- 面板 id：`tree`（请求树，260dp，180–420dp，Compact 钳到 220dp）、
+  `workspace`（编辑器/会话/选择器，`Grow` + 最小 480×300dp）、
+  `response`（响应区，260dp，140–640dp，仅 HTTP 调试页在树中）。
+- 三个 `DockItem` 恒声明且 `Closable(false)`：面板出树只是隐藏挂载（内容仍参与
+  组合，UseState/滚动保留），重新入树复用同一挂载节点；响应区树中存在性由
+  `Lifecycle` 按调试可用性同步——规范拓扑下显式重建右侧子树（响应区回底部默认位），
+  用户停靠出的非常规拓扑退化为 `Dock(Bottom)`。同一次调试会话内的拖拽/停靠改动经
+  `OnChanged` 保留；切子页/切标签后的响应区位置重置为底部默认，可再拖。
+- Compact 视口经 `Lifecycle` 把 `tree` 面板 Frame 钳到 `min(width, 220)`，展宽恢复
+  420 上限（对齐旧 `maximum` 语义）。
+- 面板 tab 条是框架 `Tabs`（单面板组也显示），apitab 通过局部 `TabsStyle`
+  （`expand_items=false`、内边距 `Symmetric(12,6)`、最小宽 64dp）收窄；分隔符为
+  框架内建 8dp 热区，线色取 `theme.colors.outline`，无应用侧样式钩子。
 
 文档、测试用例和 Mock 隐藏响应区；WS/TCP 使用整个右侧会话区，顶部操作固定、事件流
 独立滚动；gRPC 是占位。新建请求的 Flow 按实际可用宽度换行，没有固定两列契约。
@@ -118,13 +127,18 @@ KV 表与代码编辑器拥有自己的滚动，调用方不再追加同轴 Scro
 - **压测页滚动。** 顶部用例栏独立滚动，配置区取得剩余高度并整体滚动。输出仍有意使用
   260dp 高的虚拟列表；实际平台的滚轮边缘交接需保留人工体验验证。
 
-`SplitPane` 是应用侧的小型测量布局：Row/Column 无法在固定分区测量前按对侧保留空间
-动态限制它，因此仅将这部分分配算法放入自定义 Layout；输入、State、表面及滚动继续由
-普通组件负责。它支持横向/纵向、有界/无界约束，不使用测量结果驱动持续重组。
+`SplitPane` 现在只是 SDK 回退路径的应用侧小型测量布局（离线 0.3.0 SDK 没有
+`SplitLayout`/`DockLayout`）：Row/Column 无法在固定分区测量前按对侧保留空间动态限制
+它，因此仅将这部分分配算法放入自定义 Layout；输入、State、表面及滚动继续由普通组件
+负责。它支持横向/纵向、有界/无界约束，不使用测量结果驱动持续重组。源码通道的请求页
+不再编译进该路径（`APITAB_HAS_DOCK_LAYOUT` 门控），仅离线 SDK 通道使用。
 
 回归测试 `tests/test_ui_layout.cpp` 使用 HuxerUI 公开的无窗口测试库，覆盖分区缩小与
 恢复、请求尺寸两端限幅、父空间不足/零高度、无界滚动测量，以及 800/900dp 断点；
-也验证遮角路径、深浅主题下的卡片与 footer 尺寸，以及前景层下方的点击、文本输入和滚轮路由。
+也验证遮角路径、深浅主题下的卡片与 footer 尺寸、前景层下方的点击/文本输入/滚轮路由，
+以及源码通道的 Dock 工作区：面板挂载、响应区出树隐藏（语义树移除）、重新入树恢复且
+面板内部状态保留（`APITAB_HAS_DOCK_LAYOUT` 门控；拖拽停靠机制由上游
+`tests/runtime/dock_layout.cpp` 覆盖）。
 源码通道启用应用测试时构建 `test_ui_layout`，CTest 名为 `ui_layout`；离线 SDK
 通道不要求随包提供该可选测试库。
 
@@ -136,11 +150,12 @@ Linux 源码通道且 WebView 可用时，`tests/test_preview_native.cpp` 运行
 本次源码通道完成应用编译链接、`ui_layout` 及深浅主题的原生 Preview 回归。
 强制使用已安装 SDK 的整体构建
 在现有 Lib-WebView 依赖处失败：缺少 `huxerui/linux/platform_registry.h`，尚未进入
-应用链接；新增 SplitPane 使用的公开布局 API 另行做 SDK 头文件编译检查。该依赖差异
-独立于本次布局修改，不能把头文件检查等同于整个 SDK 通道构建成功。
+应用链接；Dock 工作区回退路径（`APITAB_HAS_DOCK_LAYOUT` 关闭）已做 SDK 头文件编译
+检查。该依赖差异独立于本次布局修改，不能把头文件检查等同于整个 SDK 通道构建成功。
 
-维护入口：外壳 `src/ui/app.cpp`；断点 `src/ui/app.h`；分配算法 `split_pane.h`；尺寸
-及分派 `request_page.cpp`；编辑器 `request_editor.cpp`；请求标签 `request_tab_strip.cpp`；
+维护入口：外壳 `src/ui/app.cpp`；断点 `src/ui/app.h`；Dock 面板拓扑与回退分配算法
+`request_page.cpp`（`RequestWorkspace` 双路径）+ `split_pane.h`（仅 SDK 回退）；
+编辑器 `request_editor.cpp`；请求标签 `request_tab_strip.cpp`；
 表面令牌 `common.cpp` / `ui.h`。改变尺寸、断点或滚动所有权时同步更新本说明。
 
 ## 分隔线、色板与控件约束
@@ -149,8 +164,10 @@ Linux 源码通道且 WebView 可用时，`tests/test_preview_native.cpp` 运行
   避免叠成双线。相邻面板之间只画一条 `kLineWidth = 0.5F` 逻辑尺寸线。
 - 静态分隔用空 Row/Column + Frame 的 width/height = kLineWidth，
   Background(line_subtle)，靠父容器 CrossAlign(Stretch) 拉满。
-- ResizeHandle 本身就是分隔，6dp 命中热区内只画一条线；hover/拖动只换 line_focus，
-  不改变粗细。普通描边所有状态保持 kLineWidth，只切换语义颜色。
+- 请求页的可调分隔由 DockLayout 内建分隔符承担（8dp 热区、`theme.colors.outline`
+  线色，无应用侧样式钩子）；回退路径的 `ResizeHandle` 6dp 热区内只画一条线，
+  hover/拖动只换 line_focus，不改变粗细。普通描边所有状态保持 kLineWidth，只切换
+  语义颜色。
 - 结构线为 line_subtle，项目状态栏上缘为 line_default；焦点环与活动下划线使用
   `kEmphasisLineWidth = 2.0F`。侧栏与内容区之间、标题栏下缘不另画线。
 - 色阶只用于状态/控件/浮层：列表 hover/选中为 islands.raised/active，

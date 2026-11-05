@@ -326,6 +326,16 @@ if (APITAB_HUXERUI_PUBLIC_INCLUDE_DIR AND EXISTS "${APITAB_HUXERUI_PUBLIC_INCLUD
         set(APITAB_HAS_FILE_DROP ON)
     endif()
 endif()
+
+# 受控分栏/停靠布局（fork 97d6fed1 合入上游；离线 0.3.0 SDK 没有）。检测两个
+# 头里的类型对齐引入，避免只用单文件子串误报。
+set(APITAB_HAS_DOCK_LAYOUT OFF)
+if (APITAB_HUXERUI_PUBLIC_INCLUDE_DIR AND EXISTS "${APITAB_HUXERUI_PUBLIC_INCLUDE_DIR}/event.h")
+    file(READ "${APITAB_HUXERUI_PUBLIC_INCLUDE_DIR}/event.h" _apitab_dock_event_h)
+    if (_apitab_view_h MATCHES "class DockLayout" AND _apitab_dock_event_h MATCHES "struct DockEvents")
+        set(APITAB_HAS_DOCK_LAYOUT ON)
+    endif()
+endif()
 if (APITAB_HAS_COMBOBOX)
     message(STATUS "apitab: ComboBox available（源码通道）")
 endif()
@@ -466,6 +476,9 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     endif()
     if (APITAB_HAS_FILE_DROP)
         target_compile_definitions(apitab PRIVATE APITAB_HAS_FILE_DROP)
+    endif()
+    if (APITAB_HAS_DOCK_LAYOUT)
+        target_compile_definitions(apitab PRIVATE APITAB_HAS_DOCK_LAYOUT)
     endif()
     # windows.h 的 min/max 宏会毁掉所有经 ixwebsocket/asio/curl 头链引入它的
     # TU 里的 std::max/std::min（MSVC C2589）；宏不跨 TU，必须整个目标定义
@@ -629,6 +642,10 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
             if (APITAB_HAS_MARKDOWN)
                 target_compile_definitions(test_ui_layout PRIVATE APITAB_HAS_MARKDOWN)
                 target_link_libraries(test_ui_layout PRIVATE HuxerUI::Markdown)
+            endif ()
+            # 请求工作区 DockLayout 测试同样要与应用侧同宏（回退分支走 SplitPane）。
+            if (APITAB_HAS_DOCK_LAYOUT)
+                target_compile_definitions(test_ui_layout PRIVATE APITAB_HAS_DOCK_LAYOUT)
             endif ()
             add_test(NAME ui_layout COMMAND test_ui_layout)
         endif ()
