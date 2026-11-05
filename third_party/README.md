@@ -17,6 +17,17 @@ SHA256 后解包到 `build/vendor/`，源码树不入库），nlohmann::json 是
 | OpenSSL | 3.5.1 | `openssl-3.5.1-linux-x86_64.tar.gz` | `compat.openssl` 管线构建的**静态预编译产物**（libssl.a/libcrypto.a + include），仅 linux x86_64 兜底；其他平台用系统 OpenSSL（ubuntu libssl-dev / macos brew openssl@3 / windows vcpkg） |
 | nlohmann::json | 3.12.0 | `json/nlohmann/json.hpp`（single header） | 上游 `nlohmann/json` v3.12.0 `single_include` |
 
+## 组件库 clone（不入库）
+
+以下 HuxerUI 组件库以 git clone 形式放在 `third_party/<名>/`，`.gitignore` 已忽略，
+CI 按固定 commit 检出；接口经 `huxerui_use_library(... PATH ...)` 接入。
+
+| 库 | 位置 | pin（2026-11-05） | 用途 |
+|----|------|------------------|------|
+| SweetEditor（Lib-CodeEditor） | `third_party/huxerui-sweetedit/` | `21925a2` + 本地补丁 | Body/k6 脚本编辑器 |
+| Lib-WebView | `third_party/lib-webview/` | `e3429b8`（FarnaHerry fork） | 响应 HTML 预览 |
+| Lib-Markdown | `third_party/lib-markdown/` | `970950f` | 请求文档 Markdown 渲染；依赖 `Font::FromFamily`，缺失时 CMake 不接入并以 `APITAB_HAS_MARKDOWN` 门控降级 |
+
 ## 为什么提交预编译的 OpenSSL
 
 本机（Fedora）没有 openssl-devel 且 `import std` 的构建无法依赖 sudo 装包；
@@ -86,3 +97,16 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
   factory（iOS factory 改名），以及 runtime dependency 暂存树冲突裁决修正。
   桌面 `app.h`/`window.h`/`gesture.h` 无差异，apitab 源码无需改动。
 - `build` 全量构建链接通过，`ctest` 9/9 通过（含 41 s 的 huxerui_selection_matrix）。
+
+### 2026-11-05 Lib-Markdown 接入
+
+- 新增 `third_party/lib-markdown`（HuxerUI/Lib-Markdown `main`，pin `970950f`，
+  含 0.2 API、`VirtualizedMarkdown`/UTF-8 流式解析与 MD4C 扩展），经
+  `huxerui_use_library` 接入；内置 md4c 为 C99，按库自身 CMake 编译。
+  扩展（`highlight`/`insertions`/`underline`/`wiki_links`/`admonitions`/`footnotes`）
+  默认关闭，应用侧未启用；需求出现时经 `ParseOptions` 显式打开。
+- 库的 `MarkdownStyle::FromTheme` 依赖 `Font::FromFamily` + `theme.typography.family`
+  （0.4.0 系列），仓库离线 `huxerui-sdk-0.3.0` 没有；CMake 按实际头文件检测，
+  不满足时整个库不接入，应用侧以 `APITAB_HAS_MARKDOWN` 门控降级为等宽原文。
+- 应用侧用法：请求页「文档」分区渲染 `requests.doc`；导入 OpenAPI/Swagger/Postman
+  时把 operation description 写入该列。

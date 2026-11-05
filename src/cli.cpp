@@ -498,6 +498,21 @@ int cmdShow(const Options& opt) {
             if (!r.mock.body.ends_with('\n')) std::cout << '\n';
         }
     }
+    if (!r.doc.empty()) {
+        // 逐行走 out()：show 经控制面在运行中实例执行，std::cout 直写会绕过
+        // Sink，客户端收不到多行正文（body 段同此约定）。
+        out("接口文档 (Markdown):");
+        std::size_t start = 0;
+        while (start <= r.doc.size()) {
+            const std::size_t end = r.doc.find('\n', start);
+            if (end == std::string::npos) {
+                if (start < r.doc.size()) out(std::string_view{r.doc}.substr(start));
+                break;
+            }
+            out(std::string_view{r.doc}.substr(start, end - start));
+            start = end + 1;
+        }
+    }
     out("更新时间: " + stampTime(r.updatedAt));
     return 0;
 }

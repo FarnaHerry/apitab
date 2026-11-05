@@ -21,6 +21,7 @@ struct ImportedOperation {
     std::string url;                    // path（与 baseUrl 拼接）或完整 URL
     bool fullUrl = false;               // true = url 已含 scheme，直接用
     std::string name;                   // summary / operationId / Postman 名
+    std::string doc;                    // description（Markdown 原文，落 requests.doc）
     std::vector<std::string> dirChain;  // 接口目录链（tag / folder），空 = 根
     std::vector<ImportedParam> params;  // query 参数
     std::vector<ImportedParam> headers; // header 参数

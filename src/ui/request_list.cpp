@@ -91,6 +91,7 @@ RequestDraft DraftFromSaved(const db::SavedRequest& saved) {
     }
     for (const db::RequestTestCase& c : saved.testCases) draft.cases.push_back(CaseFromDb(c));
     draft.mock = MockFromDb(saved.mock);
+    draft.doc = saved.doc;
     return draft;
 }
 

@@ -190,7 +190,9 @@ ctest --test-dir build --output-on-failure
   k6 REST API `PATCH stopped:true` 保留 summary，API 不可达再 TerminateProcess。
   spawn 按 `spec.proxy` 注入或剥除代理变量，空为直连；进程与管道由 RAII 持有。
 - `apitab.db`（`src/db.cppm/.cpp`）以 SQLiteCpp 管理 requests/history/load_tests
-  等领域表，KV 序列化为 JSON；配置、偏好与纯函数分别归 `apitab.config`、
+  等领域表，KV 序列化为 JSON；请求撰写文档存 `requests.doc`（Markdown 原文，
+  纯 TEXT 非 JSON；加列走既有 `PRAGMA table_info` + `ALTER TABLE` 迁移），
+  配置、偏好与纯函数分别归 `apitab.config`、
   `apitab.preferences`、`apitab.utils`（`src/config.cppm`、`preferences.cppm`、`utils.cppm`）。
 - `apitab.store.requests`（`src/store/requests.cppm`）持有 curl 引擎与 Db，负责组织、
   项目、集合 CRUD；`finalizeSpec` 替换 `{{var}}`、拼接 URL、合并全局 Cookie，

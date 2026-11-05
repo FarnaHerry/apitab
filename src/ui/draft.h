@@ -113,6 +113,9 @@ struct RequestDraft {
     // 编辑器子页数据（调试/文档/测试用例/Mock 中的后两者）。
     std::vector<TestCaseDraft> cases;
     MockDraft mock;
+    // 接口文档原文（Markdown）：导入 OpenAPI/Postman 时随请求落库，文档分区只读
+    // 渲染；应用内编辑留待后续（当前只作为快照字段随保存往返）。
+    std::string doc;
 
     bool operator==(const RequestDraft&) const = default;
 };

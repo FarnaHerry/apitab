@@ -102,6 +102,7 @@ export struct SavedRequest {
     bool allowJsonComments = true;
     std::vector<RequestTestCase> testCases;  // 测试用例页数据
     RequestMock mock;                        // Mock 页数据
+    std::string doc;                         // 接口文档（Markdown 原文，请求页「文档」分区渲染）
     std::int64_t updatedAt = 0;
 };
 

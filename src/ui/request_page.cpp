@@ -372,6 +372,7 @@ huxerui::View RequestIslandSurface(huxerui::View content, const huxerui::ThemeSp
                 rec.method = op.method; // 原样字符串（保存/发送接受任意方法名）
                 rec.url = op.url;       // fullUrl 原样（含 scheme，finalizeSpec 不再
                                         // 拼环境）；否则为 path 相对
+                rec.doc = op.doc;       // description → 接口文档（文档分区渲染）
                 for (const ImportedParam& p : op.params) {
                     rec.params.push_back(api::KeyValue{.key = p.key, .value = p.value,
                                                        .enabled = true,

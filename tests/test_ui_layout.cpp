@@ -3,10 +3,12 @@
 #include "ui/app.h"
 #include "ui/split_pane.h"
 #include "ui/page_card.h"
+#include "ui/request_doc_section.h"
 #include "ui/settings_theme.h"
 
 #include <cmath>
 #include <cstdio>
+#include <memory>
 #include <functional>
 #include <initializer_list>
 #include <optional>
@@ -280,6 +282,48 @@ void OpenSettingsTheme() {
         Expect(ui.Find(UiSelector::Text("Settings mounted")).Exists(), "settings theme reopens at narrow viewport");
     }
 }
+
+// 请求文档分区：撰写文档渲染 + 空文档提示。Markdown 可用时挂载 Lib-Markdown，
+// 否则走等宽原文降级；两种形态都必须真实挂载、可展开，不只在组合期成立。
+void RequestDocSection() {
+    auto theme = MaterialDarkThemeSpec();
+    for (const std::string doc : {std::string{}, std::string{"# 创建条目\n\n- 需要名称\n- 返回 201\n"}}) {
+        root = [theme, doc] {
+            return MaterialTheme(theme, Scope([doc]() -> View {
+                const auto& current = UseTheme();
+                auto cache = UseState(std::make_shared<DocMarkdownCache>()).Get();
+                RefreshDocMarkdownCache(*cache, doc);
+                return ScrollView {
+                    AuthoredDocView(doc, current, *cache),
+                }.With(Grow(1.0F));
+            }));
+        };
+        const Application app{LayoutTestRoot};
+        UiTest ui(app, {.viewport = {900.0F, 700.0F}});
+        ui.Pump();
+        if (doc.empty()) {
+            Expect(ui.Find(UiSelector::Text(
+                       "此请求还没有撰写文档。导入 OpenAPI / Postman 文件时，"
+                       "接口的 description 会自动写入这里。"))
+                       .Exists(),
+                   "empty request doc shows the authoring hint");
+        } else {
+#if defined(APITAB_HAS_MARKDOWN)
+            Expect(ui.Find(UiSelector::Key("authored-doc")).Exists(),
+                   "authored doc renders through the Markdown component");
+            Expect(ui.Find(UiSelector::Text("创建条目")).Exists(),
+                   "Markdown heading becomes visible text");
+            Expect(ui.Find(UiSelector::Text("需要名称")).Exists(),
+                   "Markdown list item becomes visible text");
+#else
+            Expect(ui.Find(UiSelector::Text("当前构建未启用 Markdown 渲染，以下为文档原文。"))
+                       .Exists(),
+                   "doc falls back to plain text when Markdown is unavailable");
+#endif
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -292,6 +336,7 @@ int main() {
     PageCardFooter();
     PageCardInteraction();
     OpenSettingsTheme();
+    RequestDocSection();
     if (failures == 0) std::puts("UI layout checks passed");
     return failures == 0 ? 0 : 1;
 }

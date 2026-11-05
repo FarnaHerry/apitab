@@ -103,6 +103,11 @@ agent / 脚本 / apitab --cli（薄客户端：只发请求、打印结果）
 **阶段 3 — 写面与文档闭环**
 9. 控制面写面：新建/更新请求、导入 OpenAPI/Postman、切环境、写文档字段（乐观锁）。
 10. 请求页「文档」分区展示"撰写版（存库）+ 自动生成版"。
+    - **已落地（2026-11-05，只读半边）**：`requests.doc` 列 + `PRAGMA table_info`
+      迁移、导入 OpenAPI/Swagger/Postman 时写入 description、文档分区用
+      Lib-Markdown 渲染撰写版（`APITAB_HAS_MARKDOWN` 门控，缺库/旧 SDK 降级等宽
+      原文）、CLI `show` 输出原文。**未落地**：应用内编辑与通过控制面写 doc
+      （乐观锁）。
 11. `ctest` + 三平台 CI + 更新 `CLAUDE.md`（依赖清单/模块表）与
     `docs/architecture.md`（资源矩阵 + 线程契约：DB 从"进程内单连接同步"改成
     "串行 worker 序列 + Task"）+ 发版。

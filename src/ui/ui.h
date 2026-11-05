@@ -665,8 +665,9 @@ huxerui::View RequestTabStrip(huxerui::State<std::vector<RequestDraft>> drafts,
                               huxerui::State<int> envVersion,
                               huxerui::State<bool> newTabOpen);
 
-// request_doc.cpp — 请求文档页（P1-C1 自 request_page.cpp 拆出）：按当前草稿只读
-// 生成方法/URL/KV/Body 文档，State 变化即重组刷新。
+// request_doc.cpp — 请求文档页（P1-C1 自 request_page.cpp 拆出）：撰写文档
+// （requests.doc，Markdown 渲染，见 request_doc_section.h）+ 按当前草稿只读生成的
+// 方法/URL/KV/Body 文档；State 变化即重组刷新。
 huxerui::View RequestDocPage(const RequestDraft& snapshot, const std::string& envBaseUrl);
 
 // request_response.cpp — 请求工作区右侧下岛（P1-C1 自 request_page.cpp 拆出）：响应区

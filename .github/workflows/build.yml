@@ -86,6 +86,9 @@ jobs:
           # farna/main（含 Linux WebKitGTK 6.0 后端），固定 commit 跟进 fork 更新。
           git clone https://github.com/FarnaHerry/Lib-WebView.git third_party/lib-webview
           git -C third_party/lib-webview checkout e3429b81154032010502d3e2f9dc059ac5001eea
+          # Markdown 组件库（请求文档渲染）：HuxerUI/Lib-Markdown main，固定 commit。
+          git clone https://github.com/HuxerUI/Lib-Markdown.git third_party/lib-markdown
+          git -C third_party/lib-markdown checkout 970950f2d38b85f094c7f7ae3be12e3cefa99103
 
       - name: Install dependencies
         run: |
@@ -262,6 +265,9 @@ jobs:
           # WebView 组件库（响应 HTML 预览）：同 Linux job 的 fork 固定 commit。
           git clone https://github.com/FarnaHerry/Lib-WebView.git third_party/lib-webview
           git -C third_party/lib-webview checkout e3429b81154032010502d3e2f9dc059ac5001eea
+          # Markdown 组件库（请求文档渲染）：HuxerUI/Lib-Markdown main，固定 commit。
+          git clone https://github.com/HuxerUI/Lib-Markdown.git third_party/lib-markdown
+          git -C third_party/lib-markdown checkout 970950f2d38b85f094c7f7ae3be12e3cefa99103
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'

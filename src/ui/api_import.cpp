@@ -217,6 +217,7 @@ void parseOpenApi(const json& root, ImportedApi& out) {
             const std::string summary = strOr(op, "summary");
             const std::string opId = strOr(op, "operationId");
             io.name = !summary.empty() ? summary : (!opId.empty() ? opId : io.method + " " + path);
+            io.doc = strOr(op, "description");  // 接口文档原文（Markdown），落 requests.doc
             if (op.contains("tags") && op["tags"].is_array() && !op["tags"].empty()
                 && op["tags"][0].is_string()) {
                 const std::string tag = op["tags"][0].get<std::string>();
@@ -357,6 +358,11 @@ void parsePostmanItems(const json& items, const std::vector<std::string>& chain,
         ImportedOperation io;
         io.dirChain = chain;
         io.name = name;
+        // item.description（string 或 {content}）即该请求的文档原文。
+        if (it.contains("description")) {
+            if (it["description"].is_string()) io.doc = it["description"].get<std::string>();
+            else if (it["description"].is_object()) io.doc = strOr(it["description"], "content");
+        }
         const json* queryArr = nullptr;
         if (req.is_string()) {  // 简写形态："request": "https://…"
             io.method = "GET";

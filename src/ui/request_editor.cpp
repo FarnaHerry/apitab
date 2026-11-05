@@ -563,6 +563,7 @@ huxerui::View SplitActionButton(
             saved.bodyContents[bodyIndex].fields = spec.bodyFields;
         for (const TestCaseDraft& c : draft.cases) saved.testCases.push_back(CaseToDb(c));
         saved.mock = MockToDb(draft.mock);
+        saved.doc = draft.doc; // 撰写文档随请求往返；漏带会清空库里的文档
         if (auto result = g_requests.save(saved); !result) {
             toast.Show("保存失败: " + result.error().message);
             return;

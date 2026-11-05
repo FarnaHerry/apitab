@@ -34,6 +34,15 @@
   cookie 管理与 WebKitGTK 后端整理，公开面未变 apitab 仍只用 `LoadHtml`），
   不入库、已 gitignore，经 `huxerui_use_library(apitab
   TARGET HuxerUI::WebView PATH ...)` 接入。
+  Markdown 组件库 clone：`third_party/lib-markdown`（HuxerUI/Lib-Markdown main，
+  CI pin `970950f2d38b85f094c7f7ae3be12e3cefa99103`，2026-11-05；0.2 公共 API +
+  `VirtualizedMarkdown`/UTF-8 流式解析 + MD4C 扩展（highlight/insertions/underline/
+  wiki_links/admonitions/footnotes，默认全关）），同样不入库、经
+  `huxerui_use_library(apitab TARGET HuxerUI::Markdown PATH ...)` 接入。
+  该库的 `MarkdownStyle::FromTheme` 依赖 `Font::FromFamily` 与
+  `theme.typography.family`（0.4.0 系列），**离线 `huxerui-sdk-0.3.0` 没有**：
+  CMake 读实际 `text.h`/`theme.h` 检测，不满足时整库不接入并输出降级说明，
+  应用侧以 `APITAB_HAS_MARKDOWN` 门控（显示等宽原文）。
 - **上游预置宿主工具已随源码刷新**（95f07ab 起由 CI 自动重发 linux 预置 hcg/hrc），
   旧「4a56daf svg/path 编码 linux 预置落后」问题与本地
   `third_party/huxerui-tools` 构建流程已删。若未来预置再次落后，临时对策仍是

@@ -190,6 +190,7 @@ CREATE TABLE IF NOT EXISTS requests (
     body_contents TEXT NOT NULL DEFAULT '{}',
     test_cases    TEXT NOT NULL DEFAULT '[]',
     mock          TEXT NOT NULL DEFAULT '{}',
+    doc           TEXT NOT NULL DEFAULT '',
     updated_at   INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS global_cookies (
@@ -252,6 +253,7 @@ CREATE TABLE IF NOT EXISTS load_tests (
             bool hasBodyContents = false;
             bool hasTestCases = false;
             bool hasMock = false;
+            bool hasDoc = false;
             bool hasGlobalCookieProjectId = false;
             bool hasParentId = false;
             bool hasEnvVariables = false;
@@ -276,6 +278,7 @@ CREATE TABLE IF NOT EXISTS load_tests (
                 if (col == "body_contents") hasBodyContents = true;
                 if (col == "test_cases") hasTestCases = true;
                 if (col == "mock") hasMock = true;
+                if (col == "doc") hasDoc = true;
             }
             bool hasGroupPath = false;
             SQLite::Statement groups(db, "PRAGMA table_info(groups)");
@@ -332,6 +335,9 @@ CREATE TABLE IF NOT EXISTS load_tests (
             }
             if (!hasMock) {
                 db.exec("ALTER TABLE requests ADD COLUMN mock TEXT NOT NULL DEFAULT '{}'");
+            }
+            if (!hasDoc) {
+                db.exec("ALTER TABLE requests ADD COLUMN doc TEXT NOT NULL DEFAULT ''");
             }
             if (!hasParentId) {
                 db.exec("ALTER TABLE groups ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0");
@@ -694,7 +700,7 @@ void Db::deleteGroup(std::int64_t id) {
 
 std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
     SQLite::Statement q(impl_->db,
-        "SELECT id,project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,body_contents,test_cases,mock,updated_at "
+        "SELECT id,project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,body_contents,test_cases,mock,doc,updated_at "
         "FROM requests WHERE project_id=? ORDER BY updated_at DESC");
     q.bind(1, projectId);
     std::vector<SavedRequest> out;
@@ -723,7 +729,8 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
         }
         r.testCases = testCasesFromJson(q.getColumn(16).getString());
         r.mock = mockFromJson(q.getColumn(17).getString());
-        r.updatedAt = q.getColumn(18).getInt64();
+        r.doc = q.getColumn(18).getString();
+        r.updatedAt = q.getColumn(19).getInt64();
         out.push_back(std::move(r));
     }
     return out;
@@ -732,8 +739,8 @@ std::vector<SavedRequest> Db::listRequests(std::int64_t projectId) {
 std::int64_t Db::saveRequest(const SavedRequest& r) {
     if (r.id == 0) {
         SQLite::Statement q(impl_->db,
-            "INSERT INTO requests(project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,body_contents,test_cases,mock,updated_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            "INSERT INTO requests(project_id,group_id,name,request_kind,ws_protocol,cookies,follow_redirects,allow_json_comments,method,url,params,headers,body_kind,body,body_contents,test_cases,mock,doc,updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         q.bind(1, r.projectId);
         q.bind(2, r.groupId);
         q.bind(3, r.name);
@@ -751,12 +758,13 @@ std::int64_t Db::saveRequest(const SavedRequest& r) {
         q.bind(15, bodyContentsToJson(r.bodyContents));
         q.bind(16, testCasesToJson(r.testCases));
         q.bind(17, mockToJson(r.mock));
-        q.bind(18, r.updatedAt);
+        q.bind(18, r.doc);
+        q.bind(19, r.updatedAt);
         q.exec();
         return impl_->db.getLastInsertRowid();
     }
     SQLite::Statement q(impl_->db,
-        "UPDATE requests SET project_id=?,group_id=?,name=?,request_kind=?,ws_protocol=?,cookies=?,follow_redirects=?,allow_json_comments=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,body_contents=?,test_cases=?,mock=?,"
+        "UPDATE requests SET project_id=?,group_id=?,name=?,request_kind=?,ws_protocol=?,cookies=?,follow_redirects=?,allow_json_comments=?,method=?,url=?,params=?,headers=?,body_kind=?,body=?,body_contents=?,test_cases=?,mock=?,doc=?,"
         "updated_at=? WHERE id=?");
     q.bind(1, r.projectId);
     q.bind(2, r.groupId);
@@ -775,8 +783,9 @@ std::int64_t Db::saveRequest(const SavedRequest& r) {
     q.bind(15, bodyContentsToJson(r.bodyContents));
     q.bind(16, testCasesToJson(r.testCases));
     q.bind(17, mockToJson(r.mock));
-    q.bind(18, r.updatedAt);
-    q.bind(19, r.id);
+    q.bind(18, r.doc);
+    q.bind(19, r.updatedAt);
+    q.bind(20, r.id);
     q.exec();
     return r.id;
 }

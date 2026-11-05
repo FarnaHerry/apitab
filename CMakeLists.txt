@@ -413,6 +413,35 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib-webview/CMakeLists.txt")
     endif ()
 endif ()
 
+# ---- Markdown（Lib-Markdown 原生 Markdown 渲染，HuxerUI 依赖库）--------------
+# 请求页「文档」分区的撰写版渲染。third_party/lib-markdown 是 HuxerUI/Lib-Markdown
+# main 的 clone，经 huxerui_use_library 接入；库内含 md4c（公共领域/MIT）与
+# AttributedText/SelectionArea 渲染。
+#
+# 库的 MarkdownStyle::FromTheme 使用 Font::FromFamily 与 theme.typography.family
+# （0.4.0 系列新增），Linux 离线 0.3.0 SDK 没有；按实际头文件检测，缺 API 时
+# 整体不接入并以 APITAB_HAS_MARKDOWN 宏门控应用侧降级（显示等宽原文），
+# 保持 SDK 通道可构建。clone 缺失时同样不接入。
+set(APITAB_HAS_MARKDOWN OFF)
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib-markdown/CMakeLists.txt"
+        AND APITAB_HUXERUI_PUBLIC_INCLUDE_DIR)
+    file(READ "${APITAB_HUXERUI_PUBLIC_INCLUDE_DIR}/text.h" _apitab_markdown_text_h)
+    file(READ "${APITAB_HUXERUI_PUBLIC_INCLUDE_DIR}/theme.h" _apitab_markdown_theme_h)
+    if (_apitab_markdown_text_h MATCHES "FromFamily" AND _apitab_markdown_theme_h MATCHES "FontFamily family")
+        set(APITAB_HAS_MARKDOWN ON)
+    endif ()
+endif ()
+if (APITAB_HAS_MARKDOWN)
+    huxerui_use_library(apitab TARGET HuxerUI::Markdown
+        PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lib-markdown")
+    if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
+        message(STATUS "apitab: Markdown 渲染可用（请求文档）")
+        target_compile_definitions(apitab PRIVATE APITAB_HAS_MARKDOWN)
+    endif ()
+elseif (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
+    message(STATUS "apitab: Markdown 渲染禁用（缺 third_party/lib-markdown 或当前 HuxerUI 无 Font::FromFamily）")
+endif ()
+
 if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
     # 领域层 C++23 模块（.cppm 接口；对应 .cpp 实现单元已随 glob 进 SOURCES）
     target_sources(apitab PRIVATE FILE_SET apitab_modules TYPE CXX_MODULES
@@ -595,6 +624,12 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
             target_compile_features(test_ui_layout PRIVATE cxx_std_23)
             target_include_directories(test_ui_layout PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
             target_link_libraries(test_ui_layout PRIVATE HuxerUI::testing)
+            # 文档分区（request_doc_section.h）在 Markdown 可用时挂 Lib-Markdown；
+            # 宏与库必须和应用侧一致，否则测试会走降级分支。
+            if (APITAB_HAS_MARKDOWN)
+                target_compile_definitions(test_ui_layout PRIVATE APITAB_HAS_MARKDOWN)
+                target_link_libraries(test_ui_layout PRIVATE HuxerUI::Markdown)
+            endif ()
             add_test(NAME ui_layout COMMAND test_ui_layout)
         endif ()
         if (APITAB_HUXERUI_FROM_SOURCE AND APITAB_HAS_WEBVIEW AND UNIX AND NOT APPLE)
@@ -658,6 +693,18 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         target_link_libraries(test_k6_engine PRIVATE apitab_json CURL::libcurl Threads::Threads
             $<$<PLATFORM_ID:Windows>:ws2_32>)
         add_test(NAME k6_engine COMMAND test_k6_engine)
+        # DB 持久化契约测试：requests.doc 往返、UPDATE 覆盖、旧库 ALTER 迁移。
+        # 与引擎测试同一模式：实现单元按 TU 复用，模块接口走 FILE_SET。
+        add_executable(test_db tests/test_db.cpp src/db.cpp)
+        set_target_properties(test_db PROPERTIES
+            CXX_MODULE_STD ON
+            CXX_SCAN_FOR_MODULES ON)
+        target_compile_features(test_db PRIVATE cxx_std_23)
+        target_sources(test_db PRIVATE FILE_SET apitab_db_test_modules TYPE CXX_MODULES
+            BASE_DIRS src
+            FILES src/api_engine.cppm src/db.cppm)
+        target_link_libraries(test_db PRIVATE SQLiteCpp apitab_json)
+        add_test(NAME db COMMAND test_db)
         # 控制面**客户端半边**的协议契约测试：本地回环桩冒充实例，断言结果回放
         # （退出码/stdout/stderr）、401 与端点缺失的错误路径、ping 就绪探测。
         # 客户端半边不依赖 cli/store（help 由平台入口本地处理），所以只编这一个 TU。

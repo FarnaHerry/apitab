@@ -1,19 +1,35 @@
-// request_doc.cpp — 请求文档页（只读，按当前草稿自动生成）。
+// request_doc.cpp — 请求文档页（只读：撰写版 Markdown + 按草稿自动生成）。
 // 自 request_page.cpp 拆出（P1-C1，功能域 = 文档展示），纯搬移。
 #include <huxerui/huxerui.h>
 
 #include <format>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "draft.h"
+#include "request_doc_section.h"
 #include "ui.h"
 
 import apitab.store.requests;
 
 namespace apitab::ui {
 
-// 文档页：按当前请求草稿自动生成接口文档（只读；草稿任何编辑触发重组即刷新）。
+// 撰写文档分区（composable 外壳）：解析缓存挂在 State 上，链接点击只提示不导航。
+// hook 必须在任何提前返回之前调用，保持槽位稳定。
+[[huxerui::composable]] huxerui::View AuthoredDocSection(const std::string& doc,
+                                                        const huxerui::ThemeSpec& theme) {
+    auto cache = huxerui::UseState(std::make_shared<DocMarkdownCache>()).Get();
+    auto toast = huxerui::UseToast();
+    RefreshDocMarkdownCache(*cache, doc);
+    return AuthoredDocView(doc, theme, *cache,
+                           [toast](std::string_view destination) {
+                               toast.Show("链接：" + std::string{destination});
+                           });
+}
+
+// 文档页：撰写文档（Markdown）在前，随后按当前请求草稿自动生成接口细节（只读；
+// 草稿任何编辑触发重组即刷新）。
 [[huxerui::composable]] huxerui::View RequestDocPage(const RequestDraft& snapshot,
                                                      const std::string& envBaseUrl) {
     const huxerui::ThemeSpec& theme = huxerui::UseTheme();
@@ -37,6 +53,14 @@ namespace apitab::ui {
         }
             .With(huxerui::Spacing(theme.spacing.small),
                   huxerui::CrossAlign(huxerui::CrossAxisAlignment::Center)));
+
+    // 撰写文档（Markdown 渲染）在上，自动生成的接口细节在下。
+    sections.push_back(huxerui::Text("接口文档", huxerui::TextRole::Label)
+                           .With(huxerui::Foreground(theme.colors.on_surface_variant)));
+    sections.push_back(AuthoredDocSection(snapshot.doc, theme));
+    sections.push_back(huxerui::Divider());
+    sections.push_back(huxerui::Text("自动生成", huxerui::TextRole::Label)
+                           .With(huxerui::Foreground(theme.colors.on_surface_variant)));
 
     // KV 节：只列启用且有名目的条目；空节显示"无"。
     const auto kvSection = [&theme, &sections](const std::string& title,
