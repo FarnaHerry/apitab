@@ -743,6 +743,7 @@ if (NOT HUXERUI_LIBRARY_GRAPH_ONLY)
         # 日常 `ctest` 会执行；CI 三通道验证见 P1-B1.0a。
         add_test(NAME huxerui_selection_matrix
             COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/huxerui_selection_matrix.sh")
-        set_tests_properties(huxerui_selection_matrix PROPERTIES TIMEOUT 120)
+        # 5 场景各跑一次完整 configure；机器负载高时单场景可达 30s+，给足余量。
+        set_tests_properties(huxerui_selection_matrix PROPERTIES TIMEOUT 240)
     endif ()
 endif ()

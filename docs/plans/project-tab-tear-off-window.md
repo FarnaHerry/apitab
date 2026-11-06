@@ -62,12 +62,14 @@ apitab 已接线 WindowManager 应用服务（窗口表/转移信封/主窗口�
   `window.h` / `gesture.h` 与 fork 的设计、开发文档，确认窗口创建、窗口身份、
   跨窗口拖放和宿主支持边界。
 - **不更新不用检索**。
-- 最近检索版本：FarnaHerry/HuxerUI `farna/main` `97d6fed1`（2026-11-06）。已具备
+- 最近检索版本：FarnaHerry/HuxerUI `farna/main` `3bea96ce`（2026-11-07）。已具备
   应用级多窗口与 Application-scope typed drag API；窗口内容需由 `ViewFactory` 显式提供，
   `WindowIdentity` 路由与 `Retire()` 均已移除；`83617e6` 进一步移除
   `AppOptions::extra_windows`（额外启动窗口走 `OpenWindow`），窗口关系公开面收敛为
   `SetWindowRelationship()` 自由函数，`DragDropScope::Application` 保持不变。
   `11161a7` 仅合入移动端变更；`97d6fed1` 合入受控分栏/停靠布局
-  （`SplitLayout`/`DockLayout`）与 `linux/window.h` 原生窗口几何头，
-  `app.h`/`window.h`/`gesture.h` 无 API 差异，本计划相关公开面不变。
+  （`SplitLayout`/`DockLayout`）与 `linux/window.h` 原生窗口几何头；
+  `49faac65` 为 TextField 尾部光标修复与头文件外观清理（去 nodiscard/未用参数）；
+  `3bea96ce` 合入 `TextField::TextStyles`/原生段落几何/手动软键盘控制（纯增量），
+  `app.h`/`window.h`/`gesture.h` 无 API 删除，本计划相关公开面不变。
   Linux 原生输入完整序列仍有 fork 记录的待验证项。

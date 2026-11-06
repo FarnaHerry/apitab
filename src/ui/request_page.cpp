@@ -373,7 +373,7 @@ float DockTreePaneWidth(const huxerui::DockTree& tree) {
                        RequestIslandSurface(
                            huxerui::Column {
                                ResponseArea(responseBody, responseHeaders, responseCookies,
-                                            responsePreview, inFlight)
+                                            responsePreview, inFlight, theme)
                                    .With(huxerui::Grow(1.0F)),
                            }
                                .With(huxerui::Spacing(theme.spacing.small),

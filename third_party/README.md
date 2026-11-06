@@ -26,7 +26,7 @@ CI 按固定 commit 检出；接口经 `huxerui_use_library(... PATH ...)` 接�
 |----|------|------------------|------|
 | SweetEditor（Lib-CodeEditor） | `third_party/huxerui-sweetedit/` | `21925a2` + 本地补丁 | Body/k6 脚本编辑器 |
 | Lib-WebView | `third_party/lib-webview/` | `e3429b8`（FarnaHerry fork） | 响应 HTML 预览 |
-| Lib-Markdown | `third_party/lib-markdown/` | `794f2c1` | 请求文档 Markdown 渲染；依赖 `Font::FromFamily`，缺失时 CMake 不接入并以 `APITAB_HAS_MARKDOWN` 门控降级 |
+| Lib-Markdown | `third_party/lib-markdown/` | `6cd2efe`（v0.2.2） | 请求文档 Markdown 渲染；依赖 `Font::FromFamily`，缺失时 CMake 不接入并以 `APITAB_HAS_MARKDOWN` 门控降级 |
 
 ## 为什么提交预编译的 OpenSSL
 
@@ -121,3 +121,15 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
 - 请求页工作区改用 `DockLayout`（`APITAB_HAS_DOCK_LAYOUT` 头文件检测门控）：
   面板拓扑/尺寸/拖拽停靠由框架管理；离线 0.3.0 SDK 回退到自管
   `SplitPane` + `ResizeHandle`（行为不变，仅 SDK 通道编译）。
+
+### 2026-11-07 fork 与 Lib-Markdown 同步（3bea96ce / v0.2.2）
+
+- HuxerUI 源码 `97d6fed1` → `3bea96ce`：TextField 尾部光标可见性修复（PR #152）、
+  头文件外观清理，合入上游 `TextField::TextStyles`（attributed character
+  styles）、原生段落几何与手动软键盘控制；`app.h`/`window.h`/`gesture.h` 无 API
+  删除，apitab 源码无需改动。
+- Lib-Markdown `794f2c1` → `6cd2efe`（v0.2.2 标签）：新增原生块编辑器
+  `MarkdownEditor`（依赖 fork `3bea96ce` 的 `TextField::TextStyles`）、spoiler
+  扩展、`MarkdownSourceRange`/`source_ranges`、`MarkdownAutolinkOptions`（原
+  `bool autolinks` 变聚合体，默认值不变）与 Writer 演示应用。apitab 使用默认
+  ParseOptions 渲染路径，无影响。

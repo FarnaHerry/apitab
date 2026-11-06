@@ -58,7 +58,7 @@ jobs:
           # （p0960 花括号、hosttools-dynamic、resize 热区）均已被 fork 收编，
           # 对应 cmake/patches 文件已删除。
           git clone --filter=blob:none https://github.com/FarnaHerry/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout 97d6fed1b6986655e4e744e157218917d5ebb0cb
+          git -C third_party/huxerui checkout 3bea96ceb4a5f9326629ecabe8cb41d11f69dcb4
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
           git -C third_party/huxerui-sweetedit checkout 21925a2c088c4224b497c010c521422b11d36502
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
@@ -88,7 +88,7 @@ jobs:
           git -C third_party/lib-webview checkout e3429b81154032010502d3e2f9dc059ac5001eea
           # Markdown 组件库（请求文档渲染）：HuxerUI/Lib-Markdown main，固定 commit。
           git clone https://github.com/HuxerUI/Lib-Markdown.git third_party/lib-markdown
-          git -C third_party/lib-markdown checkout 794f2c1591071dff87b0271cb66587a038e2bc76
+          git -C third_party/lib-markdown checkout 6cd2efe23a1c97038946e4d7e064eece7e552f1e
 
       - name: Install dependencies
         run: |
@@ -240,7 +240,7 @@ jobs:
           # HuxerUI 源码走 FarnaHerry/HuxerUI fork（同 Linux job；原 p0960 与
           # resize 热区补丁已被 fork 收编，无需再 apply）。
           git clone --filter=blob:none https://github.com/FarnaHerry/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout 97d6fed1b6986655e4e744e157218917d5ebb0cb
+          git -C third_party/huxerui checkout 3bea96ceb4a5f9326629ecabe8cb41d11f69dcb4
           git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
           git -C third_party/huxerui-sweetedit checkout 21925a2c088c4224b497c010c521422b11d36502
           # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
@@ -267,7 +267,7 @@ jobs:
           git -C third_party/lib-webview checkout e3429b81154032010502d3e2f9dc059ac5001eea
           # Markdown 组件库（请求文档渲染）：HuxerUI/Lib-Markdown main，固定 commit。
           git clone https://github.com/HuxerUI/Lib-Markdown.git third_party/lib-markdown
-          git -C third_party/lib-markdown checkout 794f2c1591071dff87b0271cb66587a038e2bc76
+          git -C third_party/lib-markdown checkout 6cd2efe23a1c97038946e4d7e064eece7e552f1e
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -394,7 +394,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: huxerui-sdk
-          key: huxerui-sdk-windows-x86_64-msvc-97d6fed1-farna-fork
+          key: huxerui-sdk-windows-x86_64-msvc-3bea96ce-farna-fork
 
       - name: Check HuxerUI SDK cache (Windows)
         if: runner.os == 'Windows' && steps.huxerui_sdk_cache.outputs.cache-hit == 'true'

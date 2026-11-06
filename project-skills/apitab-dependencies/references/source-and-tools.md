@@ -16,7 +16,7 @@
   强制回落已安装/离线 SDK：`-DAPITAB_HUXERUI_FORCE_SDK=ON`；该通道是兼容与发布门禁，
   不阻塞开发期使用最新源码 API。
 - 源码 clone 现为 **FarnaHerry/HuxerUI fork 的 farna/main**（CI 固定
-  `97d6fed1b6986655e4e744e157218917d5ebb0cb`，2026-11-06；包含 Linux PlatformView
+  `3bea96ceb4a5f9326629ecabe8cb41d11f69dcb4`，2026-11-07；包含 Linux PlatformView
   宿主支持、应用级多窗口与每窗口系统深浅色 hook，已合入上游 SDK 0.4.0：
   自定义字体族/主题排版、Task 回调集成、原生文件引用工厂）。`OpenWindow` 必须传独立
   `ViewFactory`；`b083028` 移除 `WindowHandle::Retire()`，统一用会经过
@@ -25,8 +25,10 @@
   modules / Activity Result routing 与 iOS application/window-scoped Objective-C
   module factory（iOS factory 改名，仅移动端扩展受影响）。`97d6fed1` 合入上游
   受控分栏/停靠布局（`SplitLayout`/`DockLayout`/`DockTree`/`DockItem`，见
-  `docs/design/split-and-docking.md`；窗口/gesture 公开面无变化，另新增
-  `linux/window.h` 原生窗口几何头，apitab 未使用）。无窗常驻须设 `quit_on_last_window_closed=false`，
+  `docs/design/split-and-docking.md`；另新增 `linux/window.h` 原生窗口几何头，
+  apitab 未使用）。`49faac65` 为 TextField 尾部光标可见性修复 + 头文件外观清理；
+  `3bea96ce` 合入上游 `TextField::TextStyles`（attributed character styles）、
+  原生段落几何与手动软键盘控制（均纯增量）。无窗常驻须设 `quit_on_last_window_closed=false`，
   普通退出显式调用 `ApplicationHandle::Quit()`。系统主题用
   `UseSystemThemeBrightness()`，不再由 apitab 查询各平台设置。**原三个本地补丁已
   全部被 fork 收编并删除**，不要恢复旧 API 别名或兼容层。
@@ -36,12 +38,16 @@
   cookie 管理与 WebKitGTK 后端整理，公开面未变 apitab 仍只用 `LoadHtml`），
   不入库、已 gitignore，经 `huxerui_use_library(apitab
   TARGET HuxerUI::WebView PATH ...)` 接入。
-  Markdown 组件库 clone：`third_party/lib-markdown`（HuxerUI/Lib-Markdown main，
-  CI pin `794f2c1591071dff87b0271cb66587a038e2bc76`，2026-11-05；0.2 公共 API +
-  `VirtualizedMarkdown`/UTF-8 流式解析 + MD4C 扩展（highlight/insertions/underline/
-  wiki_links/admonitions/footnotes/math/preserve_blank_lines，默认全关）+ 实验性
-  编辑会话（`<huxerui/markdown/editing.h>`，应用侧未使用）），同样不入库、经
+  Markdown 组件库 clone：`third_party/lib-markdown`（HuxerUI/Lib-Markdown main =
+  v0.2.2，CI pin `6cd2efe23a1c97038946e4d7e064eece7e552f1e`，2026-11-07；0.2 公共
+  API + `VirtualizedMarkdown`/UTF-8 流式解析 + MD4C 扩展（highlight/insertions/
+  underline/wiki_links/admonitions/footnotes/math/preserve_blank_lines/spoilers
+  等，默认全关）+ 原生块编辑器 `MarkdownEditor`（依赖 fork `3bea96ce` 提供的
+  `TextField::TextStyles`，应用侧暂未使用，future 候选）），同样不入库、经
   `huxerui_use_library(apitab TARGET HuxerUI::Markdown PATH ...)` 接入。
+  v0.2.1 起 `ParseOptions::autolinks` 从 bool 变为 `MarkdownAutolinkOptions`
+  聚合体（urls/emails/www 默认 true，默认行为不变）；apitab 用默认 ParseOptions，
+  无需改动。
   该库的 `MarkdownStyle::FromTheme` 依赖 `Font::FromFamily` 与
   `theme.typography.family`（0.4.0 系列），**离线 `huxerui-sdk-0.3.0` 没有**：
   CMake 读实际 `text.h`/`theme.h` 检测，不满足时整库不接入并输出降级说明，
