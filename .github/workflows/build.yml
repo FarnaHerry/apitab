@@ -52,30 +52,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # HuxerUI 源码走 FarnaHerry/HuxerUI fork 的 farna/main（基于上游
-          # 5523172 + 本仓所需的 Linux PlatformView 宿主支持、应用级多窗口等框架扩展；
-          # Lib-WebView fork 的 Linux WebKitGTK 后端依赖它）。原三个本地补丁
-          # （p0960 花括号、hosttools-dynamic、resize 热区）均已被 fork 收编，
-          # 对应 cmake/patches 文件已删除。
+          # HuxerUI 源码走 FarnaHerry/HuxerUI fork 的 farna/main（含本仓所需的
+          # Linux PlatformView 宿主支持、应用级多窗口等框架扩展；Lib-WebView 的
+          # Linux WebKitGTK 后端依赖它）。历史本地补丁均已被 fork 收编。
           git clone --filter=blob:none https://github.com/FarnaHerry/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout 3bea96ceb4a5f9326629ecabe8cb41d11f69dcb4
-          git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
-          git -C third_party/huxerui-sweetedit checkout 21925a2c088c4224b497c010c521422b11d36502
-          # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
-          # apitab CMakeLists 由此前的 TARGET sweetedit_core 改成了 codeeditor）。
-          # 补丁即本地源码微调：SweetEditor 的 FetchContent 兜底、行号右对齐、
-          # 分隔线读主题色、sweetline_provider 日志静音（均带 NOTE(apitab local patch)）。
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-apitab.patch
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-event.patch
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-handler.patch
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-response-scroll.patch
-          # 只读编辑器复制失效修复：EditorBehavior 的 GetTextSelectionClient 必须返回
-          # 真实 client（无 IME 会话的只读编辑器靠它承接 Ctrl+C/全选与右键复制的
-          # 剪贴板指针注入）；已提交 fork（Lib-CodeEditor 870a82f），上游跟进后删除。
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-selection-client.patch
-          # SweetEditor/SweetLine 是 sweetedit 的 gitlink，但上游没有 .gitmodules，
-          # 非递归 clone 拿不到内容；按 apitab 固定的 commit 显式 clone 并打本地
-          # 防御性补丁（os_log 限 clang / wstring_convert 显式补 <locale>）。
+          git -C third_party/huxerui checkout a559c7880daa1402a23357ed049d2944428a9b44
+          # CodeEditor（原 huxerui-sweetedit）直接用 FarnaHerry/Lib-CodeEditor
+          # fork 的 farna/main：全部 apitab 本地补丁（FetchContent 兜底、滚动
+          # 桥接、只读编辑器复制修复等）已收编进 fork，CI 与本地 dev 同源。
+          git clone https://github.com/FarnaHerry/Lib-CodeEditor.git third_party/huxerui-sweetedit
+          git -C third_party/huxerui-sweetedit checkout a332e7c3158818a891bb8181756d439a62df6268
+          # SweetEditor/SweetLine 是 codeeditor 的 gitlink（fork 已带 .gitmodules），
+          # 非递归 clone 拿不到内容；按固定 commit 显式 clone 并打本地防御性补丁
+          # （os_log 限 clang / wstring_convert 显式补 <locale>；fork
+          # 3dparty/patches/ 留有同内容副本）。
           git clone https://github.com/FinalScave/SweetEditor.git third_party/huxerui-sweetedit/3dparty/SweetEditor
           git -C third_party/huxerui-sweetedit/3dparty/SweetEditor checkout bd4330e70eda5c71b71ecac54cf7312d82d2eae2
           git -C third_party/huxerui-sweetedit/3dparty/SweetEditor apply ../../../../cmake/patches/sweeteditor-oslog-gcc.patch
@@ -83,12 +73,16 @@ jobs:
           git -C third_party/huxerui-sweetedit/3dparty/SweetLine checkout 64665d94c8421372cbdce0f74daeb7b8a414d422
           git -C third_party/huxerui-sweetedit/3dparty/SweetLine apply ../../../../cmake/patches/sweetline-locale-include.patch
           # WebView 组件库（响应 HTML 预览）：FarnaHerry/Lib-WebView fork 的
-          # farna/main（含 Linux WebKitGTK 6.0 后端），固定 commit 跟进 fork 更新。
+          # farna/main。固定 09c820a = 最后一个保留 Linux WebKitGTK 6.0 后端的
+          # 提交；fork tip c0391ac 随官方 SDK 0.4.0 迁移删除了该后端，而本仓
+          # 跟的 HuxerUI fork 仍提供 PlatformView 工厂，fork 侧恢复后再跟进。
           git clone https://github.com/FarnaHerry/Lib-WebView.git third_party/lib-webview
-          git -C third_party/lib-webview checkout e3429b81154032010502d3e2f9dc059ac5001eea
-          # Markdown 组件库（请求文档渲染）：HuxerUI/Lib-Markdown main，固定 commit。
+          git -C third_party/lib-webview checkout 09c820a1d8d10237148b3e1d103beaacdcee0034
+          # Markdown 组件库（请求文档渲染）：HuxerUI/Lib-Markdown v0.3.0——
+          # 库已裁剪为解析 + 只读渲染（富文本编辑整块移入 archive/full-rich-text），
+          # apitab 只用只读渲染，所用公共 API 不变。
           git clone https://github.com/HuxerUI/Lib-Markdown.git third_party/lib-markdown
-          git -C third_party/lib-markdown checkout 6cd2efe23a1c97038946e4d7e064eece7e552f1e
+          git -C third_party/lib-markdown checkout 247ed949f571c186aeffb1d57db4c4b7407538e0
 
       - name: Install dependencies
         run: |
@@ -237,37 +231,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # HuxerUI 源码走 FarnaHerry/HuxerUI fork（同 Linux job；原 p0960 与
-          # resize 热区补丁已被 fork 收编，无需再 apply）。
+          # HuxerUI 源码走 FarnaHerry/HuxerUI fork（同 Linux job）。
           git clone --filter=blob:none https://github.com/FarnaHerry/HuxerUI.git third_party/huxerui
-          git -C third_party/huxerui checkout 3bea96ceb4a5f9326629ecabe8cb41d11f69dcb4
-          git clone https://github.com/HuxerUI/huxerui-sweetedit.git third_party/huxerui-sweetedit
-          git -C third_party/huxerui-sweetedit checkout 21925a2c088c4224b497c010c521422b11d36502
-          # codeeditor 目标命名的新版（sweetedit_core 已在上游重命名成 codeeditor，
-          # apitab CMakeLists 由此前的 TARGET sweetedit_core 改成了 codeeditor）。
-          # 补丁即本地源码微调：SweetEditor 的 FetchContent 兜底、行号右对齐、
-          # 分隔线读主题色、sweetline_provider 日志静音（均带 NOTE(apitab local patch)）。
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-apitab.patch
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-event.patch
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-scroll-handler.patch
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-response-scroll.patch
-          # 只读编辑器复制失效修复（同 Linux job；已提交 fork，上游跟进后删除）。
-          git -C third_party/huxerui-sweetedit apply ../../cmake/patches/huxerui-sweetedit-selection-client.patch
-          # SweetEditor/SweetLine 是 sweetedit 的 gitlink，但上游没有 .gitmodules，
-          # 非递归 clone 拿不到内容；按 apitab 固定的 commit 显式 clone 并打本地
-          # 防御性补丁（os_log 限 clang / wstring_convert 显式补 <locale>）。
+          git -C third_party/huxerui checkout a559c7880daa1402a23357ed049d2944428a9b44
+          # CodeEditor（原 huxerui-sweetedit）直接用 FarnaHerry/Lib-CodeEditor
+          # fork 的 farna/main，apitab 补丁已全部收编（同 Linux job）。
+          git clone https://github.com/FarnaHerry/Lib-CodeEditor.git third_party/huxerui-sweetedit
+          git -C third_party/huxerui-sweetedit checkout a332e7c3158818a891bb8181756d439a62df6268
+          # SweetEditor/SweetLine 是 codeeditor 的 gitlink，非递归 clone 拿不到
+          # 内容；按固定 commit 显式 clone 并打本地防御性补丁（同 Linux job）。
           git clone https://github.com/FinalScave/SweetEditor.git third_party/huxerui-sweetedit/3dparty/SweetEditor
           git -C third_party/huxerui-sweetedit/3dparty/SweetEditor checkout bd4330e70eda5c71b71ecac54cf7312d82d2eae2
           git -C third_party/huxerui-sweetedit/3dparty/SweetEditor apply ../../../../cmake/patches/sweeteditor-oslog-gcc.patch
           git clone https://github.com/FinalScave/SweetLine.git third_party/huxerui-sweetedit/3dparty/SweetLine
           git -C third_party/huxerui-sweetedit/3dparty/SweetLine checkout 64665d94c8421372cbdce0f74daeb7b8a414d422
           git -C third_party/huxerui-sweetedit/3dparty/SweetLine apply ../../../../cmake/patches/sweetline-locale-include.patch
-          # WebView 组件库（响应 HTML 预览）：同 Linux job 的 fork 固定 commit。
+          # WebView 组件库（响应 HTML 预览）：同 Linux job，固定在保留 Linux
+          # WebKitGTK 后端的 09c820a。
           git clone https://github.com/FarnaHerry/Lib-WebView.git third_party/lib-webview
-          git -C third_party/lib-webview checkout e3429b81154032010502d3e2f9dc059ac5001eea
-          # Markdown 组件库（请求文档渲染）：HuxerUI/Lib-Markdown main，固定 commit。
+          git -C third_party/lib-webview checkout 09c820a1d8d10237148b3e1d103beaacdcee0034
+          # Markdown 组件库（请求文档渲染）：同 Linux job 的 Lib-Markdown v0.3.0。
           git clone https://github.com/HuxerUI/Lib-Markdown.git third_party/lib-markdown
-          git -C third_party/lib-markdown checkout 6cd2efe23a1c97038946e4d7e064eece7e552f1e
+          git -C third_party/lib-markdown checkout 247ed949f571c186aeffb1d57db4c4b7407538e0
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -394,7 +379,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: huxerui-sdk
-          key: huxerui-sdk-windows-x86_64-msvc-3bea96ce-farna-fork
+          key: huxerui-sdk-windows-x86_64-msvc-a559c788-farna-fork
 
       - name: Check HuxerUI SDK cache (Windows)
         if: runner.os == 'Windows' && steps.huxerui_sdk_cache.outputs.cache-hit == 'true'

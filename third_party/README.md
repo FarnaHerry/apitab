@@ -22,11 +22,11 @@ SHA256 后解包到 `build/vendor/`，源码树不入库），nlohmann::json 是
 以下 HuxerUI 组件库以 git clone 形式放在 `third_party/<名>/`，`.gitignore` 已忽略，
 CI 按固定 commit 检出；接口经 `huxerui_use_library(... PATH ...)` 接入。
 
-| 库 | 位置 | pin（2026-11-05） | 用途 |
+| 库 | 位置 | pin（2026-11-10） | 用途 |
 |----|------|------------------|------|
-| SweetEditor（Lib-CodeEditor） | `third_party/huxerui-sweetedit/` | `21925a2` + 本地补丁 | Body/k6 脚本编辑器 |
-| Lib-WebView | `third_party/lib-webview/` | `e3429b8`（FarnaHerry fork） | 响应 HTML 预览 |
-| Lib-Markdown | `third_party/lib-markdown/` | `6cd2efe`（v0.2.2） | 请求文档 Markdown 渲染；依赖 `Font::FromFamily`，缺失时 CMake 不接入并以 `APITAB_HAS_MARKDOWN` 门控降级 |
+| SweetEditor（Lib-CodeEditor fork） | `third_party/huxerui-sweetedit/` | `a332e7c`（FarnaHerry fork，apitab 补丁已全部收编） | Body/k6 脚本编辑器 |
+| Lib-WebView | `third_party/lib-webview/` | `09c820a`（FarnaHerry fork，保留 Linux WebKitGTK 后端的最后提交） | 响应 HTML 预览 |
+| Lib-Markdown | `third_party/lib-markdown/` | `247ed94`（v0.3.0，只读渲染裁剪版） | 请求文档 Markdown 渲染；依赖 `Font::FromFamily`，缺失时 CMake 不接入并以 `APITAB_HAS_MARKDOWN` 门控降级 |
 
 ## 为什么提交预编译的 OpenSSL
 
@@ -133,3 +133,26 @@ asio::ssl 与 curl https 又必须链接 OpenSSL。因此把原 compat.openssl �
   扩展、`MarkdownSourceRange`/`source_ranges`、`MarkdownAutolinkOptions`（原
   `bool autolinks` 变聚合体，默认值不变）与 Writer 演示应用。apitab 使用默认
   ParseOptions 渲染路径，无影响。
+
+### 2026-11-10 全 fork 追新
+
+- HuxerUI 源码 `3bea96ce` → `a559c788`：合入上游 Linux UI 任务饿死修复、程序化
+  焦点与对话框初始焦点、随机访问文件流/同步文件引用 I/O、外部纹理帧获取、
+  Windows GUID 导出修复等；fork 的 Linux PlatformView 工厂 API 原样保留。
+- Lib-Markdown `6cd2efe` → `247ed94`（**v0.3.0**，破坏性裁剪）：作者把富文本/源码
+  编辑整块（`MarkdownEditor`、`editing.h`、source ranges 等）移入
+  `archive/full-rich-text` 分支，库收敛为解析 + 只读渲染。apitab 只用
+  `ParseMarkdown` + `Markdown` 只读渲染，公共 API 不变，无需改码；0.3 起也不再
+  依赖 `TextField::TextStyles`。
+- Lib-WebView fork `e3429b8` → `09c820a`：**刻意 pin 在删前状态**——fork tip
+  `c0391ac` 随官方 SDK 0.4.0 迁移（作者 Scave `1deb796`）删除了 Linux WebKitGTK
+  后端，而官方 SDK 已无 PlatformView 工厂、本仓跟的 HuxerUI fork 仍保留该工厂；
+  fork 侧恢复后端后再跟进 tip。
+- CodeEditor fork `870a82f` → `a332e7c`（本地 dev 与 CI 统一改用 fork）：
+  剪贴板可靠性修复、worker 预解析文档接入、simdutf/库图目标等构建修复。
+  **全部 7 个 sweetedit 本地补丁已删除**（FetchContent 兜底、滚动桥接、只读
+  复制修复、ViewNode 重命名、菜单 label 悬空修复等均已收编进 fork）；保留
+  嵌套 SweetEditor/SweetLine 的 oslog/locale 两个防御性补丁（嵌套依赖未动，
+  fork `3dparty/patches/` 留有副本）。
+- 嵌套 SweetEditor（`bd4330e`）/SweetLine（`64665d9`）上游无新提交，gitlink
+  与 fork 声明一致。

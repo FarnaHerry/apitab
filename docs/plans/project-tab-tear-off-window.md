@@ -73,3 +73,9 @@ apitab 已接线 WindowManager 应用服务（窗口表/转移信封/主窗口�
   `3bea96ce` 合入 `TextField::TextStyles`/原生段落几何/手动软键盘控制（纯增量），
   `app.h`/`window.h`/`gesture.h` 无 API 删除，本计划相关公开面不变。
   Linux 原生输入完整序列仍有 fork 记录的待验证项。
+- 增量检索 `a559c788`（2026-11-10）：窗口创建/身份/关系与 `DragDropScope::Application`
+  公开面不变；新增 `WindowHandle::ShowKeyboard()/HideKeyboard()`（软键盘显式控制，
+  `window.h`）与 `FocusRequester`（`modifier.h`，程序化焦点 + 对话框初始焦点目标），
+  均为纯增量。宿主侧文本布局虚函数改形（`CreateTextLayout` →
+  `CreatePlatformTextLayout`，返回 `detail::TextLayoutBackend`；`LayoutText` 移除，
+  段落几何经 `TextMeasurer` 暴露），apitab 非平台宿主不受影响。
